@@ -85,6 +85,7 @@ export default function App() {
   const [activeSource, setActiveSource] = useState('opensky')
   const [backendOk,    setBackendOk]    = useState(false)
   const [statusText,   setStatusText]   = useState('idle')
+  const [lastFetchAt,  setLastFetchAt]  = useState(null)   // Date.now() of last successful fetch
 
   // ── UI overlay state ────────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false)
@@ -122,12 +123,13 @@ export default function App() {
       })
   }, [])
 
-  // ── boot log ─────────────────────────────────────────────────────────────────
+  // ── boot log + initial fetch ─────────────────────────────────────────────────
   useEffect(() => {
     log('flightterm v4 ready', 'ok')
     log('live: opensky (default) · adsbx (optional) — see ⚙ settings', 'info')
     log('enrichment: adsbdb (free, auto) · aeroapi (on-demand, $0.005/call)', 'info')
-    log('press fetch or enable auto-refresh to begin', 'info')
+    // kick off an initial fetch on load
+    setTimeout(() => fetchFlightsRef.current?.(), 0)
   }, [])
 
   // ── resolve which source to actually use ─────────────────────────────────────
@@ -178,6 +180,7 @@ export default function App() {
 
     if (result && result.length > 0) {
       setFlights(result)
+      setLastFetchAt(Date.now())
     } else if (result !== null) {
       log('no aircraft data returned — possibly rate limited, wait ~60s', 'warn')
     }
@@ -285,7 +288,7 @@ export default function App() {
 
         {/* Top status bar — spans full width */}
         <div style={{ gridColumn: '1 / -1', gridRow: 1 }}>
-          <TopBar stats={stats} source={activeSource} backendOk={backendOk} />
+          <TopBar stats={stats} source={activeSource} backendOk={backendOk} autoOn={autoOn} lastFetchAt={lastFetchAt} />
         </div>
 
         {/* Control bar — spans full width */}

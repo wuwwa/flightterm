@@ -31,15 +31,28 @@ const BADGE_STYLES = {
   fallback: { color: 'var(--ylw)', border: '1px solid var(--ylw)', padding: '1px 5px', fontSize: '10px' },
 }
 
-export default function TopBar({ stats, source, backendOk }) {
+function fmtElapsed(ms) {
+  const sec = Math.floor(ms / 1000)
+  if (sec < 60) return `${sec}s ago`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m ago`
+  const hr = Math.floor(min / 60)
+  return `${hr}h ${min % 60}m ago`
+}
+
+export default function TopBar({ stats, source, backendOk, autoOn, lastFetchAt }) {
   const [time, setTime] = useState('')
+  const [elapsed, setElapsed] = useState(null)
 
   useEffect(() => {
-    const tick = () => setTime(new Date().toISOString().substring(11, 19) + ' utc')
+    const tick = () => {
+      setTime(new Date().toISOString().substring(11, 19) + ' utc')
+      if (lastFetchAt) setElapsed(Date.now() - lastFetchAt)
+    }
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [lastFetchAt])
 
   const badge = BADGE_STYLES[source] || BADGE_STYLES.opensky
 
@@ -65,7 +78,13 @@ export default function TopBar({ stats, source, backendOk }) {
           {backendOk ? '● backend' : '○ backend'}
         </span>
         <span style={styles.sep}>|</span>
-        <span style={styles.blink}>● live</span>
+        {autoOn ? (
+          <span style={styles.blink}>● live</span>
+        ) : (
+          <span style={{ fontSize: '10px', color: 'var(--fg3)' }}>
+            {elapsed != null ? fmtElapsed(elapsed) : '○ idle'}
+          </span>
+        )}
         <span style={styles.sep}>|</span>
         <span style={{ color: 'var(--fg2)' }}>{time}</span>
       </div>
