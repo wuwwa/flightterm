@@ -7,18 +7,32 @@ const s = {
     borderLeft: '1px solid var(--border)',
     display: 'flex', flexDirection: 'column',
     width: '300px', flexShrink: 0,
-    minHeight: 0, overflowY: 'auto',
+    minHeight: 0, overflow: 'hidden',
   },
   head: {
     background: 'var(--bg2)', borderBottom: '1px solid var(--border)',
     padding: '3px 10px', display: 'flex', justifyContent: 'space-between',
     alignItems: 'center', fontSize: '11px', color: 'var(--fg3)',
-    position: 'sticky', top: 0, zIndex: 1, flexShrink: 0,
+    flexShrink: 0,
   },
   title: { color: 'var(--acc)' },
   closeBtn: {
     background: 'none', border: 'none', color: 'var(--fg3)',
     fontSize: '11px', cursor: 'pointer', padding: '2px 4px',
+  },
+  // top pane: intel — takes up to 60%, scrolls within itself if needed
+  intelPane: {
+    flexShrink: 1, flexGrow: 0,
+    maxHeight: '60%', overflowY: 'auto',
+  },
+  // divider between panes
+  divider: {
+    flexShrink: 0, height: '1px',
+    background: 'var(--acc)', opacity: 0.3,
+  },
+  // bottom pane: query results — fills remaining space, scrolls independently
+  queryPane: {
+    flex: 1, overflowY: 'auto', minHeight: 0,
   },
   sec: {
     padding: '5px 10px 3px', fontSize: '10px', color: 'var(--fg3)',
@@ -111,7 +125,9 @@ export default function DetailPanel({ flight, enrichData, aeroCache, onClose, on
         <button style={s.closeBtn} onClick={onClose}>✕</button>
       </div>
 
-      {/* Photo */}
+      {/* ── top pane: intel (scrolls within its own region) ────────────── */}
+      <div style={s.intelPane}>
+        {/* Photo */}
         {aircraft?.url_photo_thumbnail && (
           <img
             style={s.photo}
@@ -174,9 +190,14 @@ export default function DetailPanel({ flight, enrichData, aeroCache, onClose, on
         ) : (
           <DRow label="status" value="loading..." color="var(--fg3)" />
         )}
+      </div>
 
-      {/* AeroAPI */}
-      <Section title="flightaware aeroapi" />
+      {/* ── divider ────────────────────────────────────────────────────── */}
+      <div style={s.divider} />
+
+      {/* ── bottom pane: query results (scrolls independently) ─────────── */}
+      <div style={s.queryPane}>
+        <Section title="flightaware aeroapi" />
         {!backendOk ? (
           <DRow label="status" value="backend offline" color="var(--red)" />
         ) : aeroData ? (
@@ -211,6 +232,7 @@ export default function DetailPanel({ flight, enrichData, aeroCache, onClose, on
             <span style={{ color: 'var(--fg3)', fontSize: '10px' }}>~$0.005</span>
           </button>
         )}
+      </div>
     </div>
   )
 }
