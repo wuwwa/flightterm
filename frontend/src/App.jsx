@@ -354,7 +354,7 @@ export default function App() {
         </div>
 
         {/* Flight table */}
-        <div className="row-start-4 overflow-y-auto min-h-0">
+        <div className="row-start-4 min-h-0 flex flex-col">
           <FlightTable
             flights={flights}
             filter={filter}

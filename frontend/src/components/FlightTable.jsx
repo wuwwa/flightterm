@@ -109,8 +109,8 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
 
   if (!displayed.length) {
     return (
-      <div className="overflow-auto bg-bg flex-1">
-        <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 sticky top-0 z-2">
+      <div className="flex flex-col bg-bg flex-1 min-h-0">
+        <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 shrink-0">
           <span><span className="text-fg2">0</span> records</span>
         </div>
         <div className="p-8 text-center text-fg3">
@@ -121,24 +121,25 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
   }
 
   return (
-    <div className="overflow-auto bg-bg flex-1">
-      <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 sticky top-0 z-2">
+    <div className="flex flex-col bg-bg flex-1 min-h-0">
+      <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 shrink-0">
         <span>
           <span className="text-fg2">{filtered.length}</span>
           {filtered.length > 200 ? ' (showing 200)' : ''} records
           {newIcaos.size > 0 && <span className="text-grn ml-2">+{newIcaos.size} new</span>}
         </span>
       </div>
-      <table className="w-full border-collapse">
-        <thead className="sticky top-6 z-1">
-          <tr className="bg-bg2 border-b border-border">
+      <div className="overflow-auto flex-1 min-h-0">
+      <table className="w-full border-separate border-spacing-0">
+        <thead className="sticky top-0 z-1">
+          <tr>
             {COLS.map(col => {
               const isActive = sortKey === col.key
               return (
                 <th
                   key={col.key}
                   className={clsx(
-                    'group py-0.5 px-2.5 text-left font-normal text-[11px] cursor-pointer select-none whitespace-nowrap font-mono',
+                    'group py-0.5 px-2.5 text-left font-normal text-[11px] cursor-pointer select-none whitespace-nowrap font-mono bg-bg2 border-b border-border',
                     col.hide && 'hidden sm:table-cell',
                     isActive ? 'text-acc' : 'text-fg3 hover:text-fg2'
                   )}
@@ -197,6 +198,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
           })}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }
