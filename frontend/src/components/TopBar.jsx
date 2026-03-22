@@ -1,34 +1,10 @@
 import { useState, useEffect } from 'react'
+import clsx from 'clsx'
 
-const styles = {
-  bar: {
-    background: 'var(--bg2)',
-    borderBottom: '1px solid var(--border)',
-    padding: '3px 10px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'nowrap',
-    overflowX: 'auto',
-    gap: '4px',
-    fontSize: '11px',
-    color: 'var(--fg2)',
-    flexShrink: 0,
-  },
-  left: { display: 'flex', gap: '14px', alignItems: 'center', flexShrink: 0 },
-  right: { display: 'flex', gap: '10px', alignItems: 'center' },
-  brand: { color: 'var(--acc)' },
-  sep: { color: 'var(--border2)' },
-  val: { color: 'var(--fg)' },
-  ok: { color: 'var(--grn)' },
-  warn: { color: 'var(--ylw)' },
-  blink: { animation: 'blink .9s step-end infinite', color: 'var(--grn)' },
-}
-
-const BADGE_STYLES = {
-  opensky:  { color: 'var(--grn)', border: '1px solid var(--grn)', padding: '1px 5px', fontSize: '10px' },
-  adsbx:    { color: 'var(--acc)', border: '1px solid var(--acc)', padding: '1px 5px', fontSize: '10px' },
-  fallback: { color: 'var(--ylw)', border: '1px solid var(--ylw)', padding: '1px 5px', fontSize: '10px' },
+const BADGE_CLASSES = {
+  opensky:  'text-grn border border-grn',
+  adsbx:    'text-acc border border-acc',
+  fallback: 'text-ylw border border-ylw',
 }
 
 function fmtElapsed(ms) {
@@ -54,39 +30,39 @@ export default function TopBar({ stats, source, backendOk, autoOn, lastFetchAt }
     return () => clearInterval(id)
   }, [lastFetchAt])
 
-  const badge = BADGE_STYLES[source] || BADGE_STYLES.opensky
+  const badgeClass = BADGE_CLASSES[source] || BADGE_CLASSES.opensky
 
   return (
-    <div style={styles.bar}>
-      <div style={styles.left}>
-        <span style={styles.brand}>flightterm</span>
-        <span style={styles.sep}>|</span>
-        <span>aircraft: <span style={styles.val}>{stats.total ?? '--'}</span></span>
-        <span>airborne: <span style={styles.ok}>{stats.airborne ?? '--'}</span></span>
-        <span>grounded: <span style={styles.warn}>{stats.grounded ?? '--'}</span></span>
-        <span>region: <span style={styles.val}>{stats.region ?? 'global'}</span></span>
-        <span>enriched: <span style={styles.val}>{stats.enriched ?? 0}</span></span>
+    <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center flex-nowrap overflow-x-auto gap-1 text-[11px] text-fg2 shrink-0">
+      <div className="flex gap-3.5 items-center shrink-0">
+        <span className="text-acc">flightterm</span>
+        <span className="text-border2">|</span>
+        <span>aircraft: <span className="text-fg">{stats.total ?? '--'}</span></span>
+        <span>airborne: <span className="text-grn">{stats.airborne ?? '--'}</span></span>
+        <span>grounded: <span className="text-ylw">{stats.grounded ?? '--'}</span></span>
+        <span>region: <span className="text-fg">{stats.region ?? 'global'}</span></span>
+        <span>enriched: <span className="text-fg">{stats.enriched ?? 0}</span></span>
       </div>
-      <div style={styles.right}>
+      <div className="flex gap-2.5 items-center">
         {stats.lastUpdate && (
-          <span style={{ color: 'var(--fg3)' }}>updated {stats.lastUpdate}</span>
+          <span className="text-fg3">updated {stats.lastUpdate}</span>
         )}
-        <span style={styles.sep}>|</span>
-        <span style={badge}>{source}</span>
-        <span style={styles.sep}>|</span>
-        <span style={{ fontSize: '10px', color: backendOk ? 'var(--grn)' : 'var(--red)' }}>
+        <span className="text-border2">|</span>
+        <span className={clsx('px-1.5 py-px text-[10px]', badgeClass)}>{source}</span>
+        <span className="text-border2">|</span>
+        <span className={clsx('text-[10px]', backendOk ? 'text-grn' : 'text-red')}>
           {backendOk ? '● backend' : '○ backend'}
         </span>
-        <span style={styles.sep}>|</span>
+        <span className="text-border2">|</span>
         {autoOn ? (
-          <span style={styles.blink}>● live</span>
+          <span className="animate-blink text-grn">● live</span>
         ) : (
-          <span style={{ fontSize: '10px', color: 'var(--fg3)' }}>
+          <span className="text-[10px] text-fg3">
             {elapsed != null ? fmtElapsed(elapsed) : '○ idle'}
           </span>
         )}
-        <span style={styles.sep}>|</span>
-        <span style={{ color: 'var(--fg2)' }}>{time}</span>
+        <span className="text-border2">|</span>
+        <span className="text-fg2">{time}</span>
       </div>
     </div>
   )

@@ -39,40 +39,6 @@ function makeEntry(msg, type = '') {
   return { msg, type, time: new Date().toISOString().substring(11, 19) }
 }
 
-// ── layout styles ─────────────────────────────────────────────────────────────
-const layout = {
-  root: {
-    display: 'grid',
-    gridTemplateRows: 'auto auto auto 1fr auto',
-    gridTemplateColumns: '1fr 300px',
-    height: '100vh',
-    overflow: 'hidden',
-  },
-  main: {
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
-    gridColumn: '1',
-    gridRow: '4',
-  },
-  botbar: {
-    gridColumn: '1 / -1',
-    background: 'var(--acc)',
-    padding: '2px 10px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    fontSize: '11px',
-    color: 'var(--bg)',
-    flexShrink: 0,
-  },
-  mode: {
-    background: 'var(--bg)',
-    color: 'var(--acc)',
-    padding: '0 8px',
-    marginRight: '6px',
-  },
-}
-
 export default function App() {
   // ── core state ──────────────────────────────────────────────────────────────
   const [flights,      setFlights]      = useState([])
@@ -85,7 +51,7 @@ export default function App() {
   const [activeSource, setActiveSource] = useState('opensky')
   const [backendOk,    setBackendOk]    = useState(false)
   const [statusText,   setStatusText]   = useState('idle')
-  const [lastFetchAt,  setLastFetchAt]  = useState(null)   // Date.now() of last successful fetch
+  const [lastFetchAt,  setLastFetchAt]  = useState(null)
 
   // ── UI overlay state ────────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false)
@@ -93,12 +59,11 @@ export default function App() {
 
   // ── detail / enrichment state ───────────────────────────────────────────────
   const [selectedFlight, setSelectedFlight] = useState(null)
-  const [enrichCache,    setEnrichCache]    = useState({})  // icao → { aircraft, flightroute }
-  const [aeroCache,      setAeroCache]      = useState({})  // icao → aero flight data
+  const [enrichCache,    setEnrichCache]    = useState({})
+  const [aeroCache,      setAeroCache]      = useState({})
 
   // ── auto-refresh ref ────────────────────────────────────────────────────────
   const autoRef = useRef(null)
-  // Always hold the latest fetchFlights so the interval never goes stale
   const fetchFlightsRef = useRef(null)
 
   // ── logging ──────────────────────────────────────────────────────────────────
@@ -128,7 +93,6 @@ export default function App() {
     log('flightterm v4 ready', 'ok')
     log('live: opensky (default) · adsbx (optional) — see ⚙ settings', 'info')
     log('enrichment: adsbdb (free, auto) · aeroapi (on-demand, $0.005/call)', 'info')
-    // kick off an initial fetch on load
     setTimeout(() => fetchFlightsRef.current?.(), 0)
   }, [])
 
@@ -189,7 +153,6 @@ export default function App() {
     setStatusText('idle')
   }, [fetching, settings, region, log])
 
-  // Keep ref current so the interval always calls the latest fetchFlights
   useEffect(() => { fetchFlightsRef.current = fetchFlights }, [fetchFlights])
 
   // ── auto-refresh ──────────────────────────────────────────────────────────────
@@ -222,7 +185,7 @@ export default function App() {
   const handleSelectFlight = useCallback(async (flight) => {
     setSelectedFlight(flight)
 
-    if (enrichCache[flight.icao]) return  // already cached
+    if (enrichCache[flight.icao]) return
 
     log(`adsbdb: lookup ${flight.icao} / ${flight.callsign}`, 'info')
     try {
@@ -238,7 +201,7 @@ export default function App() {
     }
   }, [enrichCache, log])
 
-  // ── aero cache update (called by DetailPanel after query) ─────────────────────
+  // ── aero cache update ─────────────────────────────────────────────────────────
   const handleAeroFetched = useCallback((icao, data) => {
     setAeroCache(prev => ({ ...prev, [icao]: data }))
     log(`aeroapi: ${icao} — ${data ? 'data received' : 'no flight data'}`, data ? 'ok' : 'warn')
@@ -275,24 +238,15 @@ export default function App() {
   // ── render ────────────────────────────────────────────────────────────────────
   return (
     <>
-      <style>{`
-        .hide-sm { display: table-cell; }
-        @media (max-width: 580px) { .hide-sm { display: none !important; } }
-        @media (max-width: 860px) {
-          .detail-panel { display: none !important; }
-          .app-root { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
+      <div className="grid grid-rows-[auto_auto_auto_1fr_auto] grid-cols-1 md:grid-cols-[1fr_300px] h-screen overflow-hidden">
 
-      <div style={layout.root} className="app-root">
-
-        {/* Top status bar — spans full width */}
-        <div style={{ gridColumn: '1 / -1', gridRow: 1 }}>
+        {/* Top status bar */}
+        <div className="col-span-full row-start-1">
           <TopBar stats={stats} source={activeSource} backendOk={backendOk} autoOn={autoOn} lastFetchAt={lastFetchAt} />
         </div>
 
-        {/* Control bar — spans full width */}
-        <div style={{ gridColumn: '1 / -1', gridRow: 2 }}>
+        {/* Control bar */}
+        <div className="col-span-full row-start-2">
           <ControlBar
             filter={filter}
             onFilterChange={setFilter}
@@ -309,13 +263,13 @@ export default function App() {
           />
         </div>
 
-        {/* Log panel — spans full width */}
-        <div style={{ gridColumn: '1 / -1', gridRow: 3 }}>
+        {/* Log panel */}
+        <div className="col-span-full row-start-3">
           <LogPanel entries={logEntries} />
         </div>
 
         {/* Flight table */}
-        <div style={{ gridRow: 4, overflowY: 'auto', minHeight: 0 }}>
+        <div className="row-start-4 overflow-y-auto min-h-0">
           <FlightTable
             flights={flights}
             filter={filter}
@@ -326,7 +280,7 @@ export default function App() {
         </div>
 
         {/* Detail panel */}
-        <div style={{ gridRow: 4, overflowY: 'auto', minHeight: 0 }} className="detail-panel">
+        <div className="row-start-4 overflow-y-auto min-h-0 hidden md:block">
           <DetailPanel
             flight={selectedFlight}
             enrichData={selectedFlight ? enrichCache[selectedFlight.icao] : null}
@@ -337,10 +291,10 @@ export default function App() {
           />
         </div>
 
-        {/* Bottom status bar — spans full width */}
-        <div style={{ ...layout.botbar, gridColumn: '1 / -1', gridRow: 5 }}>
+        {/* Bottom status bar */}
+        <div className="col-span-full row-start-5 bg-acc py-0.5 px-2.5 flex justify-between text-[11px] text-bg shrink-0">
           <div>
-            <span style={layout.mode}>NORMAL</span>
+            <span className="bg-bg text-acc py-0 px-2 mr-1.5">NORMAL</span>
             <span>{botSrc}</span>
           </div>
           <div>{statusText}</div>

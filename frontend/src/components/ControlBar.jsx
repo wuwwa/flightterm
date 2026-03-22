@@ -1,44 +1,22 @@
+import clsx from 'clsx'
+
 const REGIONS = ['global', 'usa', 'europe', 'asia', 'atlantic']
 
-const s = {
-  bar: {
-    background: 'var(--bg1)',
-    borderBottom: '1px solid var(--border)',
-    padding: '4px 10px',
-    display: 'flex',
-    gap: '6px',
-    alignItems: 'center',
-    flexWrap: 'nowrap',
-    overflowX: 'auto',
-    flexShrink: 0,
-  },
-  prompt: {
-    display: 'flex', alignItems: 'center', gap: '5px',
-    flex: 1, minWidth: '160px',
-  },
-  sym: { color: 'var(--grn)', userSelect: 'none' },
-  input: {
-    background: 'none', border: 'none', outline: 'none',
-    color: 'var(--fg)', fontSize: '12px', flex: 1,
-    caretColor: 'var(--fg)', fontFamily: 'inherit',
-  },
-  sep: { color: 'var(--border2)', userSelect: 'none' },
-  label: { color: 'var(--fg3)', fontSize: '11px' },
-}
-
 function Btn({ children, active, danger, onClick, disabled }) {
-  const base = {
-    background: 'none',
-    border: `1px solid ${danger ? 'var(--border)' : 'var(--border2)'}`,
-    color: danger ? 'var(--red)' : active ? 'var(--grn)' : 'var(--fg2)',
-    borderColor: active ? 'var(--grn)' : danger ? 'var(--border)' : 'var(--border2)',
-    fontSize: '11px',
-    padding: '2px 8px',
-    whiteSpace: 'nowrap',
-    opacity: disabled ? 0.5 : 1,
-  }
   return (
-    <button style={base} onClick={onClick} disabled={disabled}>
+    <button
+      className={clsx(
+        'bg-transparent border text-[11px] py-0.5 px-2 whitespace-nowrap',
+        danger
+          ? 'border-border text-red'
+          : active
+            ? 'border-grn text-grn'
+            : 'border-border2 text-fg2',
+        disabled && 'opacity-50'
+      )}
+      onClick={onClick}
+      disabled={disabled}
+    >
       {children}
     </button>
   )
@@ -55,18 +33,18 @@ export default function ControlBar({
   interval,
 }) {
   return (
-    <div style={s.bar}>
-      <div style={s.prompt}>
-        <span style={s.sym}>❯</span>
+    <div className="bg-bg1 border-b border-border py-1 px-2.5 flex gap-1.5 items-center flex-nowrap overflow-x-auto shrink-0">
+      <div className="flex items-center gap-1.5 flex-1 min-w-40">
+        <span className="text-grn select-none">❯</span>
         <input
-          style={s.input}
+          className="bg-transparent border-none outline-none text-fg text-xs flex-1 caret-fg font-mono"
           value={filter}
           onChange={e => onFilterChange(e.target.value)}
           placeholder="filter callsign / icao / country"
         />
       </div>
 
-      <span style={s.sep}>|</span>
+      <span className="text-border2 select-none">|</span>
 
       <Btn onClick={onFetch} disabled={fetching}>
         {fetching ? 'fetching...' : 'fetch'}
@@ -82,8 +60,8 @@ export default function ControlBar({
 
       <Btn onClick={onOpenUsage}>$ usage</Btn>
 
-      <span style={s.sep}>|</span>
-      <span style={s.label}>region:</span>
+      <span className="text-border2 select-none">|</span>
+      <span className="text-fg3 text-[11px]">region:</span>
 
       {REGIONS.map(r => (
         <Btn key={r} active={region === r} onClick={() => onRegionChange(r)}>

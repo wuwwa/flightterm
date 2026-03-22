@@ -1,25 +1,11 @@
 import { useEffect, useRef } from 'react'
 
-const TYPE_COLOR = {
-  ok:   'var(--grn)',
-  info: 'var(--acc)',
-  warn: 'var(--ylw)',
-  err:  'var(--red)',
-  '':   'var(--fg2)',
-}
-
-const s = {
-  panel: {
-    background: 'var(--bg)',
-    borderBottom: '1px solid var(--border)',
-    height: '72px',
-    overflowY: 'auto',
-    padding: '4px 10px',
-    fontSize: '11px',
-    flexShrink: 0,
-  },
-  line: { display: 'flex', gap: '8px' },
-  time: { minWidth: '58px', color: 'var(--fg3)', flexShrink: 0 },
+const TYPE_CLASS = {
+  ok:   'text-grn',
+  info: 'text-acc',
+  warn: 'text-ylw',
+  err:  'text-red',
+  '':   'text-fg2',
 }
 
 export default function LogPanel({ entries }) {
@@ -32,11 +18,11 @@ export default function LogPanel({ entries }) {
   }, [entries])
 
   return (
-    <div style={s.panel} ref={ref}>
+    <div className="bg-bg border-b border-border h-18 overflow-y-auto py-1 px-2.5 text-[11px] shrink-0" ref={ref}>
       {entries.map((e, i) => (
-        <div key={i} style={s.line}>
-          <span style={s.time}>{e.time}</span>
-          <span style={{ color: TYPE_COLOR[e.type] || TYPE_COLOR[''] }}>{e.msg}</span>
+        <div key={i} className="flex gap-2">
+          <span className="min-w-14.5 text-fg3 shrink-0">{e.time}</span>
+          <span className={TYPE_CLASS[e.type] || TYPE_CLASS['']}>{e.msg}</span>
         </div>
       ))}
     </div>

@@ -1,71 +1,90 @@
-/* flightterm — global styles */
-/* Base16 / muted terminal palette, JetBrains Mono */
+@import 'tailwindcss';
 
-:root {
-  --bg:      #1a1a1a;
-  --bg1:     #222222;
-  --bg2:     #2a2a2a;
-  --border:  #3a3a3a;
-  --border2: #444444;
-  --fg:      #c5c8c6;
-  --fg2:     #888888;
-  --fg3:     #555555;
-  --acc:     #81a2be;
-  --grn:     #b5bd68;
-  --ylw:     #f0c674;
-  --red:     #cc6666;
-  --cyn:     #8abeb7;
-  --mag:     #b294bb;
+/* ── theme: terminal palette + custom breakpoints ───────────────────────── */
+@theme {
+  --color-bg: #1a1a1a;
+  --color-bg1: #222222;
+  --color-bg2: #2a2a2a;
+  --color-border: #3a3a3a;
+  --color-border2: #444444;
+  --color-fg: #c5c8c6;
+  --color-fg2: #888888;
+  --color-fg3: #555555;
+  --color-acc: #81a2be;
+  --color-grn: #b5bd68;
+  --color-ylw: #f0c674;
+  --color-red: #cc6666;
+  --color-cyn: #8abeb7;
+  --color-mag: #b294bb;
+
+  --font-family-mono: 'JetBrains Mono', monospace;
+
+  --breakpoint-sm: 580px;
+  --breakpoint-md: 860px;
 }
 
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* ── base resets ─────────────────────────────────────────────────────────── */
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full bg-bg text-fg font-mono leading-normal;
+    font-size: 15px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-bg);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border2);
+  }
+
+  button {
+    @apply font-mono cursor-pointer;
+  }
+  input {
+    @apply font-mono;
+  }
+  a {
+    @apply text-acc no-underline;
+  }
 }
 
-html, body, #root {
-  height: 100%;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-/* scrollbars */
-::-webkit-scrollbar       { width: 3px; height: 3px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border2); }
-
-button {
-  font-family: 'JetBrains Mono', monospace;
-  cursor: pointer;
-}
-
-input {
-  font-family: 'JetBrains Mono', monospace;
-}
-
-a {
-  color: var(--acc);
-  text-decoration: none;
-}
-
+/* ── keyframes ───────────────────────────────────────────────────────────── */
 @keyframes blink {
-  50% { opacity: 0; }
+  50% {
+    opacity: 0;
+  }
 }
 
 @keyframes pulse-border {
-  0%, 100% { border-color: var(--border2); background: rgba(129,162,190,0.02); }
-  50% { border-color: var(--acc); background: rgba(129,162,190,0.08); }
+  0%,
+  100% {
+    border-color: var(--color-border2);
+    background: rgba(129, 162, 190, 0.02);
+  }
+  50% {
+    border-color: var(--color-acc);
+    background: rgba(129, 162, 190, 0.08);
+  }
 }
 
-.pulse-btn {
+/* ── custom utilities ────────────────────────────────────────────────────── */
+@utility animate-blink {
+  animation: blink 0.9s step-end infinite;
+}
+
+@utility animate-pulse-border {
   animation: pulse-border 3s ease-in-out infinite;
 }
-.pulse-btn:hover {
+
+/* pulse hover override */
+.animate-pulse-border:hover {
   animation: none;
-  border-color: var(--acc) !important;
-  background: rgba(129,162,190,0.14) !important;
+  border-color: var(--color-acc) !important;
+  background: rgba(129, 162, 190, 0.14) !important;
 }

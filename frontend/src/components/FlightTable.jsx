@@ -1,30 +1,5 @@
 import { useState, useMemo } from 'react'
-
-const s = {
-  wrap: { overflow: 'auto', background: 'var(--bg)', flex: 1 },
-  tbar: {
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '3px 10px', background: 'var(--bg2)',
-    borderBottom: '1px solid var(--border)',
-    fontSize: '11px', color: 'var(--fg3)',
-    position: 'sticky', top: 0, zIndex: 2,
-  },
-  table: { width: '100%', borderCollapse: 'collapse' },
-  thead: { position: 'sticky', top: '24px', zIndex: 1 },
-  theadTr: { background: 'var(--bg2)', borderBottom: '1px solid var(--border)' },
-  th: {
-    padding: '3px 10px', textAlign: 'left',
-    color: 'var(--fg3)', fontWeight: 400,
-    fontSize: '11px', cursor: 'pointer',
-    userSelect: 'none', whiteSpace: 'nowrap',
-    fontFamily: 'inherit',
-  },
-  thActive: { color: 'var(--acc)' },
-  tr: { borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer' },
-  trSel: { background: 'rgba(129,162,190,0.08)', borderLeft: '2px solid var(--acc)' },
-  td: { padding: '3px 10px', whiteSpace: 'nowrap', color: 'var(--fg2)', fontSize: '12px' },
-  empty: { padding: '30px', textAlign: 'center', color: 'var(--fg3)' },
-}
+import clsx from 'clsx'
 
 const COLS = [
   { key: 'icao',     label: 'icao24' },
@@ -36,14 +11,6 @@ const COLS = [
   { key: 'status',   label: 'status' },
   { key: 'db',       label: 'db' },
 ]
-
-function fmtVal(f, key) {
-  if (key === 'hdg') return f.hdg != null ? `${f.hdg}°` : '—'
-  if (key === 'alt') return f.alt != null ? f.alt : '—'
-  if (key === 'vel') return f.vel != null ? f.vel : '—'
-  if (key === 'status') return f.grounded ? 'ground' : 'air'
-  return f[key] ?? '—'
-}
 
 export default function FlightTable({ flights, filter, selectedIcao, enrichCache, onSelect }) {
   const [sortKey, setSortKey] = useState('callsign')
@@ -77,11 +44,11 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
 
   if (!displayed.length) {
     return (
-      <div style={s.wrap}>
-        <div style={s.tbar}>
-          <span><span style={{ color: 'var(--fg2)' }}>0</span> records</span>
+      <div className="overflow-auto bg-bg flex-1">
+        <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 sticky top-0 z-2">
+          <span><span className="text-fg2">0</span> records</span>
         </div>
-        <div style={s.empty}>
+        <div className="p-8 text-center text-fg3">
           {flights.length ? 'no matches' : 'no data — press fetch'}
         </div>
       </div>
@@ -89,25 +56,24 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
   }
 
   return (
-    <div style={s.wrap}>
-      <div style={s.tbar}>
+    <div className="overflow-auto bg-bg flex-1">
+      <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 sticky top-0 z-2">
         <span>
-          <span style={{ color: 'var(--fg2)' }}>{filtered.length}</span>
+          <span className="text-fg2">{filtered.length}</span>
           {filtered.length > 200 ? ' (showing 200)' : ''} records
         </span>
       </div>
-      <table style={s.table}>
-        <thead style={s.thead}>
-          <tr style={s.theadTr}>
+      <table className="w-full border-collapse">
+        <thead className="sticky top-6 z-1">
+          <tr className="bg-bg2 border-b border-border">
             {COLS.map(col => (
               <th
                 key={col.key}
-                style={{
-                  ...s.th,
-                  ...(sortKey === col.key ? s.thActive : {}),
-                  display: col.hide ? undefined : undefined, // handled by CSS media query in App
-                }}
-                className={col.hide ? 'hide-sm' : ''}
+                className={clsx(
+                  'py-0.5 px-2.5 text-left font-normal text-[11px] cursor-pointer select-none whitespace-nowrap font-mono',
+                  col.hide && 'hidden sm:table-cell',
+                  sortKey === col.key ? 'text-acc' : 'text-fg3'
+                )}
                 onClick={() => handleSort(col.key)}
               >
                 {col.label}
@@ -122,28 +88,29 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
             return (
               <tr
                 key={f.icao + f.callsign}
-                style={{ ...s.tr, ...(isSel ? s.trSel : {}) }}
+                className={clsx(
+                  'border-b border-white/3 cursor-pointer',
+                  isSel ? 'bg-acc/8 border-l-2 border-l-acc' : 'hover:bg-bg2'
+                )}
                 onClick={() => onSelect(f)}
-                onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = 'var(--bg2)' }}
-                onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = '' }}
               >
-                <td style={{ ...s.td, color: 'var(--fg3)' }}>{f.icao}</td>
-                <td style={{ ...s.td, color: 'var(--ylw)' }}>
+                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg3">{f.icao}</td>
+                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-ylw">
                   {f.callsign}
-                  {f.mil && <span style={{ color: 'var(--red)', fontSize: '10px' }}> [mil]</span>}
+                  {f.mil && <span className="text-red text-[10px]"> [mil]</span>}
                 </td>
-                <td style={{ ...s.td, color: 'var(--fg3)' }}>{f.country}</td>
-                <td style={{ ...s.td, color: f.grounded ? 'var(--ylw)' : 'var(--cyn)' }}>
+                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg3">{f.country}</td>
+                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs', f.grounded ? 'text-ylw' : 'text-cyn')}>
                   {f.alt ?? '—'}
                 </td>
-                <td className="hide-sm" style={s.td}>{f.vel ?? '—'}</td>
-                <td className="hide-sm" style={{ ...s.td, color: 'var(--fg3)' }}>
+                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg2 hidden sm:table-cell">{f.vel ?? '—'}</td>
+                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg3 hidden sm:table-cell">
                   {f.hdg != null ? `${f.hdg}°` : '—'}
                 </td>
-                <td style={{ ...s.td, color: f.grounded ? 'var(--ylw)' : 'var(--grn)' }}>
+                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs', f.grounded ? 'text-ylw' : 'text-grn')}>
                   {f.grounded ? 'ground' : 'air'}
                 </td>
-                <td style={{ ...s.td, color: cached ? 'var(--grn)' : 'var(--fg3)' }}>
+                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs', cached ? 'text-grn' : 'text-fg3')}>
                   {cached ? '✓' : '·'}
                 </td>
               </tr>

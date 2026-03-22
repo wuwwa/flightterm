@@ -1,115 +1,22 @@
 import { useState } from 'react'
+import clsx from 'clsx'
 import { fetchFlight } from '../services/aeroapi'
 
-const s = {
-  panel: {
-    background: 'var(--bg1)',
-    borderLeft: '1px solid var(--border)',
-    display: 'flex',
-    flexDirection: 'column',
-    width: '300px',
-    flexShrink: 0,
-    minHeight: 0,
-    overflowY: 'auto',
-  },
-  head: {
-    background: 'var(--bg2)',
-    borderBottom: '1px solid var(--border)',
-    padding: '3px 10px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    fontSize: '11px',
-    color: 'var(--fg3)',
-    position: 'sticky',
-    top: 0,
-    zIndex: 1,
-    flexShrink: 0,
-  },
-  title: { color: 'var(--acc)' },
-  closeBtn: {
-    background: 'none',
-    border: 'none',
-    color: 'var(--fg3)',
-    fontSize: '11px',
-    cursor: 'pointer',
-    padding: '2px 4px',
-  },
-  sec: {
-    padding: '5px 10px 3px',
-    fontSize: '10px',
-    color: 'var(--fg3)',
-    background: 'var(--bg2)',
-    borderTop: '1px solid var(--border)',
-    borderBottom: '1px solid var(--border)',
-    marginTop: '1px',
-    letterSpacing: '0.08em',
-    flexShrink: 0,
-  },
-  row: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    padding: '3px 10px',
-    gap: '8px',
-    borderBottom: '1px solid rgba(255,255,255,0.025)',
-  },
-  key: { color: 'var(--fg3)', fontSize: '11px', flexShrink: 0 },
-  val: {
-    color: 'var(--fg)',
-    textAlign: 'right',
-    fontSize: '11px',
-    wordBreak: 'break-all',
-  },
-  photo: {
-    width: '100%',
-    display: 'block',
-    maxHeight: '130px',
-    objectFit: 'cover',
-    filter: 'saturate(0.4) brightness(0.85)',
-    borderBottom: '1px solid var(--border)',
-  },
-  empty: {
-    padding: '40px 20px',
-    textAlign: 'center',
-    color: 'var(--fg3)',
-    fontSize: '11px',
-  },
-  aeroBtn: {
-    width: '100%',
-    background: 'rgba(129,162,190,0.06)',
-    border: '1px solid var(--border2)',
-    color: 'var(--acc)',
-    fontSize: '11px',
-    padding: '8px 10px',
-    cursor: 'pointer',
-    textAlign: 'left',
-    fontFamily: 'inherit',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    transition: 'background 0.15s, border-color 0.15s',
-    margin: 0,
-    borderTop: '6px',
-  },
-}
-
-function DRow({ label, value, color }) {
+function DRow({ label, value, colorClass = 'text-fg' }) {
   return (
-    <div style={s.row}>
-      <span style={s.key}>{label}</span>
-      <span style={{ ...s.val, color: color || 'var(--fg)' }}>
-        {value ?? '—'}
-      </span>
+    <div className="flex justify-between py-0.5 px-2.5 gap-2 border-b border-white/3">
+      <span className="text-fg3 text-[11px] shrink-0">{label}</span>
+      <span className={clsx('text-right text-[11px] break-all', colorClass)}>{value ?? '—'}</span>
     </div>
   )
 }
 
 function Section({ title, srcTag }) {
   return (
-    <div style={s.sec}>
+    <div className="py-1.5 px-2.5 text-[10px] text-fg3 bg-bg2 border-t border-b border-border mt-px tracking-wide shrink-0">
       {title}
       {srcTag && (
-        <span style={{ float: 'right', fontSize: '10px', color: srcTag.color }}>
+        <span className={clsx('float-right text-[10px]', srcTag.colorClass)}>
           [{srcTag.label}]
         </span>
       )}
@@ -139,11 +46,11 @@ export default function DetailPanel({
 
   if (!flight) {
     return (
-      <div style={s.panel}>
-        <div style={s.head}>
-          <span style={s.title}>aircraft intel</span>
+      <div className="bg-bg1 border-l border-border flex flex-col min-h-0 overflow-y-auto">
+        <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center text-[11px] text-fg3 sticky top-0 z-1 shrink-0">
+          <span className="text-acc">aircraft intel</span>
         </div>
-        <div style={s.empty}>select a row to inspect</div>
+        <div className="py-10 px-5 text-center text-fg3 text-[11px]">select a row to inspect</div>
       </div>
     )
   }
@@ -152,8 +59,8 @@ export default function DetailPanel({
   const aeroData = aeroCache[flight.icao]
   const srcTag =
     flight.src === 'adsbx'
-      ? { label: 'adsbx', color: 'var(--acc)' }
-      : { label: 'opensky', color: 'var(--grn)' }
+      ? { label: 'adsbx', colorClass: 'text-acc' }
+      : { label: 'opensky', colorClass: 'text-grn' }
 
   const handleAeroQuery = async () => {
     if (aeroLoading || !flight.callsign || flight.callsign === '—') return
@@ -170,11 +77,11 @@ export default function DetailPanel({
   }
 
   return (
-    <div style={s.panel}>
-      {/* ── sticky header ──────────────────────────────────────────────── */}
-      <div style={s.head}>
-        <span style={s.title}>aircraft intel</span>
-        <button style={s.closeBtn} onClick={onClose}>
+    <div className="bg-bg1 border-l border-border flex flex-col min-h-0 overflow-y-auto">
+      {/* sticky header */}
+      <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center text-[11px] text-fg3 sticky top-0 z-1 shrink-0">
+        <span className="text-acc">aircraft intel</span>
+        <button className="bg-transparent border-none text-fg3 text-[11px] cursor-pointer py-0.5 px-1" onClick={onClose}>
           ✕
         </button>
       </div>
@@ -182,27 +89,25 @@ export default function DetailPanel({
       {/* Photo */}
       {aircraft?.url_photo_thumbnail && (
         <img
-          style={s.photo}
+          className="w-full block max-h-32.5 object-cover border-b border-border filter-[saturate(0.4)_brightness(0.85)]"
           src={aircraft.url_photo_thumbnail}
           alt=""
-          onError={(e) => {
-            e.currentTarget.style.display = 'none'
-          }}
+          onError={(e) => { e.currentTarget.style.display = 'none' }}
         />
       )}
 
       {/* Live vector */}
       <Section title="live vector" srcTag={srcTag} />
-      <DRow label="icao24" value={flight.icao} color="var(--acc)" />
+      <DRow label="icao24" value={flight.icao} colorClass="text-acc" />
       <DRow
         label="callsign"
         value={flight.callsign + (flight.mil ? ' · military' : '')}
-        color="var(--ylw)"
+        colorClass="text-ylw"
       />
       <DRow
         label="altitude"
         value={flight.alt != null ? `${flight.alt} m` : null}
-        color="var(--cyn)"
+        colorClass="text-cyn"
       />
       <DRow
         label="speed"
@@ -211,17 +116,17 @@ export default function DetailPanel({
       <DRow
         label="heading"
         value={flight.hdg != null ? `${flight.hdg}°` : null}
-        color="var(--fg3)"
+        colorClass="text-fg3"
       />
       <DRow
         label="position"
         value={flight.lat != null ? `${flight.lat}, ${flight.lon}` : null}
-        color="var(--fg3)"
+        colorClass="text-fg3"
       />
       <DRow
         label="status"
         value={flight.grounded ? 'ground' : 'airborne'}
-        color={flight.grounded ? 'var(--ylw)' : 'var(--grn)'}
+        colorClass={flight.grounded ? 'text-ylw' : 'text-grn'}
       />
 
       {/* Aircraft */}
@@ -229,32 +134,16 @@ export default function DetailPanel({
       {aircraft ? (
         <>
           <DRow label="type" value={aircraft.type} />
-          <DRow
-            label="icao type"
-            value={aircraft.icao_type}
-            color="var(--fg3)"
-          />
-          <DRow
-            label="manufacturer"
-            value={aircraft.manufacturer}
-            color="var(--acc)"
-          />
-          <DRow
-            label="registration"
-            value={aircraft.registration}
-            color="var(--ylw)"
-          />
+          <DRow label="icao type" value={aircraft.icao_type} colorClass="text-fg3" />
+          <DRow label="manufacturer" value={aircraft.manufacturer} colorClass="text-acc" />
+          <DRow label="registration" value={aircraft.registration} colorClass="text-ylw" />
           <DRow label="owner" value={aircraft.registered_owner} />
-          <DRow
-            label="country"
-            value={aircraft.registered_owner_country_name}
-            color="var(--fg3)"
-          />
+          <DRow label="country" value={aircraft.registered_owner_country_name} colorClass="text-fg3" />
         </>
       ) : enrichData ? (
-        <DRow label="status" value="not in adsbdb" color="var(--fg3)" />
+        <DRow label="status" value="not in adsbdb" colorClass="text-fg3" />
       ) : (
-        <DRow label="status" value="loading..." color="var(--fg3)" />
+        <DRow label="status" value="loading..." colorClass="text-fg3" />
       )}
 
       {/* Route */}
@@ -269,12 +158,12 @@ export default function DetailPanel({
               <DRow
                 label="origin"
                 value={`${flightroute.origin.icao_code} ${flightroute.origin.name}`}
-                color="var(--acc)"
+                colorClass="text-acc"
               />
               <DRow
                 label=""
                 value={`${flightroute.origin.municipality}, ${flightroute.origin.country_name}`}
-                color="var(--fg3)"
+                colorClass="text-fg3"
               />
             </>
           )}
@@ -282,7 +171,7 @@ export default function DetailPanel({
             <DRow
               label="via"
               value={`${flightroute.midpoint.icao_code} ${flightroute.midpoint.name}`}
-              color="var(--acc)"
+              colorClass="text-acc"
             />
           )}
           {flightroute.destination && (
@@ -290,121 +179,103 @@ export default function DetailPanel({
               <DRow
                 label="dest"
                 value={`${flightroute.destination.icao_code} ${flightroute.destination.name}`}
-                color="var(--acc)"
+                colorClass="text-acc"
               />
               <DRow
                 label=""
                 value={`${flightroute.destination.municipality}, ${flightroute.destination.country_name}`}
-                color="var(--fg3)"
+                colorClass="text-fg3"
               />
             </>
           )}
         </>
       ) : enrichData ? (
-        <DRow label="status" value="unknown" color="var(--fg3)" />
+        <DRow label="status" value="unknown" colorClass="text-fg3" />
       ) : (
-        <DRow label="status" value="loading..." color="var(--fg3)" />
+        <DRow label="status" value="loading..." colorClass="text-fg3" />
       )}
 
       {/* AeroAPI */}
       <Section title="flightaware aeroapi" />
       {!backendOk ? (
-        <DRow label="status" value="backend offline" color="var(--red)" />
+        <DRow label="status" value="backend offline" colorClass="text-red" />
       ) : aeroData ? (
         <>
-          <DRow label="ident" value={aeroData.ident} color="var(--ylw)" />
+          <DRow label="ident" value={aeroData.ident} colorClass="text-ylw" />
           <DRow
             label="status"
             value={aeroData.status}
-            color={
+            colorClass={
               aeroData.status === 'En Route'
-                ? 'var(--grn)'
+                ? 'text-grn'
                 : aeroData.status?.includes('Delay')
-                  ? 'var(--ylw)'
-                  : 'var(--fg)'
+                  ? 'text-ylw'
+                  : 'text-fg'
             }
           />
           <DRow
             label="progress"
-            value={
-              aeroData.progress_percent != null
-                ? `${aeroData.progress_percent}%`
-                : null
-            }
-            color="var(--acc)"
+            value={aeroData.progress_percent != null ? `${aeroData.progress_percent}%` : null}
+            colorClass="text-acc"
           />
           <DRow
             label="origin"
             value={aeroData.origin?.code_icao || aeroData.origin?.code}
-            color="var(--acc)"
+            colorClass="text-acc"
           />
           <DRow
             label="destination"
-            value={
-              aeroData.destination?.code_icao || aeroData.destination?.code
-            }
-            color="var(--acc)"
+            value={aeroData.destination?.code_icao || aeroData.destination?.code}
+            colorClass="text-acc"
           />
           <DRow
             label="dep scheduled"
             value={fmtTime(aeroData.scheduled_out || aeroData.scheduled_off)}
-            color="var(--fg3)"
+            colorClass="text-fg3"
           />
           <DRow
             label="dep actual"
             value={fmtTime(aeroData.actual_out || aeroData.actual_off)}
-            color={aeroData.actual_out ? 'var(--grn)' : 'var(--fg3)'}
+            colorClass={aeroData.actual_out ? 'text-grn' : 'text-fg3'}
           />
           <DRow
             label="arr estimated"
             value={fmtTime(aeroData.estimated_in || aeroData.estimated_on)}
-            color="var(--fg3)"
+            colorClass="text-fg3"
           />
           <DRow
             label="arr actual"
             value={fmtTime(aeroData.actual_in || aeroData.actual_on)}
-            color={aeroData.actual_in ? 'var(--grn)' : 'var(--fg3)'}
+            colorClass={aeroData.actual_in ? 'text-grn' : 'text-fg3'}
           />
           <DRow label="aircraft" value={aeroData.aircraft_type} />
-          <DRow label="operator" value={aeroData.operator} color="var(--fg3)" />
+          <DRow label="operator" value={aeroData.operator} colorClass="text-fg3" />
           <DRow
             label="filed alt"
-            value={
-              aeroData.filed_altitude
-                ? `${aeroData.filed_altitude * 100} ft`
-                : null
-            }
-            color="var(--fg3)"
+            value={aeroData.filed_altitude ? `${aeroData.filed_altitude * 100} ft` : null}
+            colorClass="text-fg3"
           />
           <DRow
             label="filed speed"
             value={aeroData.filed_speed ? `${aeroData.filed_speed} kt` : null}
-            color="var(--fg3)"
+            colorClass="text-fg3"
           />
         </>
       ) : aeroError ? (
-        <DRow label="error" value={aeroError} color="var(--red)" />
+        <DRow label="error" value={aeroError} colorClass="text-red" />
       ) : (
         <button
-          className={!aeroLoading && flight.callsign !== '—' ? 'pulse-btn' : ''}
-          style={{
-            ...s.aeroBtn,
-            opacity: aeroLoading || flight.callsign === '—' ? 0.4 : 1,
-            cursor:
-              aeroLoading || flight.callsign === '—' ? 'default' : 'pointer',
-          }}
+          className={clsx(
+            'w-full border border-border2 text-acc text-[11px] py-2 px-2.5 cursor-pointer text-left font-mono flex justify-between items-center m-0 transition-colors duration-150',
+            'bg-acc/6 hover:bg-acc/14',
+            !aeroLoading && flight.callsign !== '—' && 'animate-pulse-border',
+            (aeroLoading || flight.callsign === '—') && 'opacity-40 cursor-default'
+          )}
           onClick={handleAeroQuery}
           disabled={aeroLoading || flight.callsign === '—'}
-          onMouseEnter={(e) => {
-            if (!e.currentTarget.disabled)
-              e.currentTarget.style.background = 'rgba(129,162,190,0.14)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(129,162,190,0.06)'
-          }}
         >
           <span>{aeroLoading ? 'querying...' : '❯ query aeroapi'}</span>
-          <span style={{ color: 'var(--ylw)', fontSize: '10px' }}>~$0.005</span>
+          <span className="text-ylw text-[10px]">~$0.005</span>
         </button>
       )}
     </div>
