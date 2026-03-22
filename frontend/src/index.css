@@ -1,0 +1,57 @@
+/* flightterm — global styles */
+/* Base16 / muted terminal palette, JetBrains Mono */
+
+:root {
+  --bg:      #1a1a1a;
+  --bg1:     #222222;
+  --bg2:     #2a2a2a;
+  --border:  #3a3a3a;
+  --border2: #444444;
+  --fg:      #c5c8c6;
+  --fg2:     #888888;
+  --fg3:     #555555;
+  --acc:     #81a2be;
+  --grn:     #b5bd68;
+  --ylw:     #f0c674;
+  --red:     #cc6666;
+  --cyn:     #8abeb7;
+  --mag:     #b294bb;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* scrollbars */
+::-webkit-scrollbar       { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); }
+
+button {
+  font-family: 'JetBrains Mono', monospace;
+  cursor: pointer;
+}
+
+input {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+a {
+  color: var(--acc);
+  text-decoration: none;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
