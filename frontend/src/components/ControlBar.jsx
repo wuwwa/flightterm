@@ -2,7 +2,7 @@ import clsx from 'clsx'
 
 const REGIONS = ['global', 'usa', 'europe', 'asia', 'atlantic']
 
-function Btn({ children, active, danger, onClick, disabled }) {
+function Btn({ children, active, danger, pulse, onClick, disabled }) {
   return (
     <button
       className={clsx(
@@ -12,7 +12,8 @@ function Btn({ children, active, danger, onClick, disabled }) {
           : active
             ? 'border-grn text-grn'
             : 'border-border2 text-fg2',
-        disabled && 'opacity-50'
+        disabled && 'opacity-50',
+        pulse && 'animate-pulse-border'
       )}
       onClick={onClick}
       disabled={disabled}
@@ -24,7 +25,7 @@ function Btn({ children, active, danger, onClick, disabled }) {
 
 export default function ControlBar({
   filter, onFilterChange,
-  onFetch, fetching,
+  onFetch, fetching, hasFetched,
   autoOn, onToggleAuto,
   onClearLog,
   onOpenSettings,
@@ -46,7 +47,7 @@ export default function ControlBar({
 
       <span className="text-border2 select-none">|</span>
 
-      <Btn onClick={onFetch} disabled={fetching}>
+      <Btn onClick={onFetch} disabled={fetching} pulse={!hasFetched && !fetching}>
         {fetching ? 'fetching...' : 'fetch'}
       </Btn>
 

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import clsx from 'clsx'
 
 const COLS = [
@@ -12,9 +12,74 @@ const COLS = [
   { key: 'db',       label: 'db' },
 ]
 
-export default function FlightTable({ flights, filter, selectedIcao, enrichCache, onSelect }) {
+export default function FlightTable({ flights, filter, selectedIcao, enrichCache, onSelect, onArrived, onDeparted }) {
   const [sortKey, setSortKey] = useState('callsign')
   const [sortDir, setSortDir] = useState(1)
+  const [newIcaos, setNewIcaos] = useState(new Set())
+  const prevIcaosRef = useRef(new Set())
+  const prevFlightsRef = useRef(new Map())
+  const initialLoad = useRef(true)
+
+  // ── diff flights on each update ───────────────────────────────────────────
+  useEffect(() => {
+    const currentIcaos = new Set(flights.map(f => f.icao))
+    const prevIcaos = prevIcaosRef.current
+
+    if (initialLoad.current) {
+      initialLoad.current = false
+      prevIcaosRef.current = currentIcaos
+      const flightMap = new Map()
+      flights.forEach(f => flightMap.set(f.icao, f))
+      prevFlightsRef.current = flightMap
+      return
+    }
+
+    // new arrivals
+    const arrived = new Set()
+    for (const icao of currentIcaos) {
+      if (!prevIcaos.has(icao)) arrived.add(icao)
+    }
+
+    // departed — collect callsigns for the log
+    const departedList = []
+    for (const icao of prevIcaos) {
+      if (!currentIcaos.has(icao)) {
+        const prev = prevFlightsRef.current.get(icao)
+        departedList.push(prev?.callsign || icao)
+      }
+    }
+
+    // update refs
+    prevIcaosRef.current = currentIcaos
+    const flightMap = new Map()
+    flights.forEach(f => flightMap.set(f.icao, f))
+    prevFlightsRef.current = flightMap
+
+    // notify parent of arrivals
+    if (arrived.size > 0 && onArrived) {
+      const arrivedList = []
+      for (const icao of arrived) {
+        const f = flightMap.get(icao)
+        arrivedList.push(f?.callsign || icao)
+      }
+      onArrived(arrivedList)
+    }
+
+    // notify parent of departures
+    if (departedList.length > 0 && onDeparted) {
+      onDeparted(departedList)
+    }
+
+    // highlight arrivals
+    if (arrived.size > 0) {
+      setNewIcaos(arrived)
+    }
+
+    const timer = arrived.size > 0
+      ? setTimeout(() => setNewIcaos(new Set()), 2500)
+      : null
+    return () => { if (timer) clearTimeout(timer) }
+  }, [flights])
 
   const q = filter.toLowerCase()
 
@@ -61,36 +126,50 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
         <span>
           <span className="text-fg2">{filtered.length}</span>
           {filtered.length > 200 ? ' (showing 200)' : ''} records
+          {newIcaos.size > 0 && <span className="text-grn ml-2">+{newIcaos.size} new</span>}
         </span>
       </div>
       <table className="w-full border-collapse">
         <thead className="sticky top-6 z-1">
           <tr className="bg-bg2 border-b border-border">
-            {COLS.map(col => (
-              <th
-                key={col.key}
-                className={clsx(
-                  'py-0.5 px-2.5 text-left font-normal text-[11px] cursor-pointer select-none whitespace-nowrap font-mono',
-                  col.hide && 'hidden sm:table-cell',
-                  sortKey === col.key ? 'text-acc' : 'text-fg3'
-                )}
-                onClick={() => handleSort(col.key)}
-              >
-                {col.label}
-              </th>
-            ))}
+            {COLS.map(col => {
+              const isActive = sortKey === col.key
+              return (
+                <th
+                  key={col.key}
+                  className={clsx(
+                    'group py-0.5 px-2.5 text-left font-normal text-[11px] cursor-pointer select-none whitespace-nowrap font-mono',
+                    col.hide && 'hidden sm:table-cell',
+                    isActive ? 'text-acc' : 'text-fg3 hover:text-fg2'
+                  )}
+                  onClick={() => handleSort(col.key)}
+                >
+                  {col.label}
+                  {isActive ? (
+                    <span className="ml-1 text-[9px]">{sortDir > 0 ? '▲' : '▼'}</span>
+                  ) : (
+                    <span className="ml-1 text-[9px] opacity-0 group-hover:opacity-40">▲</span>
+                  )}
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>
           {displayed.map(f => {
             const isSel = f.icao === selectedIcao
             const cached = !!enrichCache[f.icao]
+            const isNew = newIcaos.has(f.icao)
             return (
               <tr
                 key={f.icao + f.callsign}
                 className={clsx(
                   'border-b border-white/3 cursor-pointer',
-                  isSel ? 'bg-acc/8 border-l-2 border-l-acc' : 'hover:bg-bg2'
+                  isNew
+                    ? 'animate-row-arrive'
+                    : isSel
+                      ? 'bg-acc/8 border-l-2 border-l-acc'
+                      : 'hover:bg-bg2'
                 )}
                 onClick={() => onSelect(f)}
               >

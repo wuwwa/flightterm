@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import clsx from 'clsx'
 
 const TYPE_CLASS = {
   ok:   'text-grn',
@@ -10,6 +11,7 @@ const TYPE_CLASS = {
 
 export default function LogPanel({ entries }) {
   const ref = useRef(null)
+  const [mountedAt] = useState(() => Date.now())
 
   useEffect(() => {
     if (ref.current) {
@@ -20,7 +22,10 @@ export default function LogPanel({ entries }) {
   return (
     <div className="bg-bg border-b border-border h-18 overflow-y-auto py-1 px-2.5 text-[11px] shrink-0" ref={ref}>
       {entries.map((e, i) => (
-        <div key={i} className="flex gap-2">
+        <div
+          key={`${e.ts}-${i}`}
+          className={clsx('flex gap-2', e.ts > mountedAt && 'animate-log-flash')}
+        >
           <span className="min-w-14.5 text-fg3 shrink-0">{e.time}</span>
           <span className={TYPE_CLASS[e.type] || TYPE_CLASS['']}>{e.msg}</span>
         </div>

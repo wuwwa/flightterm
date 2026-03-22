@@ -73,7 +73,35 @@
   }
 }
 
+@keyframes log-flash {
+  0% {
+    background: rgba(181, 189, 104, 0.15);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@keyframes row-arrive {
+  0% {
+    background: rgba(181, 189, 104, 0.18);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+
 /* ── custom utilities ────────────────────────────────────────────────────── */
+@utility animate-log-flash {
+  animation: log-flash 2s ease-out forwards;
+}
+
+@utility animate-row-arrive {
+  animation: row-arrive 2.5s ease-out forwards;
+}
+
+
 @utility animate-blink {
   animation: blink 0.9s step-end infinite;
 }
