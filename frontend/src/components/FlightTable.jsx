@@ -231,7 +231,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                   onClick={() => setSquawkHighlight(prev => prev === f.id ? null : f.id)}
                   title={f.title}
                 >
-                  {f.label} {cnt}
+                  {f.label} ({cnt})
                 </button>
               )
             })}
