@@ -43,10 +43,10 @@ function makeEntry(msg, type = '') {
 const layout = {
   root: {
     display: 'grid',
-    gridTemplateRows: 'auto auto auto minmax(200px, 1fr) auto',
+    gridTemplateRows: 'auto auto auto 1fr auto',
     gridTemplateColumns: '1fr 300px',
-    minHeight: '100vh',
-    overflow: 'auto',
+    height: '100vh',
+    overflow: 'hidden',
   },
   main: {
     display: 'flex',
@@ -312,7 +312,7 @@ export default function App() {
         </div>
 
         {/* Flight table */}
-        <div style={{ gridRow: 4, overflow: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div style={{ gridRow: 4, overflowY: 'auto', minHeight: 0 }}>
           <FlightTable
             flights={flights}
             filter={filter}
@@ -323,7 +323,7 @@ export default function App() {
         </div>
 
         {/* Detail panel */}
-        <div style={{ gridRow: 4, overflow: 'auto', minHeight: 0 }} className="detail-panel">
+        <div style={{ gridRow: 4, overflowY: 'auto', minHeight: 0 }} className="detail-panel">
           <DetailPanel
             flight={selectedFlight}
             enrichData={selectedFlight ? enrichCache[selectedFlight.icao] : null}
