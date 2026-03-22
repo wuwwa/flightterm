@@ -12,7 +12,22 @@
       "WebFetch(domain:datahub.io)",
       "Bash(ls -la c:/Users/wilso/Documents/Flight/flightterm/backend/flightterm.db*)",
       "Bash(wmic process:*)",
-      "Bash(tasklist /fi 'imagename eq node.exe' /v)"
+      "Bash(tasklist /fi 'imagename eq node.exe' /v)",
+      "WebFetch(domain:api.faa.gov)",
+      "WebFetch(domain:docs.hawg-ops.com)",
+      "WebFetch(domain:notamify.com)",
+      "WebFetch(domain:developer.laminardata.aero)",
+      "WebFetch(domain:docs.aviationapi.com)",
+      "WebFetch(domain:www.autorouter.aero)",
+      "WebFetch(domain:aviationweather.gov)",
+      "Bash(curl -s --max-time 10 'https://api.autorouter.aero/v1.0/notam?itemas=[\"\"\"\"KJFK\"\"\"\"]&offset=0&limit=5')",
+      "Bash(curl -s --max-time 10 'https://api.aviationapi.com/v1/vfr/sectional?apt=KJFK')",
+      "WebFetch(domain:aviationapi.com)",
+      "Bash(curl -sv --max-time 10 'https://api.autorouter.aero/v1.0/notam?itemas=%5B%22KJFK%22%5D&offset=0&limit=5')",
+      "WebFetch(domain:dip.amesaero.nasa.gov)",
+      "Bash(curl -s --max-time 10 'https://notams.aim.faa.gov/notamSearch/search' -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'searchType=0&designatorsForNotamList=KJFK&notamListSort=Location&formatType=DOMESTIC')",
+      "Bash(curl -sv --max-time 10 'https://notams.aim.faa.gov/notamSearch/search' -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'searchType=0&designatorsForNotamList=KJFK&notamListSort=Location&formatType=DOMESTIC')",
+      "Bash(curl -s --max-time 15 'https://notams.aim.faa.gov/notamWFS/')"
     ]
   }
 }

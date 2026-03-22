@@ -83,6 +83,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 <StatusDot ok={serverKeys.aeroapi} label="aeroapi (server)" />
                 <StatusDot ok={!!local.userAeroKey} label="aeroapi (yours)" />
                 <StatusDot ok={!!local.adsbxKey} label="adsbx (yours)" />
+                <StatusDot ok={serverKeys.faa_notam} label="faa notam (server)" />
               </div>
             </div>
           )}

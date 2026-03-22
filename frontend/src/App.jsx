@@ -7,6 +7,7 @@ import FlightTable from './components/FlightTable'
 import DetailPanel from './components/DetailPanel'
 import SettingsModal from './components/SettingsModal'
 import UsagePanel from './components/UsagePanel'
+import NotamPanel from './components/NotamPanel'
 
 import { fetchStates } from './services/opensky'
 import { fetchAdsbx } from './services/adsbx'
@@ -73,6 +74,7 @@ export default function App() {
   // ── UI overlay state ────────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false)
   const [showUsage, setShowUsage] = useState(false)
+  const [showNotams, setShowNotams] = useState(false)
 
   // ── detail / enrichment state ───────────────────────────────────────────────
   const [selectedFlight, setSelectedFlight] = useState(null)
@@ -120,7 +122,7 @@ export default function App() {
     checkHealth()
       .then((d) => {
         setBackendOk(true)
-        log(`backend ok · opensky: ${d.opensky_configured ? '✓' : '✗'} · aeroapi: ${d.aeroapi_configured ? '✓' : '✗'}`, 'ok')
+        log(`backend ok · opensky: ${d.opensky_configured ? '✓' : '✗'} · aeroapi: ${d.aeroapi_configured ? '✓' : '✗'} · notam: ${d.faa_notam_configured ? '✓' : '✗'}`, 'ok')
         refreshAeroSpend()
         refreshOpenskyUsage()
       })
@@ -447,6 +449,7 @@ export default function App() {
             onClearLog={clearLog}
             onOpenSettings={() => setShowSettings(true)}
             onOpenUsage={() => setShowUsage(true)}
+            onOpenNotams={() => setShowNotams(true)}
             region={region}
             onRegionChange={handleRegionChange}
             interval={settings.interval}
@@ -514,6 +517,10 @@ export default function App() {
 
       {showUsage && (
         <UsagePanel onClose={() => setShowUsage(false)} backendOk={backendOk} />
+      )}
+
+      {showNotams && (
+        <NotamPanel region={region} onClose={() => setShowNotams(false)} />
       )}
     </>
   )

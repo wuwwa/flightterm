@@ -29,7 +29,8 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
   const [sortKey, setSortKey] = useState('takeoff')
   const [sortDir, setSortDir] = useState(1)
   const [showAll, setShowAll] = useState(false)
-  const [anomalyFilter, setAnomalyFilter] = useState(false)
+  const [anomalyHighlight, setAnomalyHighlight] = useState(false)
+  const [squawkHighlight, setSquawkHighlight] = useState(null) // null | '7700' | '7600' | '7500' | '1200'
   const [newIcaos, setNewIcaos] = useState(new Set())
   const prevIcaosRef = useRef(new Set())
   const prevFlightsRef = useRef(new Map())
@@ -104,12 +105,16 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
       f.country.toLowerCase().includes(q) ||
       f.icao.toLowerCase().includes(q)
     )
-    if (anomalyFilter) list = list.filter(f => anomalies[f.icao])
     return list
-  }, [flights, q, anomalyFilter, anomalies])
+  }, [flights, q])
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
+      // highlighted rows float to top
+      const aHl = (anomalyHighlight && anomalies[a.icao] ? 1 : 0) + (squawkHighlight && a.squawk === squawkHighlight ? 1 : 0)
+      const bHl = (anomalyHighlight && anomalies[b.icao] ? 1 : 0) + (squawkHighlight && b.squawk === squawkHighlight ? 1 : 0)
+      if (aHl !== bHl) return bHl - aHl
+
       // special takeoff sort: ground/climb first, then by altitude ascending
       if (sortKey === 'takeoff') {
         const aHist = trackHistory[a.icao]
@@ -119,7 +124,6 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
         const aRank = TAKEOFF_RANK[aPhase] ?? 5
         const bRank = TAKEOFF_RANK[bPhase] ?? 5
         if (aRank !== bRank) return (aRank - bRank) * sortDir
-        // within same phase, sort by altitude ascending (lowest = freshest takeoff)
         const aAlt = a.alt ?? 99999
         const bAlt = b.alt ?? 99999
         return (aAlt - bAlt) * sortDir
@@ -130,12 +134,17 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
       if (vb == null) vb = sortDir > 0 ? Infinity : -Infinity
       return va < vb ? -sortDir : va > vb ? sortDir : 0
     })
-  }, [filtered, sortKey, sortDir, anomalies, trackHistory])
+  }, [filtered, sortKey, sortDir, anomalies, trackHistory, anomalyHighlight, squawkHighlight])
 
   const limit = showAll ? sorted.length : 200
   const displayed = sorted.slice(0, limit)
 
   const anomalyCount = Object.keys(anomalies).length
+  const squawkCounts = useMemo(() => {
+    const counts = {}
+    for (const f of filtered) { if (f.squawk) counts[f.squawk] = (counts[f.squawk] || 0) + 1 }
+    return counts
+  }, [filtered])
 
   const handleSort = key => {
     if (sortKey === key) setSortDir(d => d * -1)
@@ -148,18 +157,10 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
         <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 shrink-0">
           <span className="flex items-center gap-1.5">
             <span className="text-fg2">0</span> records
-            {anomalyFilter && (
-              <button
-                className="text-[11px] cursor-pointer font-mono px-1.5 py-0 rounded border bg-red/15 border-red/40 text-red"
-                onClick={() => setAnomalyFilter(false)}
-              >
-                clear filter
-              </button>
-            )}
           </span>
         </div>
         <div className="p-8 text-center text-fg3">
-          {anomalyFilter ? 'no anomalies detected' : flights.length ? 'no matches' : 'no data — press fetch'}
+          {flights.length ? 'no matches' : 'no data — press fetch'}
         </div>
       </div>
     )
@@ -201,17 +202,40 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
           <button
             className={clsx(
               'text-[11px] cursor-pointer font-mono px-1.5 py-0 rounded border',
-              anomalyFilter
+              anomalyHighlight
                 ? 'bg-red/15 border-red/40 text-red'
                 : anomalyCount > 0
                   ? 'bg-transparent border-border text-red hover:border-red/40'
                   : 'bg-transparent border-border text-fg3 hover:text-fg2 hover:border-fg3'
             )}
-            onClick={() => setAnomalyFilter(f => !f)}
-            title={anomalyFilter ? 'Show all flights' : 'Show only anomalies'}
+            onClick={() => setAnomalyHighlight(h => !h)}
+            title={anomalyHighlight ? 'Stop highlighting anomalies' : 'Highlight anomalies'}
           >
-            ! {anomalyCount} anomal{anomalyCount === 1 ? 'y' : 'ies'}
+            ! {anomalyCount}
           </button>
+          <span className="flex items-center gap-0.5 ml-0.5 border border-border rounded overflow-hidden">
+            {[
+              { id: '7700', label: '7700', on: 'bg-red/20 text-red', title: 'Emergency' },
+              { id: '7600', label: '7600', on: 'bg-ylw/20 text-ylw', title: 'Radio failure' },
+              { id: '7500', label: '7500', on: 'bg-red/20 text-red', title: 'Hijack' },
+              { id: '1200', label: 'VFR',  on: 'bg-cyn/20 text-cyn', title: 'VFR traffic' },
+            ].map(f => {
+              const cnt = squawkCounts[f.id] || 0
+              return (
+                <button
+                  key={f.id}
+                  className={clsx(
+                    'text-[10px] cursor-pointer font-mono px-1.5 py-0 border-none',
+                    squawkHighlight === f.id ? f.on : 'bg-transparent text-fg3 hover:text-fg2'
+                  )}
+                  onClick={() => setSquawkHighlight(prev => prev === f.id ? null : f.id)}
+                  title={f.title}
+                >
+                  {f.label} {cnt}
+                </button>
+              )
+            })}
+          </span>
         </span>
         <span className="flex gap-3 items-center shrink-0">
           {openskyUsage && (
@@ -268,18 +292,24 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
             const cached = !!enrichCache[f.icao]
             const isNew = newIcaos.has(f.icao)
             const anomaly = anomalies[f.icao]
+            const hlAnomaly = anomalyHighlight && anomaly
+            const hlSquawk = squawkHighlight && f.squawk === squawkHighlight
+            const dimmed = (anomalyHighlight || squawkHighlight) && !hlAnomaly && !hlSquawk
             return (
               <tr
                 key={f.icao + f.callsign}
                 className={clsx(
                   'border-b cursor-pointer',
-                  anomaly
+                  dimmed && 'opacity-30',
+                  hlAnomaly
                     ? 'bg-red/8 border-b-red/20 border-l-2 border-l-red'
-                    : isNew
-                      ? 'animate-row-arrive border-white/3'
-                      : isSel
-                        ? 'bg-acc/8 border-l-2 border-l-acc border-white/3'
-                        : 'hover:bg-bg2 border-white/3'
+                    : hlSquawk
+                      ? 'bg-ylw/8 border-b-ylw/20 border-l-2 border-l-ylw'
+                      : isNew
+                        ? 'animate-row-arrive border-white/3'
+                        : isSel
+                          ? 'bg-acc/8 border-l-2 border-l-acc border-white/3'
+                          : 'hover:bg-bg2 border-white/3'
                 )}
                 onClick={() => onSelect(f)}
               >

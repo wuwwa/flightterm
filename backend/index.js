@@ -17,6 +17,7 @@ const AERO_BASE = 'https://aeroapi.flightaware.com/aeroapi'
 const AERO_CAP = 5.00 // hard cap in USD — do not change
 const OS_BASE   = 'https://opensky-network.org/api'
 const OS_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
+const FAA_NOTAM_BASE = 'https://external-api.faa.gov/notamapi/v1/notams'
 
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
@@ -133,6 +134,7 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     aeroapi_configured: !!process.env.AEROAPI_KEY,
     opensky_configured: !!(process.env.OS_CLIENT_ID && process.env.OS_CLIENT_SECRET),
+    faa_notam_configured: !!(process.env.FAA_CLIENT_ID && process.env.FAA_CLIENT_SECRET),
     db_size: getDbSize(),
     timestamp: new Date().toISOString()
   })
@@ -144,6 +146,7 @@ app.get('/api/keys', (_req, res) => {
     aeroapi:        !!process.env.AEROAPI_KEY,
     opensky_id:     !!process.env.OS_CLIENT_ID,
     opensky_secret: !!process.env.OS_CLIENT_SECRET,
+    faa_notam:      !!(process.env.FAA_CLIENT_ID && process.env.FAA_CLIENT_SECRET),
     adsbx:          false, // adsbx key is stored client-side in settings
   })
 })
@@ -282,6 +285,83 @@ app.get('/api/aero/usage', async (req, res) => {
     const message = err.response?.data?.title || err.message
     res.status(status).json({ error: message, status })
   }
+})
+
+// ── FAA NOTAM proxy ─────────────────────────────────────────────────────────
+// Caches per-airport results for 15 minutes to avoid hammering the FAA API
+const _notamCache = {} // { KJFK: { data, expiresAt } }
+const NOTAM_CACHE_TTL = 15 * 60 * 1000
+
+// GET /api/notams?locations=KJFK,KLAX&pageSize=50
+app.get('/api/notams', async (req, res) => {
+  const clientId = process.env.FAA_CLIENT_ID
+  const clientSecret = process.env.FAA_CLIENT_SECRET
+  if (!clientId || !clientSecret) {
+    return res.status(500).json({ error: 'FAA_CLIENT_ID / FAA_CLIENT_SECRET not set in backend .env' })
+  }
+
+  const locations = req.query.locations // comma-separated ICAO codes
+  if (!locations) {
+    return res.status(400).json({ error: 'locations param required (comma-separated ICAO codes)' })
+  }
+
+  const codes = locations.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+  const now = Date.now()
+  const results = {}
+  const toFetch = []
+
+  // Check cache first
+  for (const code of codes) {
+    const cached = _notamCache[code]
+    if (cached && now < cached.expiresAt) {
+      results[code] = cached.data
+    } else {
+      toFetch.push(code)
+    }
+  }
+
+  // Fetch uncached airports (batch up to 5 at a time to avoid rate limits)
+  for (let i = 0; i < toFetch.length; i += 5) {
+    const batch = toFetch.slice(i, i + 5)
+    const fetches = batch.map(async (code) => {
+      try {
+        const response = await axios.get(FAA_NOTAM_BASE, {
+          params: {
+            responseFormat: 'geoJson',
+            icaoLocation: code,
+            client_id: clientId,
+            client_secret: clientSecret,
+            pageSize: 20,
+            sortBy: 'effectiveStartDate',
+            sortOrder: 'Desc',
+          },
+          timeout: 10000,
+        })
+        const items = (response.data?.items || []).map(item => {
+          const notam = item?.properties?.coreNOTAMData?.notam || {}
+          return {
+            id: notam.id || notam.number,
+            number: notam.number,
+            type: notam.type,
+            issued: notam.issued,
+            effectiveStart: notam.effectiveStart,
+            effectiveEnd: notam.effectiveEnd,
+            text: notam.text,
+            classification: notam.classification,
+            location: notam.location || notam.icaoLocation || code,
+          }
+        })
+        _notamCache[code] = { data: items, expiresAt: now + NOTAM_CACHE_TTL }
+        results[code] = items
+      } catch (err) {
+        console.warn(`notam fetch failed for ${code}:`, err.response?.status || err.message)
+        results[code] = []
+      }
+    })
+    await Promise.all(fetches)
+  }
+
+  res.json({ notams: results, cached: codes.length - toFetch.length, fetched: toFetch.length })
 })
 
 // ── Sightings DB routes ─────────────────────────────────────────────────────
@@ -458,5 +538,10 @@ app.listen(PORT, () => {
     console.warn('  ⚠  AEROAPI_KEY not set — add it to backend/.env')
   } else {
     console.log('  ✓  AEROAPI_KEY loaded')
+  }
+  if (!process.env.FAA_CLIENT_ID || !process.env.FAA_CLIENT_SECRET) {
+    console.warn('  ⚠  FAA_CLIENT_ID / FAA_CLIENT_SECRET not set — NOTAMs disabled')
+  } else {
+    console.log('  ✓  FAA NOTAM credentials loaded')
   }
 })

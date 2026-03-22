@@ -31,6 +31,7 @@ export default function ControlBar({
   onClearLog,
   onOpenSettings,
   onOpenUsage,
+  onOpenNotams,
   region, onRegionChange,
   interval,
   lastFetchAt,
@@ -81,6 +82,8 @@ export default function ControlBar({
       <Btn onClick={onOpenSettings}>settings</Btn>
 
       <Btn onClick={onOpenUsage}>$ usage</Btn>
+
+      <Btn onClick={onOpenNotams}>NOTAMs</Btn>
 
       <span className="text-border2 select-none">|</span>
       <span className="text-fg3 text-[11px]">region:</span>
