@@ -4,7 +4,15 @@
       "Bash(ls c:/Users/wilso/Documents/Flight/flightterm/backend/node_modules/.bin/nodemon*)",
       "WebFetch(domain:fullstackopen.com)",
       "Bash(npm install:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(node -e \":*)",
+      "WebSearch",
+      "WebFetch(domain:www.stratosjets.com)",
+      "WebFetch(domain:aviationa2z.com)",
+      "WebFetch(domain:datahub.io)",
+      "Bash(ls -la c:/Users/wilso/Documents/Flight/flightterm/backend/flightterm.db*)",
+      "Bash(wmic process:*)",
+      "Bash(tasklist /fi 'imagename eq node.exe' /v)"
     ]
   }
 }

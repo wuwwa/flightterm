@@ -31,6 +31,7 @@ export async function fetchAdsbx(region = 'global', apiKey, radius = 100) {
     // adsbx gives speed in knots, convert to m/s
     vel:      a.gs != null ? parseFloat((a.gs * 0.514444).toFixed(1)) : null,
     hdg:      a.track != null ? Math.round(a.track) : null,
+    squawk:   a.squawk || null,
     mil:      a.mil === true,
     src:      'adsbx',
   }))

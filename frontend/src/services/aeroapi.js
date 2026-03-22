@@ -4,10 +4,12 @@ import axios from 'axios'
 // The Express server holds the API key — it never reaches the browser
 const BASE = '/api/aero'
 
-export async function fetchFlight(callsign) {
+export async function fetchFlight(callsign, userAeroKey = '') {
   const cs = callsign.trim().replace(/\s+/g, '')
+  const headers = {}
+  if (userAeroKey) headers['x-user-aero-key'] = userAeroKey
   const response = await axios.get(`${BASE}/flights/${cs}`, {
-    params: { max_pages: 1 }
+    params: { max_pages: 1 }, headers,
   })
   const flights = response.data?.flights || []
   // Prefer an active en-route flight, fall back to most recent
@@ -23,6 +25,16 @@ export async function fetchUsage(params = {}) {
 
 export async function fetchCosts() {
   const response = await axios.get(`${BASE}/costs`)
+  return response.data
+}
+
+export async function fetchAeroSpend() {
+  const response = await axios.get(`${BASE}/spend`)
+  return response.data
+}
+
+export async function fetchKeyStatus() {
+  const response = await axios.get('/api/keys')
   return response.data
 }
 

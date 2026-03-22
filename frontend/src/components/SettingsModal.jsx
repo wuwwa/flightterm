@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { testAdsbxKey } from '../services/adsbx'
+import { fetchKeyStatus } from '../services/aeroapi'
 
 const SOURCE_OPTIONS = [
   { key: 'auto',    name: 'auto',          desc: 'use adsbx if key\nset, else opensky' },
@@ -8,10 +9,24 @@ const SOURCE_OPTIONS = [
   { key: 'adsbx',   name: 'adsbx only',   desc: 'requires key\nunfiltered · ~$10/mo' },
 ]
 
+function StatusDot({ ok, label }) {
+  return (
+    <span className="flex items-center gap-1.5 text-[10px]">
+      <span className={ok ? 'text-grn' : 'text-fg3'}>{ok ? '●' : '○'}</span>
+      <span className={ok ? 'text-grn' : 'text-fg3'}>{label}</span>
+    </span>
+  )
+}
+
 export default function SettingsModal({ settings, onSave, onClose }) {
   const [local, setLocal] = useState({ ...settings })
   const [testResult, setTestResult] = useState(null)
   const [testing, setTesting] = useState(false)
+  const [serverKeys, setServerKeys] = useState(null)
+
+  useEffect(() => {
+    fetchKeyStatus().then(setServerKeys).catch(() => {})
+  }, [])
 
   const set = (key, val) => setLocal(prev => ({ ...prev, [key]: val }))
 
@@ -32,7 +47,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     <div className="fixed inset-0 bg-black/72 z-100 flex items-center justify-center" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="bg-bg1 border border-border2 w-120 max-w-[95vw] max-h-[90vh] flex flex-col">
         <div className="bg-bg2 border-b border-border py-1.5 px-3 flex justify-between items-center text-[11px] text-fg2 shrink-0">
-          <span className="text-acc">⚙ settings</span>
+          <span className="text-acc">settings</span>
           <button className="bg-transparent border-none text-fg3 text-[11px] cursor-pointer" onClick={onClose}>✕</button>
         </div>
 
@@ -58,6 +73,57 @@ export default function SettingsModal({ settings, onSave, onClose }) {
             </div>
           </div>
 
+          {/* API health status */}
+          {serverKeys && (
+            <div className="mb-4">
+              <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">api status</div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 px-1">
+                <StatusDot ok={serverKeys.opensky_id && serverKeys.opensky_secret} label="opensky (server)" />
+                <StatusDot ok={!!local.userOsClientId && !!local.userOsClientSecret} label="opensky (yours)" />
+                <StatusDot ok={serverKeys.aeroapi} label="aeroapi (server)" />
+                <StatusDot ok={!!local.userAeroKey} label="aeroapi (yours)" />
+                <StatusDot ok={!!local.adsbxKey} label="adsbx (yours)" />
+              </div>
+            </div>
+          )}
+
+          {/* User API keys — stored client-side in localStorage */}
+          <div className="mb-4">
+            <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">your api keys</div>
+            <span className="text-fg3 text-[10px] block mb-2">paste your own keys to override the server defaults. stored in your browser only.</span>
+
+            <div className="flex flex-col gap-1 mb-2.5">
+              <label className="text-fg3 text-[11px]">opensky client id</label>
+              <input
+                type="password"
+                className="bg-bg border border-border2 text-fg text-xs py-1.5 px-2 outline-none w-full font-mono"
+                value={local.userOsClientId}
+                onChange={e => set('userOsClientId', e.target.value)}
+                placeholder={local.userOsClientId ? '••••••• (set)' : 'optional'}
+              />
+            </div>
+            <div className="flex flex-col gap-1 mb-2.5">
+              <label className="text-fg3 text-[11px]">opensky client secret</label>
+              <input
+                type="password"
+                className="bg-bg border border-border2 text-fg text-xs py-1.5 px-2 outline-none w-full font-mono"
+                value={local.userOsClientSecret}
+                onChange={e => set('userOsClientSecret', e.target.value)}
+                placeholder={local.userOsClientSecret ? '••••••• (set)' : 'optional'}
+              />
+            </div>
+            <div className="flex flex-col gap-1 mb-2.5">
+              <label className="text-fg3 text-[11px]">flightaware aeroapi key</label>
+              <input
+                type="password"
+                className="bg-bg border border-border2 text-fg text-xs py-1.5 px-2 outline-none w-full font-mono"
+                value={local.userAeroKey}
+                onChange={e => set('userAeroKey', e.target.value)}
+                placeholder={local.userAeroKey ? '••••••• (set)' : 'optional — bypasses $5 cap'}
+              />
+            </div>
+          </div>
+
           {/* ADS-B Exchange */}
           <div className="mb-4">
             <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">ads-b exchange — rapidapi</div>
@@ -70,10 +136,6 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 onChange={e => set('adsbxKey', e.target.value)}
                 placeholder="paste key here"
               />
-              <span className="text-fg3 text-[10px] leading-relaxed">
-                subscribe at rapidapi.com/adsbx/api/adsbexchange-com1
-                <br />~$10/mo · 10,000 req/month · unfiltered incl. military
-              </span>
             </div>
             <div className="flex flex-col gap-1 mb-2.5">
               <label className="text-fg3 text-[11px]">search radius (nm, 1–100)</label>
@@ -98,29 +160,6 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                   {testResult.msg}
                 </span>
               )}
-            </div>
-          </div>
-
-          {/* OpenSky */}
-          <div className="mb-4">
-            <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">opensky network — oauth2</div>
-            <div className="text-fg3 text-[10px] leading-relaxed p-2 border border-border">
-              credentials are stored in <span className="text-ylw">backend/.env</span> as{' '}
-              <span className="text-ylw">OS_CLIENT_ID</span> and{' '}
-              <span className="text-ylw">OS_CLIENT_SECRET</span>
-              <br />create a client at opensky-network.org → account → API clients
-              <br />authenticated: 4,000 credits/day · anonymous: 400 credits/day
-            </div>
-          </div>
-
-          {/* AeroAPI */}
-          <div className="mb-4">
-            <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">flightaware aeroapi</div>
-            <div className="text-fg3 text-[10px] leading-relaxed p-2 border border-border">
-              the aeroapi key is stored in <span className="text-ylw">backend/.env</span> as{' '}
-              <span className="text-ylw">AEROAPI_KEY=your_key_here</span>
-              <br />it never touches the browser — this is intentional (no CORS issues, no key exposure).
-              <br />restart the backend after changing it.
             </div>
           </div>
 

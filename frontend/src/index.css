@@ -103,7 +103,7 @@
 
 
 @utility animate-blink {
-  animation: blink 0.9s step-end infinite;
+  animation: blink 2.5s step-end infinite;
 }
 
 @utility animate-pulse-border {

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 
 const REGIONS = ['global', 'usa', 'europe', 'asia', 'atlantic']
@@ -32,7 +33,23 @@ export default function ControlBar({
   onOpenUsage,
   region, onRegionChange,
   interval,
+  lastFetchAt,
 }) {
+  const [countdown, setCountdown] = useState(null)
+
+  useEffect(() => {
+    if (!autoOn || !lastFetchAt) { setCountdown(null); return }
+
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - lastFetchAt) / 1000)
+      const remaining = Math.max(0, interval - elapsed)
+      setCountdown(remaining)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [autoOn, lastFetchAt, interval])
+
   return (
     <div className="bg-bg1 border-b border-border py-1 px-2.5 flex gap-1.5 items-center flex-nowrap overflow-x-auto shrink-0">
       <div className="flex items-center gap-1.5 flex-1 min-w-40">
@@ -52,12 +69,16 @@ export default function ControlBar({
       </Btn>
 
       <Btn active={autoOn} onClick={onToggleAuto}>
-        {autoOn ? `auto [${interval}s]` : 'auto-refresh'}
+        {autoOn
+          ? countdown != null
+            ? `auto [${countdown}s]`
+            : `auto [${interval}s]`
+          : 'auto-refresh'}
       </Btn>
 
       <Btn danger onClick={onClearLog}>clear log</Btn>
 
-      <Btn onClick={onOpenSettings}>⚙ settings</Btn>
+      <Btn onClick={onOpenSettings}>settings</Btn>
 
       <Btn onClick={onOpenUsage}>$ usage</Btn>
 

@@ -11,14 +11,20 @@ import UsagePanel from './components/UsagePanel'
 import { fetchStates } from './services/opensky'
 import { fetchAdsbx } from './services/adsbx'
 import { enrichFlight } from './services/adsbdb'
-import { checkHealth } from './services/aeroapi'
+import { checkHealth, fetchAeroSpend } from './services/aeroapi'
+
+import { recordSightings, fetchOpenSkyUsageToday, fetchAircraftTrack } from './services/sightings'
+import { scoreAnomaly, ANOMALY_THRESHOLD } from './utils/anomaly'
 
 // ── default settings ──────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
   sourcePref: 'auto',
   adsbxKey: '',
   adsbxRadius: 100,
-  interval: 30,
+  interval: 90,
+  userAeroKey: '',
+  userOsClientId: '',
+  userOsClientSecret: '',
 }
 
 function loadSettings() {
@@ -53,7 +59,7 @@ export default function App() {
   const [flights, setFlights] = useState([])
   const [logEntries, setLogEntries] = useState([])
   const [settings, setSettings] = useState(loadSettings)
-  const [region, setRegion] = useState('global')
+  const [region, setRegion] = useState('usa')
   const [filter, setFilter] = useState('')
   const [fetching, setFetching] = useState(false)
   const [autoOn, setAutoOn] = useState(false)
@@ -61,6 +67,8 @@ export default function App() {
   const [backendOk, setBackendOk] = useState(false)
   const [statusText, setStatusText] = useState('idle')
   const [lastFetchAt, setLastFetchAt] = useState(null)
+  const [openskyUsage, setOpenskyUsage] = useState(null)
+  const [aeroSpend, setAeroSpend] = useState(null)
 
   // ── UI overlay state ────────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false)
@@ -71,9 +79,19 @@ export default function App() {
   const [enrichCache, setEnrichCache] = useState({})
   const [aeroCache, setAeroCache] = useState({})
 
+  // ── flight tracking history (per-icao, last N snapshots) ────────────────────
+  const [trackHistory, setTrackHistory] = useState({})
+  const trackHistoryRef = useRef({})
+  trackHistoryRef.current = trackHistory
+
+  // ── anomalies: icaos with sudden alt/vel changes ──────────────────────────
+  const [anomalies, setAnomalies] = useState({}) // { icao: { score, phase, reasons[], confirmed, label } }
+
   // ── auto-refresh ref ────────────────────────────────────────────────────────
   const autoRef = useRef(null)
   const fetchFlightsRef = useRef(null)
+  const openskyUsageRef = useRef(null)
+  openskyUsageRef.current = openskyUsage
 
   // ── logging ──────────────────────────────────────────────────────────────────
   const log = useCallback((msg, type = '') => {
@@ -84,12 +102,27 @@ export default function App() {
     setLogEntries([makeEntry('log cleared', 'info')])
   }, [])
 
+  // ── refresh usage from backend ───────────────────────────────────────────────
+  const refreshAeroSpend = useCallback(() => {
+    fetchAeroSpend()
+      .then(setAeroSpend)
+      .catch(() => {})
+  }, [])
+
+  const refreshOpenskyUsage = useCallback(() => {
+    fetchOpenSkyUsageToday()
+      .then(setOpenskyUsage)
+      .catch(() => {})
+  }, [])
+
   // ── backend health check ─────────────────────────────────────────────────────
   useEffect(() => {
     checkHealth()
       .then((d) => {
         setBackendOk(true)
-        log(`backend ok · aeroapi configured: ${d.aeroapi_configured}`, 'ok')
+        log(`backend ok · opensky: ${d.opensky_configured ? '✓' : '✗'} · aeroapi: ${d.aeroapi_configured ? '✓' : '✗'}`, 'ok')
+        refreshAeroSpend()
+        refreshOpenskyUsage()
       })
       .catch(() => {
         setBackendOk(false)
@@ -122,10 +155,16 @@ export default function App() {
   // ── fetch flights ─────────────────────────────────────────────────────────────
   const fetchFlights = useCallback(async () => {
     if (fetching) return
+
+    // ── credit guard ────────────────────────────────────────────────────────
+    const src = resolveSource()
+    if (src === 'opensky' && openskyUsageRef.current?.remaining <= 0) {
+      log('opensky: daily credit limit reached — fetch blocked', 'err')
+      return
+    }
+
     setFetching(true)
     setStatusText('fetching')
-
-    const src = resolveSource()
     const t0 = performance.now()
 
     let result = null
@@ -161,10 +200,15 @@ export default function App() {
     if (usedSource === 'opensky' && result === null) {
       try {
         log(`opensky: GET states/all · region=${region}`, 'info')
-        result = await fetchStates(region)
+        const resp = await fetchStates(region, {
+          osClientId: settings.userOsClientId,
+          osClientSecret: settings.userOsClientSecret,
+        })
+        result = resp.flights
         setActiveSource('opensky')
         const ms = Math.round(performance.now() - t0)
         log(`opensky: ${result.length} state vectors received (${ms}ms)`, 'ok')
+        refreshOpenskyUsage()
       } catch (err) {
         log(`opensky error: ${err.message}`, 'err')
         result = []
@@ -175,10 +219,47 @@ export default function App() {
       setFlights(result)
       setLastFetchAt(Date.now())
 
+      // ── track history snapshots per aircraft ────────────────────────────
+      const MAX_SNAPSHOTS = 30
+      const now = Date.now()
+      setTrackHistory((prev) => {
+        const next = { ...prev }
+        for (const f of result) {
+          if (f.alt == null && f.vel == null) continue
+          const arr = next[f.icao] ? [...next[f.icao]] : []
+          arr.push({ ts: now, alt: f.alt, vel: f.vel, hdg: f.hdg, grounded: f.grounded })
+          if (arr.length > MAX_SNAPSHOTS) arr.shift()
+          next[f.icao] = arr
+        }
+        return next
+      })
+
+      // ── score anomalies using phase-aware engine ─────────────────────────
+      const prevTrack = trackHistoryRef.current
+      const newAnomalies = {}
+      for (const f of result) {
+        const hist = prevTrack[f.icao]
+        if (!hist || hist.length < 2) continue
+        const { score, phase, reasons, confirmed } = scoreAnomaly(hist, f)
+        if (score >= ANOMALY_THRESHOLD) {
+          newAnomalies[f.icao] = { score, phase, reasons, confirmed, label: reasons[0] || 'anomaly' }
+        }
+      }
+      setAnomalies(newAnomalies)
+      if (Object.keys(newAnomalies).length > 0) {
+        const confirmed = Object.values(newAnomalies).filter(a => a.confirmed).length
+        log(`anomalies: ${Object.keys(newAnomalies).length} scored above threshold${confirmed ? ` (${confirmed} confirmed)` : ''}`, 'warn')
+      }
+
       // ── summary stats ─────────────────────────────────────────────────────
       const airborne = result.filter((f) => !f.grounded)
       const grounded = result.length - airborne.length
       log(`  airborne: ${airborne.length} · grounded: ${grounded}`, 'info')
+
+      // ── persist to SQLite ────────────────────────────────────────────────
+      recordSightings(result, usedSource, region)
+        .then((d) => log(`db: ${d.recorded} sightings recorded`, 'info'))
+        .catch(() => {}) // silent — backend may be offline
     } else if (result !== null) {
       log(
         'no aircraft data returned — possibly rate limited, wait ~60s',
@@ -223,10 +304,33 @@ export default function App() {
     log(`region → ${r}`, 'info')
   }
 
-  // ── row selection + adsbdb enrichment ────────────────────────────────────────
+  // ── row selection + adsbdb enrichment + backend track pre-fill ───────────────
   const handleSelectFlight = useCallback(
     async (flight) => {
       setSelectedFlight(flight)
+
+      // Pre-fill track history from backend if we don't have much in-memory
+      const existing = trackHistoryRef.current[flight.icao]
+      if (!existing || existing.length < 3) {
+        fetchAircraftTrack(flight.icao, 60)
+          .then((rows) => {
+            if (rows.length > 0) {
+              const backendSnaps = rows.map((r) => ({
+                ts: new Date(r.seen_at).getTime(),
+                alt: r.alt, vel: r.vel, hdg: r.hdg, grounded: !!r.grounded,
+              }))
+              setTrackHistory((prev) => {
+                const mem = prev[flight.icao] || []
+                // merge: backend rows first, then in-memory (dedup by ts)
+                const seen = new Set(mem.map((s) => s.ts))
+                const merged = [...backendSnaps.filter((s) => !seen.has(s.ts)), ...mem]
+                merged.sort((a, b) => a.ts - b.ts)
+                return { ...prev, [flight.icao]: merged.slice(-60) }
+              })
+            }
+          })
+          .catch(() => {})
+      }
 
       if (enrichCache[flight.icao]) return
 
@@ -278,8 +382,9 @@ export default function App() {
         `aeroapi: ${icao} — ${data ? 'data received' : 'no flight data'}`,
         data ? 'ok' : 'warn'
       )
+      refreshAeroSpend()
     },
-    [log]
+    [log, refreshAeroSpend]
   )
 
   // ── settings save ─────────────────────────────────────────────────────────────
@@ -345,6 +450,7 @@ export default function App() {
             region={region}
             onRegionChange={handleRegionChange}
             interval={settings.interval}
+            lastFetchAt={lastFetchAt}
           />
         </div>
 
@@ -360,6 +466,10 @@ export default function App() {
             filter={filter}
             selectedIcao={selectedFlight?.icao}
             enrichCache={enrichCache}
+            anomalies={anomalies}
+            trackHistory={trackHistory}
+            openskyUsage={openskyUsage}
+            aeroSpend={aeroSpend}
             onSelect={handleSelectFlight}
             onArrived={handleArrived}
             onDeparted={handleDeparted}
@@ -374,6 +484,9 @@ export default function App() {
               selectedFlight ? enrichCache[selectedFlight.icao] : null
             }
             aeroCache={aeroCache}
+            aeroSpend={aeroSpend}
+            userAeroKey={settings.userAeroKey}
+            trackHistory={selectedFlight ? trackHistory[selectedFlight.icao] : null}
             onClose={() => setSelectedFlight(null)}
             onAeroFetched={handleAeroFetched}
             backendOk={backendOk}

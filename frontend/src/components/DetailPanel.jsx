@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import { fetchFlight } from '../services/aeroapi'
+import { squawkLabel, squawkColor } from '../utils/squawk'
+import TrackChart from './TrackChart'
 
 function DRow({ label, value, colorClass = 'text-fg' }) {
   return (
@@ -37,6 +39,9 @@ export default function DetailPanel({
   flight,
   enrichData,
   aeroCache,
+  aeroSpend,
+  userAeroKey,
+  trackHistory,
   onClose,
   onAeroFetched,
   backendOk,
@@ -67,7 +72,7 @@ export default function DetailPanel({
     setAeroLoading(true)
     setAeroError(null)
     try {
-      const data = await fetchFlight(flight.callsign)
+      const data = await fetchFlight(flight.callsign, userAeroKey)
       onAeroFetched(flight.icao, data)
     } catch (err) {
       setAeroError(err.response?.data?.error || err.message)
@@ -124,10 +129,19 @@ export default function DetailPanel({
         colorClass="text-fg3"
       />
       <DRow
+        label="squawk"
+        value={squawkLabel(flight.squawk)}
+        colorClass={squawkColor(flight.squawk)}
+      />
+      <DRow
         label="status"
         value={flight.grounded ? 'ground' : 'airborne'}
         colorClass={flight.grounded ? 'text-ylw' : 'text-grn'}
       />
+
+      {/* Track history sparklines */}
+      <Section title="track" />
+      <TrackChart snapshots={trackHistory} />
 
       {/* Aircraft */}
       <Section title="aircraft" />
@@ -199,6 +213,8 @@ export default function DetailPanel({
       <Section title="flightaware aeroapi" />
       {!backendOk ? (
         <DRow label="status" value="backend offline" colorClass="text-red" />
+      ) : aeroSpend?.cap_reached && !aeroData ? (
+        <DRow label="status" value={`cap reached ($${aeroSpend.total_spend.toFixed(2)} / $${aeroSpend.cap.toFixed(2)})`} colorClass="text-red" />
       ) : aeroData ? (
         <>
           <DRow label="ident" value={aeroData.ident} colorClass="text-ylw" />

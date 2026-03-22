@@ -8,14 +8,18 @@ export const REGIONS = {
   atlantic: { lat: 40,  lon: -40, bbox: { lamin: 10,  lomin: -70,  lamax: 60,   lomax: -10  } },
 }
 
-export async function fetchStates(region = 'global') {
+export async function fetchStates(region = 'global', userKeys = {}) {
   const reg = REGIONS[region]
   const params = reg.bbox ? { ...reg.bbox } : {}
+  const headers = {}
+  if (userKeys.osClientId) headers['x-user-os-id'] = userKeys.osClientId
+  if (userKeys.osClientSecret) headers['x-user-os-secret'] = userKeys.osClientSecret
 
-  const response = await axios.get('/api/opensky/states', { params })
+  const response = await axios.get('/api/opensky/states', { params, headers })
   const states = response.data?.states || []
+  const credits = response.data?._credits || null
 
-  return states.map(s => ({
+  const flights = states.map(s => ({
     icao:     (s[0] || '').trim(),
     callsign: (s[1] || '').trim() || '—',
     country:  s[2] || 'unknown',
@@ -25,7 +29,10 @@ export async function fetchStates(region = 'global') {
     grounded: s[8]  ?? false,
     vel:      s[9]  != null ? parseFloat(s[9].toFixed(1))  : null,
     hdg:      s[10] != null ? Math.round(s[10])             : null,
+    squawk:   s[14] || null,
     mil:      false,
     src:      'opensky',
   }))
+
+  return { flights, credits }
 }

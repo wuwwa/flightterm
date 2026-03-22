@@ -6,6 +6,11 @@ frontend/dist/
 # API keys — never commit this
 backend/.env
 
+# SQLite database
+backend/*.db
+backend/*.db-wal
+backend/*.db-shm
+
 # OS
 .DS_Store
 Thumbs.db
