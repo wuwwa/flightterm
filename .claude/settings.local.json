@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls c:/Users/wilso/Documents/Flight/flightterm/backend/node_modules/.bin/nodemon*)"
+    ]
+  }
+}

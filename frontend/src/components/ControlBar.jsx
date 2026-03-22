@@ -8,7 +8,8 @@ const s = {
     display: 'flex',
     gap: '6px',
     alignItems: 'center',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
+    overflowX: 'auto',
     flexShrink: 0,
   },
   prompt: {
