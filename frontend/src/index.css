@@ -55,3 +55,17 @@ a {
 @keyframes blink {
   50% { opacity: 0; }
 }
+
+@keyframes pulse-border {
+  0%, 100% { border-color: var(--border2); background: rgba(129,162,190,0.02); }
+  50% { border-color: var(--acc); background: rgba(129,162,190,0.08); }
+}
+
+.pulse-btn {
+  animation: pulse-border 3s ease-in-out infinite;
+}
+.pulse-btn:hover {
+  animation: none;
+  border-color: var(--acc) !important;
+  background: rgba(129,162,190,0.14) !important;
+}
