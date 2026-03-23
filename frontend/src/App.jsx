@@ -76,6 +76,22 @@ export default function App() {
   const [showUsage, setShowUsage] = useState(false)
   const [showNotams, setShowNotams] = useState(false)
 
+  // ── sidebar resize state ───────────────────────────────────────────────────
+  const [sidebarW, setSidebarW] = useState(360)
+  const draggingRef = useRef(false)
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!draggingRef.current) return
+      const w = window.innerWidth - e.clientX
+      setSidebarW(Math.max(200, Math.min(600, w)))
+    }
+    const onUp = () => { draggingRef.current = false; document.body.style.cursor = '' }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [])
+
   // ── detail / enrichment state ───────────────────────────────────────────────
   const [selectedFlight, setSelectedFlight] = useState(null)
   const [enrichCache, setEnrichCache] = useState({})
@@ -424,7 +440,10 @@ export default function App() {
   // ── render ────────────────────────────────────────────────────────────────────
   return (
     <>
-      <div className="grid grid-rows-[auto_auto_auto_1fr_auto] grid-cols-1 md:grid-cols-[1fr_300px] h-screen overflow-hidden">
+      <div
+        className="grid grid-rows-[auto_auto_auto_1fr_auto] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
+        style={{ '--sidebar-w': `${sidebarW}px` }}
+      >
         {/* Top status bar */}
         <div className="col-span-full row-start-1">
           <TopBar
@@ -480,9 +499,15 @@ export default function App() {
         </div>
 
         {/* Detail panel */}
-        <div className="row-start-4 overflow-y-auto min-h-0 hidden md:block">
+        <div className="row-start-4 overflow-y-auto min-h-0 hidden md:block relative">
+          {/* Resize handle */}
+          <div
+            className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-acc/30 active:bg-acc/50 transition-colors"
+            onMouseDown={(e) => { e.preventDefault(); draggingRef.current = true; document.body.style.cursor = 'col-resize' }}
+          />
           <DetailPanel
             flight={selectedFlight}
+            flights={flights}
             enrichData={
               selectedFlight ? enrichCache[selectedFlight.icao] : null
             }

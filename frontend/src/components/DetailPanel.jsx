@@ -14,15 +14,16 @@ function DRow({ label, value, colorClass = 'text-fg' }) {
   )
 }
 
-function Section({ title, srcTag }) {
+function Section({ title, srcTag, right }) {
   return (
-    <div className="py-1.5 px-2.5 text-[10px] text-fg3 bg-bg2 border-t border-b border-border mt-px tracking-wide shrink-0">
-      {title}
+    <div className="py-1.5 px-2.5 text-[10px] text-fg3 bg-bg2 border-t border-b border-border mt-px tracking-wide shrink-0 flex justify-between items-center">
+      <span>{title}</span>
       {srcTag && (
-        <span className={clsx('float-right text-[10px]', srcTag.colorClass)}>
+        <span className={clsx('text-[10px]', srcTag.colorClass)}>
           [{srcTag.label}]
         </span>
       )}
+      {right}
     </div>
   )
 }
@@ -38,6 +39,7 @@ function fmtTime(s) {
 
 export default function DetailPanel({
   flight,
+  flights,
   enrichData,
   aeroCache,
   aeroSpend,
@@ -49,6 +51,7 @@ export default function DetailPanel({
 }) {
   const [aeroLoading, setAeroLoading] = useState(false)
   const [aeroError, setAeroError] = useState(null)
+  const [showNearby, setShowNearby] = useState(false)
 
   if (!flight) {
     return (
@@ -141,8 +144,21 @@ export default function DetailPanel({
       />
 
       {/* Flight map */}
-      <Section title="map" />
-      <FlightMap snapshots={trackHistory} flight={flight} />
+      <Section
+        title="map"
+        right={
+          <button
+            className={clsx(
+              'text-[9px] font-mono py-0 px-1.5 border cursor-pointer',
+              showNearby ? 'bg-acc/20 border-acc text-acc' : 'border-border2 text-fg3 hover:text-fg2'
+            )}
+            onClick={() => setShowNearby(p => !p)}
+          >
+            nearby
+          </button>
+        }
+      />
+      <FlightMap snapshots={trackHistory} flight={flight} flights={flights} showNearby={showNearby} />
 
       {/* Track history sparklines */}
       <Section title="track" />
