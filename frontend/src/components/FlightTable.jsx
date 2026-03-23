@@ -6,13 +6,13 @@ import { detectPhase, PHASE } from '../utils/anomaly'
 const COLS = [
   { key: 'icao',     label: 'icao24' },
   { key: 'callsign', label: 'callsign' },
-  { key: 'country',  label: 'country' },
+  { key: 'country',  label: 'country', hideMobile: true },
   { key: 'alt',      label: 'alt (m)' },
   { key: 'vel',      label: 'spd (m/s)', hide: true },
   { key: 'hdg',      label: 'hdg',       hide: true },
   { key: 'squawk',   label: 'squawk',   hide: true },
   { key: 'status',   label: 'status' },
-  { key: 'db',       label: 'db' },
+  { key: 'db',       label: 'db', hideMobile: true },
 ]
 
 // priority for takeoff sort — lower = closer to takeoff
@@ -168,8 +168,8 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
 
   return (
     <div className="flex flex-col bg-bg flex-1 min-h-0">
-      <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 shrink-0">
-        <span className="flex items-center gap-1.5 min-w-0">
+      <div className="flex flex-wrap justify-between items-center py-0.5 px-1.5 sm:px-2.5 bg-bg2 border-b border-border text-[10px] sm:text-[11px] text-fg3 shrink-0 gap-y-0.5">
+        <span className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-wrap">
           <span className="text-fg">{filtered.length}</span>
           <span>records</span>
           {filtered.length > limit && (
@@ -238,7 +238,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
             })}
           </span>
         </span>
-        <span className="flex gap-3 items-center shrink-0">
+        <span className="hidden sm:flex gap-3 items-center shrink-0">
           {openskyUsage && (
             <span>
               <span className="text-acc">opensky</span>{' '}
@@ -270,8 +270,9 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                 <th
                   key={col.key}
                   className={clsx(
-                    'group py-0.5 px-2.5 text-left font-normal text-[11px] cursor-pointer select-none whitespace-nowrap font-mono bg-bg2 border-b border-border',
+                    'group py-0.5 px-1.5 sm:px-2.5 text-left font-normal text-[10px] sm:text-[11px] cursor-pointer select-none whitespace-nowrap font-mono bg-bg2 border-b border-border',
                     col.hide && 'hidden sm:table-cell',
+                    col.hideMobile && 'hidden sm:table-cell',
                     isActive ? 'text-acc' : 'text-fg3 hover:text-fg2'
                   )}
                   onClick={() => handleSort(col.key)}
@@ -314,7 +315,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                 )}
                 onClick={() => onSelect(f)}
               >
-                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg3">
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3">
                   {anomaly && (
                     <span
                       className={clsx('mr-1', anomaly.confirmed ? 'text-red font-bold' : 'text-red')}
@@ -325,25 +326,25 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                   )}
                   {f.icao}
                 </td>
-                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-ylw">
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-ylw">
                   {f.callsign}
                   {f.mil && <span className="text-red text-[10px]"> [mil]</span>}
                 </td>
-                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg3">{f.country}</td>
-                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs', f.grounded ? 'text-ylw' : 'text-cyn')}>
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell">{f.country}</td>
+                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs', f.grounded ? 'text-ylw' : 'text-cyn')}>
                   {f.alt ?? '—'}
                 </td>
-                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg2 hidden sm:table-cell">{f.vel ?? '—'}</td>
-                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg3 hidden sm:table-cell">
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg2 hidden sm:table-cell">{f.vel ?? '—'}</td>
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell">
                   {f.hdg != null ? `${f.hdg}°` : '—'}
                 </td>
-                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs hidden sm:table-cell', squawkColor(f.squawk))}>
+                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell', squawkColor(f.squawk))}>
                   {squawkLabel(f.squawk)}
                 </td>
-                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs', f.grounded ? 'text-ylw' : 'text-grn')}>
+                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs', f.grounded ? 'text-ylw' : 'text-grn')}>
                   {f.grounded ? 'ground' : 'air'}
                 </td>
-                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs', cached ? 'text-grn' : 'text-fg3')}>
+                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell', cached ? 'text-grn' : 'text-fg3')}>
                   {cached ? '✓' : '·'}
                 </td>
               </tr>

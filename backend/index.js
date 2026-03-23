@@ -21,7 +21,9 @@ const OS_BASE   = 'https://opensky-network.org/api'
 const OS_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
 const FAA_NOTAM_BASE = 'https://external-api.faa.gov/notamapi/v1/notams'
 
-app.use(cors())
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+}))
 app.use(express.json({ limit: '10mb' }))
 
 // ── OpenSky OAuth2 token cache ────────────────────────────────────────────────
@@ -123,12 +125,15 @@ const COST_MAP = {
   'POST /alerts':                            0.000,
 }
 
-// ── routes ────────────────────────────────────────────────────────────────────
+// ── serve frontend in production ──────────────────────────────────────────────
+const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'dist')
+console.log(`looking for frontend at ${STATIC_DIR} — exists: ${require('fs').existsSync(STATIC_DIR)}`)
+if (require('fs').existsSync(STATIC_DIR)) {
+  app.use(express.static(STATIC_DIR))
+  console.log(`serving frontend from ${STATIC_DIR}`)
+}
 
-// Root — helpful redirect hint
-app.get('/', (req, res) => {
-  res.json({ service: 'flightterm-backend', ui: 'http://localhost:5173', health: '/api/health' })
-})
+// ── routes ────────────────────────────────────────────────────────────────────
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -534,15 +539,12 @@ app.get('/api/aero/spend', async (_req, res) => {
   })
 })
 
-// ── serve frontend in production ──────────────────────────────────────────────
-const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'dist')
+// ── SPA fallback (after all API routes) ──────────────────────────────────────
 if (require('fs').existsSync(STATIC_DIR)) {
-  app.use(express.static(STATIC_DIR))
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next()
     res.sendFile(path.join(STATIC_DIR, 'index.html'))
   })
-  console.log(`serving frontend from ${STATIC_DIR}`)
 }
 
 // ── start ─────────────────────────────────────────────────────────────────────

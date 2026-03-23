@@ -14,7 +14,7 @@
 //   S3_BUCKET              – bucket name (required to enable archival)
 //   S3_REGION              – AWS region, default us-east-1
 //   S3_PREFIX              – key prefix inside bucket, default "flightterm/"
-//   S3_ARCHIVE_DAYS        – archive daily rows older than this, default 30
+//   S3_ARCHIVE_DAYS        – archive daily rows older than this, default 3
 //   AWS_ACCESS_KEY_ID      – standard AWS credential
 //   AWS_SECRET_ACCESS_KEY
 
@@ -24,7 +24,7 @@ const zlib = require('zlib')
 const BUCKET = process.env.S3_BUCKET
 const REGION = process.env.S3_REGION || 'us-east-1'
 const PREFIX = process.env.S3_PREFIX || 'flightterm/'
-const ARCHIVE_AFTER_DAYS = parseInt(process.env.S3_ARCHIVE_DAYS, 10) || 30
+const ARCHIVE_AFTER_DAYS = parseInt(process.env.S3_ARCHIVE_DAYS, 10) || 3
 
 // Safety limits
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024  // 5 MB per file
@@ -141,10 +141,11 @@ async function archiveOldDaily(db) {
 
   // Only delete rows for months that were successfully uploaded
   if (uploadedMonths.length > 0) {
-    const placeholders = uploadedMonths.map((m) => `'${m}%'`).join(' OR date LIKE ')
+    const likeClauses = uploadedMonths.map(() => 'date LIKE ?').join(' OR ')
+    const likeParams = uploadedMonths.map((m) => `${m}%`)
     const deleted = db
-      .prepare(`DELETE FROM sightings_daily WHERE date < ? AND (date LIKE ${placeholders})`)
-      .run(cutoff)
+      .prepare(`DELETE FROM sightings_daily WHERE date < ? AND (${likeClauses})`)
+      .run(cutoff, ...likeParams)
 
     console.log(`  s3: archived ${totalArchived} daily rows, deleted ${deleted.changes} from sqlite`)
   }

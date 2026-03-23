@@ -159,8 +159,9 @@ export default function App() {
       'enrichment: adsbdb (free, auto) · aeroapi (on-demand, $0.005/call)',
       'info'
     )
-    //auto-fetches
-    //setTimeout(() => fetchFlightsRef.current?.(), 0)
+    // Auto-fetch on first load in production
+    const isProd = !window.location.hostname.includes('localhost')
+    if (isProd) setTimeout(() => fetchFlightsRef.current?.(), 500)
   }, [])
 
   // ── resolve which source to actually use ─────────────────────────────────────
@@ -499,7 +500,7 @@ export default function App() {
           />
         </div>
 
-        {/* Detail panel */}
+        {/* Detail panel — desktop sidebar */}
         <div className="row-start-4 overflow-y-auto min-h-0 hidden md:block relative">
           {/* Resize handle */}
           <div
@@ -522,13 +523,39 @@ export default function App() {
           />
         </div>
 
-        {/* Bottom status bar */}
-        <div className="col-span-full row-start-5 bg-acc py-0.5 px-2.5 flex justify-between text-[11px] text-bg shrink-0">
-          <div>
-            <span className="bg-bg text-acc py-0 px-2 mr-1.5">NORMAL</span>
-            <span>{botSrc}</span>
+        {/* Detail panel — mobile slide-up sheet */}
+        {selectedFlight && (
+          <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
+            <div className="absolute inset-0 bg-black/60" onClick={() => setSelectedFlight(null)} />
+            <div className="relative bg-bg1 max-h-[80vh] overflow-y-auto rounded-t-lg border-t border-border">
+              <div className="sticky top-0 z-10 bg-bg2 flex justify-between items-center py-1 px-3 border-b border-border">
+                <span className="text-acc text-[11px]">aircraft intel</span>
+                <button className="text-fg3 text-sm px-2" onClick={() => setSelectedFlight(null)}>✕</button>
+              </div>
+              <DetailPanel
+                flight={selectedFlight}
+                flights={flights}
+                enrichData={enrichCache[selectedFlight.icao] ?? null}
+                aeroCache={aeroCache}
+                aeroSpend={aeroSpend}
+                userAeroKey={settings.userAeroKey}
+                trackHistory={trackHistory[selectedFlight.icao] ?? null}
+                onClose={() => setSelectedFlight(null)}
+                onAeroFetched={handleAeroFetched}
+                backendOk={backendOk}
+                mobile
+              />
+            </div>
           </div>
-          <div>{statusText}</div>
+        )}
+
+        {/* Bottom status bar */}
+        <div className="col-span-full row-start-5 bg-acc py-0.5 px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg shrink-0">
+          <div className="truncate">
+            <span className="bg-bg text-acc py-0 px-2 mr-1.5">NORMAL</span>
+            <span className="hidden sm:inline">{botSrc}</span>
+          </div>
+          <div className="shrink-0">{statusText}</div>
         </div>
       </div>
 

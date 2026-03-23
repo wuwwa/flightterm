@@ -52,21 +52,19 @@ export default function ControlBar({
   }, [autoOn, lastFetchAt, interval])
 
   return (
-    <div className="bg-bg1 border-b border-border py-1 px-2.5 flex gap-1.5 items-center flex-nowrap overflow-x-auto shrink-0">
-      <div className="flex items-center gap-1.5 flex-1 min-w-40">
+    <div className="bg-bg1 border-b border-border py-1 px-1.5 sm:px-2.5 flex flex-wrap gap-1 sm:gap-1.5 items-center shrink-0">
+      <div className="flex items-center gap-1.5 flex-1 min-w-30 sm:min-w-40">
         <span className="text-grn select-none">❯</span>
         <input
           className="bg-transparent border-none outline-none text-fg text-xs flex-1 caret-fg font-mono"
           value={filter}
           onChange={e => onFilterChange(e.target.value)}
-          placeholder="filter callsign / icao / country"
+          placeholder="filter callsign / icao"
         />
       </div>
 
-      <span className="text-border2 select-none">|</span>
-
       <Btn onClick={onFetch} disabled={fetching} pulse={!hasFetched && !fetching}>
-        {fetching ? 'fetching...' : 'fetch'}
+        {fetching ? '...' : 'fetch'}
       </Btn>
 
       <Btn active={autoOn} onClick={onToggleAuto}>
@@ -74,25 +72,26 @@ export default function ControlBar({
           ? countdown != null
             ? `auto [${countdown}s]`
             : `auto [${interval}s]`
-          : 'auto-refresh'}
+          : 'auto'}
       </Btn>
 
-      <Btn danger onClick={onClearLog}>clear log</Btn>
+      <Btn danger onClick={onClearLog}>clear</Btn>
 
-      <Btn onClick={onOpenSettings}>settings</Btn>
+      <Btn onClick={onOpenSettings}>⚙</Btn>
 
-      <Btn onClick={onOpenUsage}>$ usage</Btn>
+      <Btn onClick={onOpenUsage}>$</Btn>
 
       <Btn onClick={onOpenNotams}>NOTAMs</Btn>
 
-      <span className="text-border2 select-none">|</span>
-      <span className="text-fg3 text-[11px]">region:</span>
+      <span className="text-border2 select-none hidden sm:inline">|</span>
 
-      {REGIONS.map(r => (
-        <Btn key={r} active={region === r} onClick={() => onRegionChange(r)}>
-          {r}
-        </Btn>
-      ))}
+      <div className="flex gap-1 items-center">
+        {REGIONS.map(r => (
+          <Btn key={r} active={region === r} onClick={() => onRegionChange(r)}>
+            {r}
+          </Btn>
+        ))}
+      </div>
     </div>
   )
 }

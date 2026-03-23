@@ -1,28 +1,28 @@
-# ── flightterm · Fly.io config ────────────────────────────────────────────────
-# Deploy:  fly launch (first time) / fly deploy (updates)
-# Secrets: fly secrets set AEROAPI_KEY=... OS_CLIENT_ID=... etc.
-# Logs:    fly logs
+# fly.toml app configuration file generated for flightterm on 2026-03-22T22:36:32-04:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "flightterm"
-primary_region = "iad"
+app = 'flightterm'
+primary_region = 'iad'
 
 [build]
 
 [env]
-  PORT = "3001"
-  DB_DIR = "/data"
+  DB_DIR = '/data'
+  PORT = '3001'
+
+[[mounts]]
+  source = 'flightterm_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 3001
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
-
-[mounts]
-  source = "flightterm_data"
-  destination = "/data"
+  size = 'shared-cpu-1x'
+  memory = '512mb'

@@ -48,6 +48,7 @@ export default function DetailPanel({
   onClose,
   onAeroFetched,
   backendOk,
+  mobile,
 }) {
   const [aeroLoading, setAeroLoading] = useState(false)
   const [aeroError, setAeroError] = useState(null)
@@ -56,9 +57,11 @@ export default function DetailPanel({
   if (!flight) {
     return (
       <div className="bg-bg1 border-l border-border flex flex-col min-h-0 overflow-y-auto">
-        <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center text-[11px] text-fg3 sticky top-0 z-1 shrink-0">
-          <span className="text-acc">aircraft intel</span>
-        </div>
+        {!mobile && (
+          <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center text-[11px] text-fg3 sticky top-0 z-1 shrink-0">
+            <span className="text-acc">aircraft intel</span>
+          </div>
+        )}
         <div className="py-10 px-5 text-center text-fg3 text-[11px]">select a row to inspect</div>
       </div>
     )
@@ -86,14 +89,16 @@ export default function DetailPanel({
   }
 
   return (
-    <div className="bg-bg1 border-l border-border flex flex-col min-h-0 overflow-y-auto">
-      {/* sticky header */}
-      <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center text-[11px] text-fg3 sticky top-0 z-1 shrink-0">
-        <span className="text-acc">aircraft intel</span>
-        <button className="bg-transparent border-none text-fg3 text-[11px] cursor-pointer py-0.5 px-1" onClick={onClose}>
-          ✕
-        </button>
-      </div>
+    <div className={clsx('bg-bg1 flex flex-col min-h-0', !mobile && 'border-l border-border overflow-y-auto')}>
+      {/* sticky header — hidden in mobile sheet (sheet has its own) */}
+      {!mobile && (
+        <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center text-[11px] text-fg3 sticky top-0 z-1 shrink-0">
+          <span className="text-acc">aircraft intel</span>
+          <button className="bg-transparent border-none text-fg3 text-[11px] cursor-pointer py-0.5 px-1" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Photo */}
       {aircraft?.url_photo_thumbnail && (

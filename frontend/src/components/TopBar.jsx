@@ -33,36 +33,32 @@ export default function TopBar({ stats, source, backendOk, autoOn, lastFetchAt }
   const badgeClass = BADGE_CLASSES[source] || BADGE_CLASSES.opensky
 
   return (
-    <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center flex-nowrap overflow-x-auto gap-1 text-[11px] text-fg2 shrink-0">
-      <div className="flex gap-3.5 items-center shrink-0">
+    <div className="bg-bg2 border-b border-border py-0.5 px-1.5 sm:px-2.5 flex justify-between items-center flex-nowrap overflow-x-auto gap-1 text-[10px] sm:text-[11px] text-fg2 shrink-0">
+      <div className="flex gap-2 sm:gap-3.5 items-center shrink-0">
         <span className="text-acc">flightterm</span>
-        <span className="text-fg3">by <a href="https://github.com/wuwwa" target="_blank" rel="noopener noreferrer" className="text-fg3 hover:text-acc hover:underline">wuwwa</a></span>
-        <span className="text-border2">|</span>
+        <span className="text-fg3 hidden sm:inline">by <a href="https://github.com/wuwwa" target="_blank" rel="noopener noreferrer" className="text-fg3 hover:text-acc hover:underline">wuwwa</a></span>
+        <span className="text-border2 hidden sm:inline">|</span>
         <span>aircraft: <span className="text-fg">{stats.total ?? '--'}</span></span>
-        <span>airborne: <span className="text-grn">{stats.airborne ?? '--'}</span></span>
-        <span>grounded: <span className="text-ylw">{stats.grounded ?? '--'}</span></span>
-        <span>region: <span className="text-fg">{stats.region ?? 'global'}</span></span>
-        <span>enriched: <span className="text-fg">{stats.enriched ?? 0}</span></span>
+        <span className="hidden sm:inline">airborne: <span className="text-grn">{stats.airborne ?? '--'}</span></span>
+        <span className="hidden sm:inline">grounded: <span className="text-ylw">{stats.grounded ?? '--'}</span></span>
+        <span className="hidden sm:inline">region: <span className="text-fg">{stats.region ?? 'global'}</span></span>
+        <span className="hidden md:inline">enriched: <span className="text-fg">{stats.enriched ?? 0}</span></span>
       </div>
-      <div className="flex gap-2.5 items-center">
+      <div className="flex gap-1.5 sm:gap-2.5 items-center shrink-0">
         {stats.lastUpdate && (
-          <span className="text-fg3">updated {stats.lastUpdate}</span>
+          <span className="text-fg3 hidden sm:inline">updated {stats.lastUpdate}</span>
         )}
-        <span className="text-border2">|</span>
         <span className={clsx('px-1.5 py-px text-[10px]', badgeClass)}>{source}</span>
-        <span className="text-border2">|</span>
         <span className={clsx('text-[10px]', backendOk ? 'text-grn' : 'text-red')}>
-          {backendOk ? '● backend' : '○ backend'}
+          {backendOk ? '●' : '○'}
         </span>
-        <span className="text-border2">|</span>
         {autoOn ? (
           <span className="animate-blink text-grn">● live</span>
         ) : (
           <span className="text-[10px] text-fg3">
-            {elapsed != null ? fmtElapsed(elapsed) : '○ idle'}
+            {elapsed != null ? fmtElapsed(elapsed) : 'idle'}
           </span>
         )}
-        <span className="text-border2">|</span>
         <span className="text-fg2">{time}</span>
       </div>
     </div>

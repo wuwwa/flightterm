@@ -536,7 +536,7 @@ function getDbSize() {
 }
 
 // ── auto-purge: archive old sightings into daily summaries ──────────────────
-const PURGE_AFTER_DAYS = 7
+const PURGE_AFTER_DAYS = 3
 
 function purgeOldSightings() {
   const cutoff = new Date(Date.now() - PURGE_AFTER_DAYS * 86400000).toISOString()
