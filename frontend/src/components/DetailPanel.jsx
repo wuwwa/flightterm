@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { fetchFlight } from '../services/aeroapi'
 import { squawkLabel, squawkColor } from '../utils/squawk'
 import TrackChart from './TrackChart'
+import FlightMap from './FlightMap'
 
 function DRow({ label, value, colorClass = 'text-fg' }) {
   return (
@@ -138,6 +139,10 @@ export default function DetailPanel({
         value={flight.grounded ? 'ground' : 'airborne'}
         colorClass={flight.grounded ? 'text-ylw' : 'text-grn'}
       />
+
+      {/* Flight map */}
+      <Section title="map" />
+      <FlightMap snapshots={trackHistory} flight={flight} />
 
       {/* Track history sparklines */}
       <Section title="track" />

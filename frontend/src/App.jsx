@@ -229,7 +229,7 @@ export default function App() {
         for (const f of result) {
           if (f.alt == null && f.vel == null) continue
           const arr = next[f.icao] ? [...next[f.icao]] : []
-          arr.push({ ts: now, alt: f.alt, vel: f.vel, hdg: f.hdg, grounded: f.grounded })
+          arr.push({ ts: now, lat: f.lat, lon: f.lon, alt: f.alt, vel: f.vel, hdg: f.hdg, grounded: f.grounded })
           if (arr.length > MAX_SNAPSHOTS) arr.shift()
           next[f.icao] = arr
         }
