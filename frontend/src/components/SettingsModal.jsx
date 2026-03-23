@@ -84,7 +84,22 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 <StatusDot ok={!!local.userAeroKey} label="aeroapi (yours)" />
                 <StatusDot ok={!!local.adsbxKey} label="adsbx (yours)" />
                 <StatusDot ok={serverKeys.faa_notam} label="faa notam (server)" />
+                <StatusDot ok={serverKeys.s3_archive?.enabled} label={
+                  serverKeys.s3_archive?.enabled
+                    ? `s3 archive (${serverKeys.s3_archive.lastResult || 'pending'})`
+                    : 's3 archive (off)'
+                } />
               </div>
+              {serverKeys.s3_archive?.enabled && serverKeys.s3_archive.lastRun && (
+                <div className="text-[9px] text-fg3 mt-1.5 px-1">
+                  last run: {new Date(serverKeys.s3_archive.lastRun).toLocaleString()}
+                  {serverKeys.s3_archive.lastArchived > 0 && ` · ${serverKeys.s3_archive.lastArchived} rows archived`}
+                  {serverKeys.s3_archive.totalArchived > 0 && ` · ${serverKeys.s3_archive.totalArchived} total`}
+                  {serverKeys.s3_archive.lastError && (
+                    <span className="text-red"> · error: {serverKeys.s3_archive.lastError}</span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

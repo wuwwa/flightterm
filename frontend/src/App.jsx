@@ -328,6 +328,8 @@ export default function App() {
       setSelectedFlight(flight)
 
       // Pre-fill track history from backend if we don't have much in-memory
+      // Backend rows lack lat/lon, so only use them for chart data — never overwrite
+      // in-memory snapshots that have positions
       const existing = trackHistoryRef.current[flight.icao]
       if (!existing || existing.length < 3) {
         fetchAircraftTrack(flight.icao, 60)
@@ -339,7 +341,6 @@ export default function App() {
               }))
               setTrackHistory((prev) => {
                 const mem = prev[flight.icao] || []
-                // merge: backend rows first, then in-memory (dedup by ts)
                 const seen = new Set(mem.map((s) => s.ts))
                 const merged = [...backendSnaps.filter((s) => !seen.has(s.ts)), ...mem]
                 merged.sort((a, b) => a.ts - b.ts)

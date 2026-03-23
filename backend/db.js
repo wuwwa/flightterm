@@ -1,8 +1,10 @@
 const Database = require('better-sqlite3')
 const path = require('path')
 const fs = require('fs')
+const { isEnabled: s3Enabled, archiveOldDaily } = require('./s3archive')
 
-const DB_PATH = path.join(__dirname, 'flightterm.db')
+const DB_DIR = process.env.DB_DIR || __dirname
+const DB_PATH = path.join(DB_DIR, 'flightterm.db')
 const db = new Database(DB_PATH)
 
 // ── pragmas for performance ─────────────────────────────────────────────────
@@ -555,6 +557,22 @@ function purgeOldSightings() {
   return deleted
 }
 
+// ── purge old daily summaries (fallback when S3 is disabled) ────────────────
+const { ARCHIVE_AFTER_DAYS } = require('./s3archive')
+const DAILY_RETENTION_DAYS = ARCHIVE_AFTER_DAYS // same threshold: 30 days default
+
+function purgeOldDailySummaries() {
+  const cutoff = new Date(Date.now() - DAILY_RETENTION_DAYS * 86400000)
+    .toISOString()
+    .slice(0, 10)
+  const before = _stmts.countDaily.get().c
+  const del = db.prepare('DELETE FROM sightings_daily WHERE date < ?').run(cutoff)
+  if (del.changes > 0) {
+    console.log(`  purge: deleted ${del.changes} daily summaries older than ${DAILY_RETENTION_DAYS}d (${before} → ${_stmts.countDaily.get().c} rows)`)
+  }
+  return del.changes
+}
+
 // ── startup dedup of existing data ──────────────────────────────────────────
 
 function deduplicateExisting() {
@@ -621,10 +639,33 @@ function runStartupMaintenance() {
 // Run maintenance on module load (server startup)
 runStartupMaintenance()
 
+// Run S3 archival or fallback purge on startup (non-blocking)
+;(async () => {
+  try {
+    if (s3Enabled()) {
+      const { archived } = await archiveOldDaily(db)
+      if (archived > 0) vacuumDb()
+    } else {
+      // No S3 — purge old daily summaries so the DB doesn't grow forever
+      if (purgeOldDailySummaries() > 0) vacuumDb()
+    }
+  } catch (err) {
+    console.error('startup archive/purge error:', err.message)
+  }
+})()
+
 // Schedule periodic purge every 6 hours
-setInterval(() => {
-  try { purgeOldSightings() } catch (err) {
-    console.error('purge error:', err.message)
+setInterval(async () => {
+  try {
+    purgeOldSightings()
+    if (s3Enabled()) {
+      await archiveOldDaily(db)
+    } else {
+      purgeOldDailySummaries()
+    }
+    vacuumDb()
+  } catch (err) {
+    console.error('purge/archive error:', err.message)
   }
 }, 6 * 3600 * 1000)
 

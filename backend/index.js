@@ -10,7 +10,9 @@ const {
   getUsageSummary, getTodayCredits, getDailyUsage, getRecentCalls,
   getAeroSpendTotal, getAeroSpendMonth,
 } = require('./db')
+const { getStatus: getS3Status } = require('./s3archive')
 
+const path = require('path')
 const app = express()
 const PORT = process.env.PORT || 3001
 const AERO_BASE = 'https://aeroapi.flightaware.com/aeroapi'
@@ -135,6 +137,7 @@ app.get('/api/health', (_req, res) => {
     aeroapi_configured: !!process.env.AEROAPI_KEY,
     opensky_configured: !!(process.env.OS_CLIENT_ID && process.env.OS_CLIENT_SECRET),
     faa_notam_configured: !!(process.env.FAA_CLIENT_ID && process.env.FAA_CLIENT_SECRET),
+    s3_archive: getS3Status(),
     db_size: getDbSize(),
     timestamp: new Date().toISOString()
   })
@@ -148,6 +151,7 @@ app.get('/api/keys', (_req, res) => {
     opensky_secret: !!process.env.OS_CLIENT_SECRET,
     faa_notam:      !!(process.env.FAA_CLIENT_ID && process.env.FAA_CLIENT_SECRET),
     adsbx:          false, // adsbx key is stored client-side in settings
+    s3_archive:     getS3Status(),
   })
 })
 
@@ -529,6 +533,17 @@ app.get('/api/aero/spend', async (_req, res) => {
     source: fa ? 'flightaware' : 'local_db',
   })
 })
+
+// ── serve frontend in production ──────────────────────────────────────────────
+const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'dist')
+if (require('fs').existsSync(STATIC_DIR)) {
+  app.use(express.static(STATIC_DIR))
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next()
+    res.sendFile(path.join(STATIC_DIR, 'index.html'))
+  })
+  console.log(`serving frontend from ${STATIC_DIR}`)
+}
 
 // ── start ─────────────────────────────────────────────────────────────────────
 

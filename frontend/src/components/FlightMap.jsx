@@ -1,14 +1,19 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { MapContainer, TileLayer, Polyline, Marker, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
 // ── recenter map + invalidate size on container resize ──────────────────────
-function MapUpdater({ center }) {
+function MapUpdater({ center, fitBounds }) {
   const map = useMap()
+
   useEffect(() => {
-    if (center) map.setView(center, map.getZoom(), { animate: true })
-  }, [center?.[0], center?.[1]])
+    if (fitBounds && fitBounds.length >= 2) {
+      map.fitBounds(fitBounds, { padding: [30, 30], maxZoom: 10 })
+    } else if (center) {
+      map.setView(center, map.getZoom(), { animate: true })
+    }
+  }, [center?.[0], center?.[1], fitBounds])
 
   useEffect(() => {
     const container = map.getContainer()
@@ -44,7 +49,7 @@ function planeIcon(hdg = 0, large = false) {
   )
 }
 
-// Nearby plane — dim gray
+// Other plane — dim gray
 function nearbyIcon(hdg = 0, large = false) {
   const s = large ? 22 : 14
   const h = s / 2
@@ -84,12 +89,12 @@ function dedup(pts) {
   return out
 }
 
-// ── shared map content (used in both inline and fullscreen) ─────────────────
-function MapContent({ center, fullPath, startPos, currentPos, flight, nearby, large }) {
+// ── shared map content ──────────────────────────────────────────────────────
+function MapContent({ center, fullPath, startPos, currentPos, flight, others, large, fitBounds }) {
   const lg = !!large
   return (
     <>
-      <MapUpdater center={center} />
+      <MapUpdater center={center} fitBounds={fitBounds} />
       <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
 
       {fullPath.length >= 2 && (
@@ -116,7 +121,7 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, nearby, la
         </Marker>
       )}
 
-      {nearby.map((f) => (
+      {others.map((f) => (
         <Marker key={f.icao} position={[f.lat, f.lon]} icon={nearbyIcon(f.hdg ?? 0, lg)}>
           <Tooltip direction="top" offset={[0, lg ? -12 : -8]} className="flight-map-tooltip">
             {f.callsign || f.icao}
@@ -128,8 +133,25 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, nearby, la
   )
 }
 
+// ── toggle button helper ────────────────────────────────────────────────────
+function MapBtn({ active, onClick, children, large }) {
+  const sz = large ? 'text-xs py-1 px-2.5' : 'text-[9px] py-0.5 px-1.5'
+  return (
+    <button
+      className={`font-mono border cursor-pointer ${sz} ${
+        active
+          ? 'bg-acc/20 border-acc text-acc'
+          : 'bg-bg1/90 border-border2 text-fg3 hover:text-fg2'
+      }`}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
+}
+
 export default function FlightMap({ snapshots, flight, flights, fullscreen, onToggleFullscreen }) {
-  const [showNearby, setShowNearby] = useState(false)
+  const [viewMode, setViewMode] = useState('default') // 'default' | 'nearby' | 'all'
 
   // Esc to close expanded map
   useEffect(() => {
@@ -149,14 +171,22 @@ export default function FlightMap({ snapshots, flight, flights, fullscreen, onTo
   const currentPos =
     flight?.lat != null && flight?.lon != null ? [flight.lat, flight.lon] : null
 
-  const nearby = useMemo(() => {
-    if (!showNearby || !flights || !currentPos) return []
+  // All flights with positions (excluding selected)
+  const allOthers = useMemo(() => {
+    if (!flights || !flight) return []
+    return flights.filter(
+      (f) => f.icao !== flight.icao && f.lat != null && f.lon != null
+    )
+  }, [flights, flight?.icao])
+
+  // Nearby: within ~100 mi / 160 km
+  const nearbyOthers = useMemo(() => {
+    if (!currentPos) return []
     const [lat1, lon1] = currentPos
     const toRad = Math.PI / 180
     const R = 6371
     const maxKm = 160
-    return flights.filter((f) => {
-      if (f.icao === flight.icao || f.lat == null || f.lon == null) return false
+    return allOthers.filter((f) => {
       const dLat = (f.lat - lat1) * toRad
       const dLon = (f.lon - lon1) * toRad
       const a = Math.sin(dLat / 2) ** 2 +
@@ -164,7 +194,18 @@ export default function FlightMap({ snapshots, flight, flights, fullscreen, onTo
       const d = 2 * R * Math.asin(Math.sqrt(a))
       return d <= maxKm
     })
-  }, [showNearby, flights, currentPos?.[0], currentPos?.[1]])
+  }, [allOthers, currentPos?.[0], currentPos?.[1]])
+
+  // Which set of other flights to show
+  const others = viewMode === 'all' ? allOthers : viewMode === 'nearby' ? nearbyOthers : []
+
+  // Fit bounds when showing all flights
+  const fitBounds = useMemo(() => {
+    if (viewMode !== 'all' || allOthers.length === 0) return null
+    const pts = allOthers.map((f) => [f.lat, f.lon])
+    if (currentPos) pts.push(currentPos)
+    return pts
+  }, [viewMode, allOthers, currentPos])
 
   if (!currentPos && path.length === 0) {
     return (
@@ -177,25 +218,25 @@ export default function FlightMap({ snapshots, flight, flights, fullscreen, onTo
   const fullPath = dedup(currentPos ? [...path, currentPos] : path)
   const center = currentPos || fullPath[fullPath.length - 1]
   const startPos = fullPath.length >= 2 ? fullPath[0] : null
-  const contentProps = { center, fullPath, startPos, currentPos, flight, nearby }
+
+  const toggle = (mode) => setViewMode((prev) => prev === mode ? 'default' : mode)
+
+  const contentProps = { center, fullPath, startPos, currentPos, flight, others, fitBounds }
 
   // ── fullscreen overlay ──────────────────────────────────────────────────────
   if (fullscreen) {
     const fsProps = { ...contentProps, large: true }
     return (
       <>
-        {/* Inline placeholder so layout doesn't collapse */}
         <div className="h-48 w-full border-t border-b border-border bg-bg text-center text-fg3 text-[10px] flex items-center justify-center">
           map expanded
         </div>
 
-        {/* Expanded overlay — 75% centered modal */}
         <div
           className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center"
           onClick={(e) => { if (e.target === e.currentTarget) onToggleFullscreen() }}
         >
           <div className="w-[75vw] h-[75vh] bg-bg border border-border2 flex flex-col">
-            {/* Header bar */}
             <div className="bg-bg2 border-b border-border py-1.5 px-3 flex justify-between items-center text-xs text-fg2 shrink-0">
               <span className="text-acc">
                 map — {flight.callsign || flight.icao}
@@ -211,19 +252,15 @@ export default function FlightMap({ snapshots, flight, flights, fullscreen, onTo
               </div>
             </div>
 
-            {/* Map fills remaining space */}
             <div className="flex-1 relative">
-              {/* Nearby toggle */}
-              <button
-                className={`absolute top-2.5 right-2.5 z-1000 text-xs font-mono py-1 px-2.5 border cursor-pointer ${
-                  showNearby
-                    ? 'bg-acc/20 border-acc text-acc'
-                    : 'bg-bg1/90 border-border2 text-fg3 hover:text-fg2'
-                }`}
-                onClick={() => setShowNearby(p => !p)}
-              >
-                nearby{showNearby && nearby.length > 0 ? ` (${nearby.length})` : ''}
-              </button>
+              <div className="absolute top-2.5 right-2.5 z-1000 flex gap-1">
+                <MapBtn active={viewMode === 'nearby'} onClick={() => toggle('nearby')} large>
+                  nearby{viewMode === 'nearby' && nearbyOthers.length > 0 ? ` (${nearbyOthers.length})` : ''}
+                </MapBtn>
+                <MapBtn active={viewMode === 'all'} onClick={() => toggle('all')} large>
+                  all{viewMode === 'all' ? ` (${allOthers.length})` : ''}
+                </MapBtn>
+              </div>
               <MapContainer
                 center={center}
                 zoom={7}
@@ -248,18 +285,13 @@ export default function FlightMap({ snapshots, flight, flights, fullscreen, onTo
   // ── inline map ──────────────────────────────────────────────────────────────
   return (
     <div className="h-48 w-full border-t border-b border-border relative">
-      {/* Map controls */}
       <div className="absolute top-1.5 right-1.5 z-1000 flex gap-1">
-        <button
-          className={`text-[9px] font-mono py-0.5 px-1.5 border cursor-pointer ${
-            showNearby
-              ? 'bg-acc/20 border-acc text-acc'
-              : 'bg-bg1/90 border-border2 text-fg3 hover:text-fg2'
-          }`}
-          onClick={() => setShowNearby(p => !p)}
-        >
-          nearby{showNearby && nearby.length > 0 ? ` (${nearby.length})` : ''}
-        </button>
+        <MapBtn active={viewMode === 'nearby'} onClick={() => toggle('nearby')}>
+          nearby{viewMode === 'nearby' && nearbyOthers.length > 0 ? ` (${nearbyOthers.length})` : ''}
+        </MapBtn>
+        <MapBtn active={viewMode === 'all'} onClick={() => toggle('all')}>
+          all{viewMode === 'all' ? ` (${allOthers.length})` : ''}
+        </MapBtn>
         <button
           className="bg-bg1/90 border border-border2 text-fg3 hover:text-fg cursor-pointer p-0.5"
           onClick={onToggleFullscreen}
