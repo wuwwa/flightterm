@@ -36,6 +36,7 @@ export default function TopBar({ stats, source, backendOk, autoOn, lastFetchAt }
     <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center flex-nowrap overflow-x-auto gap-1 text-[11px] text-fg2 shrink-0">
       <div className="flex gap-3.5 items-center shrink-0">
         <span className="text-acc">flightterm</span>
+        <span className="text-fg3">by <a href="https://github.com/wuwwa" target="_blank" rel="noopener noreferrer" className="text-fg3 hover:text-acc hover:underline">wuwwa</a></span>
         <span className="text-border2">|</span>
         <span>aircraft: <span className="text-fg">{stats.total ?? '--'}</span></span>
         <span>airborne: <span className="text-grn">{stats.airborne ?? '--'}</span></span>
