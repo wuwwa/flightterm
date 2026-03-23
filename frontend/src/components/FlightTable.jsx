@@ -214,6 +214,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
             ! {anomalyCount}
           </button>
           <span className="flex items-center gap-0.5 ml-0.5 border border-border rounded overflow-hidden">
+            <span className="text-[9px] text-fg3 px-1 border-r border-border">squawk</span>
             {[
               { id: '7700', label: '7700', on: 'bg-red/20 text-red', title: 'Emergency' },
               { id: '7600', label: '7600', on: 'bg-ylw/20 text-ylw', title: 'Radio failure' },

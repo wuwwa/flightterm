@@ -51,7 +51,7 @@ export default function DetailPanel({
 }) {
   const [aeroLoading, setAeroLoading] = useState(false)
   const [aeroError, setAeroError] = useState(null)
-  const [showNearby, setShowNearby] = useState(false)
+  const [mapFullscreen, setMapFullscreen] = useState(false)
 
   if (!flight) {
     return (
@@ -144,21 +144,14 @@ export default function DetailPanel({
       />
 
       {/* Flight map */}
-      <Section
-        title="map"
-        right={
-          <button
-            className={clsx(
-              'text-[9px] font-mono py-0 px-1.5 border cursor-pointer',
-              showNearby ? 'bg-acc/20 border-acc text-acc' : 'border-border2 text-fg3 hover:text-fg2'
-            )}
-            onClick={() => setShowNearby(p => !p)}
-          >
-            nearby
-          </button>
-        }
+      <Section title="map" />
+      <FlightMap
+        snapshots={trackHistory}
+        flight={flight}
+        flights={flights}
+        fullscreen={mapFullscreen}
+        onToggleFullscreen={() => setMapFullscreen(p => !p)}
       />
-      <FlightMap snapshots={trackHistory} flight={flight} flights={flights} showNearby={showNearby} />
 
       {/* Track history sparklines */}
       <Section title="track" />
