@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:hexdb.io)",
+      "Bash(curl -sL \"https://api.adsb.fi/v2/\")",
+      "Bash(curl -sL \"https://opendata.adsb.fi/api/v2/hex/461E1A\")",
+      "Bash(curl -sL \"https://opendata.adsb.fi/api/v2/callsign/BAW123\")",
+      "Bash(curl -sL \"https://opendata.adsb.fi/api/v3/lat/51.47/lon/-0.46/dist/50\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''ac'''',[]\\)[0] if d.get\\(''''ac''''\\) else {}, indent=2\\)\\); print\\(f''''Total aircraft: {d.get\\(\"\"total\"\",0\\)}''''\\)\")",
+      "Bash(node -e \"const d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(0,''''utf8''''\\)\\); if\\(d.ac&&d.ac[0]\\) console.log\\(JSON.stringify\\(d.ac[0],null,2\\)\\); console.log\\(''''Total aircraft:'''',d.total\\);\")",
+      "Bash(curl -sL \"https://opendata.adsb.fi/api/v3/lat/40.64/lon/-73.78/dist/100\")",
+      "Bash(node -e \"const d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(0,''''utf8''''\\)\\); if\\(d.ac\\) { const airborne=d.ac.find\\(a=>a.alt_baro!==''''ground''''&&a.lat\\); if\\(airborne\\) console.log\\(JSON.stringify\\(airborne,null,2\\)\\); } console.log\\(''''Total aircraft:'''',d.total\\);\")",
+      "Bash(node -e \"const d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(0,''''utf8''''\\)\\); const airborne=d.ac.filter\\(a=>a.alt_baro!=''''ground''''&&a.lat\\); if\\(airborne[0]\\) console.log\\(JSON.stringify\\(airborne[0],null,2\\)\\); console.log\\(''''Total:'''',d.total\\);\")",
+      "Bash(node -e \"var d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(0,''''utf8''''\\)\\); var a=d.ac.filter\\(function\\(x\\){return x.alt_baro>0 && x.lat;}\\); if\\(a[0]\\) console.log\\(JSON.stringify\\(a[0],null,2\\)\\); console.log\\(''''Total:'''',d.total\\);\")"
+    ]
+  }
+}

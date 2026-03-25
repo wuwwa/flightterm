@@ -8,14 +8,17 @@ import DetailPanel from './components/DetailPanel'
 import SettingsModal from './components/SettingsModal'
 import UsagePanel from './components/UsagePanel'
 import NotamPanel from './components/NotamPanel'
+import DashboardPanel from './components/DashboardPanel'
 
 import { fetchStates } from './services/opensky'
 import { fetchAdsbx } from './services/adsbx'
 import { enrichFlight } from './services/adsbdb'
+import { enrichByHex } from './services/adsbfi'
 import { checkHealth, fetchAeroSpend } from './services/aeroapi'
 
-import { recordSightings, fetchOpenSkyUsageToday, fetchAircraftTrack } from './services/sightings'
+import { recordSightings, fetchOpenSkyUsageToday, fetchAircraftTrack, recordAnomalies, resolveAnomalies } from './services/sightings'
 import { scoreAnomaly, ANOMALY_THRESHOLD } from './utils/anomaly'
+import { fetchMetars, fetchPireps, fetchSigmets, summarizeMetar, summarizePireps, summarizeSigmets } from './services/weather'
 
 // ── default settings ──────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -63,7 +66,7 @@ export default function App() {
   const [region, setRegion] = useState('usa')
   const [filter, setFilter] = useState('')
   const [fetching, setFetching] = useState(false)
-  const [autoOn, setAutoOn] = useState(false)
+  const [autoOn, setAutoOn] = useState(true)
   const [activeSource, setActiveSource] = useState('opensky')
   const [backendOk, setBackendOk] = useState(false)
   const [statusText, setStatusText] = useState('idle')
@@ -189,7 +192,7 @@ export default function App() {
     let result = null
     let usedSource = src
 
-    if (src === 'adsbx') {
+    if (src === 'adsbx' && result === null) {
       try {
         log(
           `adsbx: querying lat/lon radius ${settings.adsbxRadius}nm · region=${region}`,
@@ -216,7 +219,7 @@ export default function App() {
       }
     }
 
-    if (usedSource === 'opensky' && result === null) {
+    if ((src === 'opensky' || usedSource === 'opensky') && result === null) {
       try {
         log(`opensky: GET states/all · region=${region}`, 'info')
         const resp = await fetchStates(region, {
@@ -254,20 +257,96 @@ export default function App() {
       })
 
       // ── score anomalies using phase-aware engine ─────────────────────────
+      // Pass enrichment data (route + adsb.fi) when available for richer scoring
       const prevTrack = trackHistoryRef.current
       const newAnomalies = {}
       for (const f of result) {
         const hist = prevTrack[f.icao]
         if (!hist || hist.length < 2) continue
-        const { score, phase, reasons, confirmed } = scoreAnomaly(hist, f)
+        const enrich = enrichCache[f.icao] || null
+        const { score, phase, reasons, confirmed, category, severity, categories } = scoreAnomaly(hist, f, enrich)
         if (score >= ANOMALY_THRESHOLD) {
-          newAnomalies[f.icao] = { score, phase, reasons, confirmed, label: reasons[0] || 'anomaly' }
+          newAnomalies[f.icao] = { score, phase, reasons, confirmed, category, severity, categories, label: reasons[0] || 'anomaly' }
         }
       }
       setAnomalies(newAnomalies)
       if (Object.keys(newAnomalies).length > 0) {
         const confirmed = Object.values(newAnomalies).filter(a => a.confirmed).length
         log(`anomalies: ${Object.keys(newAnomalies).length} scored above threshold${confirmed ? ` (${confirmed} confirmed)` : ''}`, 'warn')
+
+        // Persist anomalies to backend with weather context
+        const anomalyPayload = Object.entries(newAnomalies).map(([icao, a]) => {
+          const f = result.find(fl => fl.icao === icao)
+          return {
+            icao, callsign: f?.callsign, score: a.score, phase: a.phase,
+            reasons: a.reasons, confirmed: a.confirmed,
+            category: a.category, severity: a.severity, categories: a.categories,
+            lat: f?.lat, lon: f?.lon, alt: f?.alt, vel: f?.vel, hdg: f?.hdg, squawk: f?.squawk,
+          }
+        })
+
+        // Fetch weather context for anomaly area (non-blocking)
+        const anomalyLats = anomalyPayload.filter(a => a.lat != null).map(a => a.lat)
+        const anomalyLons = anomalyPayload.filter(a => a.lon != null).map(a => a.lon)
+        if (anomalyLats.length > 0) {
+          const pad = 2 // degrees padding around anomaly cluster
+          const bbox = [
+            Math.min(...anomalyLats) - pad,
+            Math.min(...anomalyLons) - pad,
+            Math.max(...anomalyLats) + pad,
+            Math.max(...anomalyLons) + pad,
+          ]
+          Promise.all([
+            fetchPireps(bbox[0], bbox[1], bbox[2], bbox[3], { age: 2, inten: 'mod' }).catch(() => []),
+            fetchSigmets().catch(() => []),
+          ]).then(([pireps, sigmets]) => {
+            const pirepSummary = summarizePireps(pireps)
+            const sigmetSummary = summarizeSigmets(sigmets)
+            if (pirepSummary.count > 0 || sigmetSummary.count > 0) {
+              const wxContext = { pireps: pirepSummary, sigmets: sigmetSummary }
+              // Attach weather to each anomaly and re-persist
+              const enrichedPayload = anomalyPayload.map(a => ({ ...a, weather_context: wxContext }))
+              recordAnomalies(enrichedPayload, region).catch(() => {})
+              if (pirepSummary.severe) log(`weather: severe PIREPs near anomaly area (${pirepSummary.maxTurbulence || pirepSummary.maxIcing})`, 'warn')
+              if (sigmetSummary.convective > 0) log(`weather: ${sigmetSummary.convective} convective SIGMET(s) active`, 'warn')
+            } else {
+              recordAnomalies(anomalyPayload, region).catch(() => {})
+            }
+          }).catch(() => {
+            recordAnomalies(anomalyPayload, region).catch(() => {})
+          })
+        } else {
+          recordAnomalies(anomalyPayload, region).catch(() => {})
+        }
+
+        // Enrich top anomalies with adsb.fi telemetry (1 req/sec rate limit)
+        const toEnrich = Object.keys(newAnomalies)
+          .filter(icao => !enrichCache[icao]?.adsbfi)
+          .sort((a, b) => newAnomalies[b].score - newAnomalies[a].score)
+          .slice(0, 3) // max 3 per cycle
+        for (let i = 0; i < toEnrich.length; i++) {
+          const icao = toEnrich[i]
+          if (i > 0) await new Promise(r => setTimeout(r, 1100)) // respect 1 req/sec
+          enrichByHex(icao)
+            .then(data => {
+              if (!data) return
+              setEnrichCache(prev => ({
+                ...prev,
+                [icao]: { ...(prev[icao] || {}), adsbfi: data },
+              }))
+              if (data.emergency) {
+                log(`⚠ adsb.fi: ${icao} emergency=${data.emergency}`, 'err')
+              }
+            })
+            .catch(() => {})
+        }
+      }
+
+      // Resolve anomalies for aircraft no longer flagged
+      const prevAnomalyIcaos = Object.keys(anomalies)
+      const resolvedIcaos = prevAnomalyIcaos.filter(icao => !newAnomalies[icao])
+      if (resolvedIcaos.length > 0) {
+        resolveAnomalies(resolvedIcaos).catch(() => {})
       }
 
       // ── summary stats ─────────────────────────────────────────────────────
@@ -338,6 +417,7 @@ export default function App() {
             if (rows.length > 0) {
               const backendSnaps = rows.map((r) => ({
                 ts: new Date(r.seen_at).getTime(),
+                lat: r.lat, lon: r.lon,
                 alt: r.alt, vel: r.vel, hdg: r.hdg, grounded: !!r.grounded,
               }))
               setTrackHistory((prev) => {
@@ -354,21 +434,23 @@ export default function App() {
 
       if (enrichCache[flight.icao]) return
 
-      log(`adsbdb: lookup ${flight.icao} / ${flight.callsign}`, 'info')
-      try {
-        const data = await enrichFlight(flight.icao, flight.callsign)
-        setEnrichCache((prev) => ({ ...prev, [flight.icao]: data }))
-        log(
-          `adsbdb: ${flight.icao} — aircraft=${data.aircraft ? 'found' : 'unknown'} route=${data.flightroute ? 'found' : 'unknown'}`,
-          'ok'
-        )
-      } catch (err) {
-        log(`adsbdb error: ${err.message}`, 'err')
-        setEnrichCache((prev) => ({
-          ...prev,
-          [flight.icao]: { aircraft: null, flightroute: null },
-        }))
-      }
+      // Fetch ADSBdb + adsb.fi enrichment in parallel
+      log(`enriching ${flight.icao} / ${flight.callsign}`, 'info')
+      const [adsbdbResult, adsbfiResult] = await Promise.allSettled([
+        enrichFlight(flight.icao, flight.callsign),
+        enrichByHex(flight.icao),
+      ])
+
+      const adsbdb = adsbdbResult.status === 'fulfilled' ? adsbdbResult.value : { aircraft: null, flightroute: null }
+      const adsbfi = adsbfiResult.status === 'fulfilled' ? adsbfiResult.value : null
+
+      setEnrichCache((prev) => ({ ...prev, [flight.icao]: { ...adsbdb, adsbfi } }))
+
+      const parts = []
+      if (adsbdb.aircraft) parts.push('aircraft=found')
+      if (adsbdb.flightroute) parts.push(`route=${adsbdb.flightroute._source || 'adsbdb'}`)
+      if (adsbfi) parts.push(`adsb.fi=${[adsbfi.type, adsbfi.reg, adsbfi.operator].filter(Boolean).join('/') || 'ok'}`)
+      log(`enrich: ${flight.icao} — ${parts.join(' · ') || 'no data'}`, parts.length ? 'ok' : 'warn')
     },
     [enrichCache, log]
   )
@@ -442,8 +524,9 @@ export default function App() {
   // ── render ────────────────────────────────────────────────────────────────────
   return (
     <>
+      {/* Page 1: flight tracker — fills one viewport */}
       <div
-        className="grid grid-rows-[auto_auto_auto_1fr_auto] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
+        className="grid grid-rows-[auto_auto_auto_1fr] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
         style={{ '--sidebar-w': `${sidebarW}px` }}
       >
         {/* Top status bar */}
@@ -548,15 +631,18 @@ export default function App() {
             </div>
           </div>
         )}
+      </div>
 
-        {/* Bottom status bar */}
-        <div className="col-span-full row-start-5 bg-acc py-0.5 px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg shrink-0">
-          <div className="truncate">
-            <span className="bg-bg text-acc py-0 px-2 mr-1.5">NORMAL</span>
-            <span className="hidden sm:inline">{botSrc}</span>
-          </div>
-          <div className="shrink-0">{statusText}</div>
+      {/* Page 2: dashboard — always visible, scroll down to see */}
+      <DashboardPanel backendOk={backendOk} />
+
+      {/* Sticky status bar — always at bottom of viewport */}
+      <div className="sticky bottom-0 z-40 bg-acc py-0.5 px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg">
+        <div className="truncate">
+          <span className="bg-bg text-acc py-0 px-2 mr-1.5">NORMAL</span>
+          <span className="hidden sm:inline">{botSrc}</span>
         </div>
+        <div className="shrink-0">{statusText}</div>
       </div>
 
       {/* Overlays */}

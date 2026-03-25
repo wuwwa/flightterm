@@ -1,20 +1,18 @@
-// ── S3 archival for sightings_daily rows older than ARCHIVE_AFTER_DAYS ───────
+// ── S3 archival — archive before purge ──────────────────────────────────────
 //
-// Exports old daily summaries as gzipped JSON to S3, then deletes them from
-// SQLite. Runs as part of the periodic purge cycle. Does nothing if S3 is
-// not configured (all env vars are optional).
+// Archives sightings + daily summaries + anomalies to S3 before the hourly
+// purge cycle deletes them from SQLite. Runs every hour (matching the 3-hour
+// retention window). Does nothing if S3 is not configured.
 //
 // Safety:
 //   - Max 5 MB per upload (rejects abnormally large payloads)
-//   - Max 50,000 rows per cycle (circuit breaker for runaway growth)
+//   - Max 50,000 rows per table per cycle (circuit breaker)
 //   - Only deletes from SQLite AFTER successful upload
-//   - PutObject-only IAM policy — can't read, list, or delete from bucket
 //
 // Env vars:
 //   S3_BUCKET              – bucket name (required to enable archival)
 //   S3_REGION              – AWS region, default us-east-1
 //   S3_PREFIX              – key prefix inside bucket, default "flightterm/"
-//   S3_ARCHIVE_DAYS        – archive daily rows older than this, default 3
 //   AWS_ACCESS_KEY_ID      – standard AWS credential
 //   AWS_SECRET_ACCESS_KEY
 
@@ -24,16 +22,15 @@ const zlib = require('zlib')
 const BUCKET = process.env.S3_BUCKET
 const REGION = process.env.S3_REGION || 'us-east-1'
 const PREFIX = process.env.S3_PREFIX || 'flightterm/'
-const ARCHIVE_AFTER_DAYS = parseInt(process.env.S3_ARCHIVE_DAYS, 10) || 3
 
 // Safety limits
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024  // 5 MB per file
-const MAX_ROWS_PER_CYCLE = 50_000         // refuse to archive if more than this
+const MAX_ROWS_PER_CYCLE = 50_000
 
 let s3 = null
 if (BUCKET) {
   s3 = new S3Client({ region: REGION })
-  console.log(`s3: archival enabled → s3://${BUCKET}/${PREFIX} (>${ARCHIVE_AFTER_DAYS}d)`)
+  console.log(`s3: archival enabled → s3://${BUCKET}/${PREFIX}`)
 } else {
   console.log('s3: archival disabled (S3_BUCKET not set)')
 }
@@ -41,12 +38,14 @@ if (BUCKET) {
 // ── status tracking ─────────────────────────────────────────────────────────
 const _status = {
   enabled: !!s3,
-  lastRun: null,       // ISO timestamp
-  lastResult: null,    // 'ok' | 'empty' | 'error' | 'skipped'
-  lastError: null,     // error message if failed
-  lastArchived: 0,     // rows archived in last run
-  totalArchived: 0,    // rows archived since startup
+  lastRun: null,        // ISO timestamp of last attempt
+  lastSuccess: null,    // ISO timestamp of last successful upload
+  lastResult: null,     // 'ok' | 'empty' | 'error' | 'skipped'
+  lastError: null,      // error message if failed
+  lastArchived: 0,      // rows archived in last run
+  totalArchived: 0,     // rows archived since startup
   totalRuns: 0,
+  totalFailures: 0,     // consecutive failures (resets on success)
 }
 
 function isEnabled() {
@@ -57,105 +56,124 @@ function getStatus() {
   return { ..._status }
 }
 
-// Archive old daily summaries to S3 and delete them from SQLite.
-// `db` is the better-sqlite3 instance, passed in to avoid circular deps.
-async function archiveOldDaily(db) {
-  if (!s3) return { archived: 0, uploaded: false }
+// Upload a gzipped JSON payload to S3. Returns true on success.
+async function _upload(key, rows, label) {
+  const json = JSON.stringify(rows)
+  const compressed = zlib.gzipSync(json)
+
+  if (compressed.length > MAX_UPLOAD_BYTES) {
+    console.warn(`  s3: SKIPPED ${label} — ${(compressed.length / 1024 / 1024).toFixed(1)} MB exceeds limit`)
+    return false
+  }
+
+  await s3.send(new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    Body: compressed,
+    ContentType: 'application/gzip',
+    ContentEncoding: 'gzip',
+    Metadata: {
+      'row-count': String(rows.length),
+      'archived-at': new Date().toISOString(),
+    },
+  }))
+
+  console.log(`  s3: uploaded ${key} (${rows.length} rows, ${(compressed.length / 1024).toFixed(1)} KB)`)
+  return true
+}
+
+// Archive all data that's about to be purged.
+// Called with the cutoff timestamp — archives everything older than cutoff.
+// Returns { ok: boolean, sightings, daily, anomalies }
+async function archiveBeforePurge(db, cutoff) {
+  if (!s3) return { ok: false, reason: 'disabled' }
 
   _status.totalRuns++
   _status.lastRun = new Date().toISOString()
 
-  const cutoff = new Date(Date.now() - ARCHIVE_AFTER_DAYS * 86400000)
-    .toISOString()
-    .slice(0, 10) // YYYY-MM-DD
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  let totalRows = 0
+  let anyFailed = false
 
-  // Count first — circuit breaker
-  const count = db
-    .prepare('SELECT COUNT(*) as c FROM sightings_daily WHERE date < ?')
-    .get(cutoff).c
+  // ── 1. Archive raw sightings about to be purged ───────────────────────
+  try {
+    const sightings = db
+      .prepare('SELECT * FROM sightings WHERE seen_at < ?')
+      .all(cutoff)
 
-  if (count === 0) {
-    _status.lastResult = 'empty'
-    _status.lastArchived = 0
+    if (sightings.length > 0 && sightings.length <= MAX_ROWS_PER_CYCLE) {
+      const ok = await _upload(`${PREFIX}sightings/${ts}.json.gz`, sightings, `sightings (${sightings.length})`)
+      if (ok) totalRows += sightings.length
+      else anyFailed = true
+    } else if (sightings.length > MAX_ROWS_PER_CYCLE) {
+      console.warn(`  s3: SKIPPED sightings — ${sightings.length} rows exceeds ${MAX_ROWS_PER_CYCLE} limit`)
+      anyFailed = true
+    }
+  } catch (err) {
+    console.error(`  s3: FAILED sightings archive: ${err.message}`)
+    anyFailed = true
+    _status.lastError = `sightings: ${err.message}`
+  }
+
+  // ── 2. Archive daily summaries ────────────────────────────────────────
+  try {
+    const daily = db
+      .prepare('SELECT * FROM sightings_daily')
+      .all()
+
+    if (daily.length > 0 && daily.length <= MAX_ROWS_PER_CYCLE) {
+      const ok = await _upload(`${PREFIX}daily/${ts}.json.gz`, daily, `daily (${daily.length})`)
+      if (ok) totalRows += daily.length
+      else anyFailed = true
+    }
+  } catch (err) {
+    console.error(`  s3: FAILED daily archive: ${err.message}`)
+    anyFailed = true
+    _status.lastError = `daily: ${err.message}`
+  }
+
+  // ── 3. Archive anomalies about to be purged ───────────────────────────
+  try {
+    const anomalies = db
+      .prepare('SELECT * FROM anomalies WHERE detected_at < ?')
+      .all(cutoff)
+
+    if (anomalies.length > 0 && anomalies.length <= MAX_ROWS_PER_CYCLE) {
+      const ok = await _upload(`${PREFIX}anomalies/${ts}.json.gz`, anomalies, `anomalies (${anomalies.length})`)
+      if (ok) totalRows += anomalies.length
+      else anyFailed = true
+    }
+  } catch (err) {
+    console.error(`  s3: FAILED anomaly archive: ${err.message}`)
+    anyFailed = true
+    _status.lastError = `anomalies: ${err.message}`
+  }
+
+  // ── Update status ─────────────────────────────────────────────────────
+  _status.lastArchived = totalRows
+  _status.totalArchived += totalRows
+
+  if (totalRows > 0 && !anyFailed) {
+    _status.lastResult = 'ok'
+    _status.lastSuccess = new Date().toISOString()
     _status.lastError = null
-    return { archived: 0, uploaded: false }
+    _status.totalFailures = 0
+  } else if (totalRows > 0 && anyFailed) {
+    _status.lastResult = 'partial'
+    _status.totalFailures++
+  } else if (anyFailed) {
+    _status.lastResult = 'error'
+    _status.totalFailures++
+  } else {
+    _status.lastResult = 'empty'
+    _status.lastError = null
   }
 
-  if (count > MAX_ROWS_PER_CYCLE) {
-    console.warn(`  s3: SKIPPED — ${count} rows exceeds safety limit of ${MAX_ROWS_PER_CYCLE}. Check for data anomaly.`)
-    _status.lastResult = 'skipped'
-    _status.lastError = `${count} rows exceeds ${MAX_ROWS_PER_CYCLE} limit`
-    return { archived: 0, uploaded: false, skipped: true }
+  if (_status.totalFailures > 0) {
+    console.error(`  ⚠ S3 ARCHIVAL ${anyFailed ? 'FAILED' : 'PARTIAL'} — ${_status.totalFailures} consecutive failure(s). Data will NOT be purged until S3 succeeds.`)
   }
 
-  // Fetch rows to archive
-  const rows = db
-    .prepare('SELECT * FROM sightings_daily WHERE date < ?')
-    .all(cutoff)
-
-  // Group by month for cleaner S3 keys
-  const byMonth = {}
-  for (const row of rows) {
-    const month = row.date.slice(0, 7) // YYYY-MM
-    if (!byMonth[month]) byMonth[month] = []
-    byMonth[month].push(row)
-  }
-
-  let totalArchived = 0
-  const uploadedMonths = [] // track which months succeeded
-
-  for (const [month, monthRows] of Object.entries(byMonth)) {
-    const json = JSON.stringify(monthRows)
-    const compressed = zlib.gzipSync(json)
-
-    // Size guard
-    if (compressed.length > MAX_UPLOAD_BYTES) {
-      console.warn(`  s3: SKIPPED ${month} — ${(compressed.length / 1024 / 1024).toFixed(1)} MB exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit`)
-      continue
-    }
-
-    const key = `${PREFIX}daily/${month}.json.gz`
-
-    try {
-      await s3.send(new PutObjectCommand({
-        Bucket: BUCKET,
-        Key: key,
-        Body: compressed,
-        ContentType: 'application/gzip',
-        ContentEncoding: 'gzip',
-        Metadata: {
-          'row-count': String(monthRows.length),
-          'date-range': `${monthRows[0].date} to ${monthRows[monthRows.length - 1].date}`,
-        },
-      }))
-
-      totalArchived += monthRows.length
-      uploadedMonths.push(month)
-      console.log(`  s3: uploaded ${key} (${monthRows.length} rows, ${(compressed.length / 1024).toFixed(1)} KB)`)
-    } catch (err) {
-      // Upload failed — do NOT delete these rows
-      console.error(`  s3: FAILED to upload ${key}: ${err.message}`)
-      _status.lastError = err.message
-    }
-  }
-
-  // Only delete rows for months that were successfully uploaded
-  if (uploadedMonths.length > 0) {
-    const likeClauses = uploadedMonths.map(() => 'date LIKE ?').join(' OR ')
-    const likeParams = uploadedMonths.map((m) => `${m}%`)
-    const deleted = db
-      .prepare(`DELETE FROM sightings_daily WHERE date < ? AND (${likeClauses})`)
-      .run(cutoff, ...likeParams)
-
-    console.log(`  s3: archived ${totalArchived} daily rows, deleted ${deleted.changes} from sqlite`)
-  }
-
-  _status.lastArchived = totalArchived
-  _status.totalArchived += totalArchived
-  _status.lastResult = totalArchived > 0 ? 'ok' : 'error'
-  if (totalArchived > 0) _status.lastError = null
-
-  return { archived: totalArchived, uploaded: uploadedMonths.length > 0 }
+  return { ok: !anyFailed, archived: totalRows }
 }
 
-module.exports = { isEnabled, archiveOldDaily, getStatus, ARCHIVE_AFTER_DAYS }
+module.exports = { isEnabled, archiveBeforePurge, getStatus }

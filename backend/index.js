@@ -9,8 +9,12 @@ const {
   calcOpenSkyCredits, recordApiCall,
   getUsageSummary, getTodayCredits, getDailyUsage, getRecentCalls,
   getAeroSpendTotal, getAeroSpendMonth,
+  recordAnomalies, resolveAnomalies,
+  getRecentAnomalies, getActiveAnomalies, getAnomaliesByIcao, getAnomalyStats,
+  getTrafficHeatmap,
+  runDeferredMaintenance,
 } = require('./db')
-const { getStatus: getS3Status } = require('./s3archive')
+const { getStatus: getS3Status, isEnabled: s3IsEnabled } = require('./s3archive')
 
 const path = require('path')
 const app = express()
@@ -148,6 +152,75 @@ app.get('/api/health', (_req, res) => {
   })
 })
 
+// ── Passive service health — tracks success/failure of actual proxy calls ────
+// No active probing. Status is derived from real traffic through our proxy routes.
+const _serviceHealth = {
+  opensky:         { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
+  adsbfi:          { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
+  aviationweather: { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
+  aeroapi:         { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
+  faa_notam:       { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
+  // adsbdb + hexdb are called directly from the browser (CORS-enabled), not proxied
+}
+
+function recordServiceOk(name, latency) {
+  const svc = _serviceHealth[name]
+  if (!svc) return
+  svc.status = 'ok'
+  svc.lastOk = Date.now()
+  svc.lastLatency = latency
+  svc.error = null
+}
+
+function recordServiceError(name, latency, error) {
+  const svc = _serviceHealth[name]
+  if (!svc) return
+  svc.status = 'error'
+  svc.lastError = Date.now()
+  svc.lastLatency = latency
+  svc.error = (error || '').substring(0, 120)
+}
+
+// Mark unconfigured services
+if (!process.env.AEROAPI_KEY) _serviceHealth.aeroapi.status = 'unconfigured'
+if (!process.env.FAA_CLIENT_ID) _serviceHealth.faa_notam.status = 'unconfigured'
+
+// GET /api/health/services — returns passive health derived from real traffic
+app.get('/api/health/services', (_req, res) => {
+  const services = Object.entries(_serviceHealth).map(([name, svc]) => ({
+    name,
+    status: svc.status,
+    latency: svc.lastLatency,
+    lastOk: svc.lastOk ? new Date(svc.lastOk).toISOString() : null,
+    lastError: svc.lastError ? new Date(svc.lastError).toISOString() : null,
+    error: svc.error,
+  }))
+  const healthy = services.filter(s => s.status === 'ok' || s.status === 'unconfigured').length
+  res.json({
+    healthy,
+    total: services.length,
+    services,
+    checked_at: new Date().toISOString(),
+  })
+})
+
+// GET /api/health/archive — S3 archival status
+app.get('/api/health/archive', (_req, res) => {
+  const status = getS3Status()
+  res.json({
+    ...status,
+    retention_hours: 3,
+    purge_interval: '1h',
+    message: status.totalFailures > 0
+      ? `⚠ ${status.totalFailures} consecutive failure(s) — data preserved until S3 succeeds`
+      : status.lastSuccess
+        ? `Last successful archive: ${status.lastSuccess}`
+        : s3IsEnabled()
+          ? 'Awaiting first archive cycle'
+          : 'S3 not configured — data purged without archival',
+  })
+})
+
 // ── API key status (read-only, never exposes actual values) ─────────────────
 app.get('/api/keys', (_req, res) => {
   res.json({
@@ -183,11 +256,13 @@ app.get('/api/opensky/states', async (req, res) => {
     }
   }
   const credits = calcOpenSkyCredits(req.query)
+  const t0 = Date.now()
   try {
     const response = await axios.get(`${OS_BASE}/states/all`, {
       headers,
       params: req.query,   // bbox params (lamin/lomin/lamax/lomax) pass straight through
     })
+    recordServiceOk('opensky', Date.now() - t0)
     const stateCount = response.data?.states?.length || 0
     const rateRemaining = response.headers['x-rate-limit-remaining']
     recordApiCall({
@@ -200,6 +275,7 @@ app.get('/api/opensky/states', async (req, res) => {
     response.data._credits = { used: credits, remaining: rateRemaining ? Number(rateRemaining) : null }
     res.json(response.data)
   } catch (err) {
+    recordServiceError('opensky', Date.now() - t0, err.message)
     const status = err.response?.status || 500
     recordApiCall({
       service: 'opensky', endpoint: '/states/all',
@@ -237,6 +313,7 @@ app.get('/api/aero/flights/:ident', async (req, res) => {
 
   const { ident } = req.params
   const { max_pages = 1 } = req.query
+  const t0 = Date.now()
   try {
     const response = await axios.get(
       `${AERO_BASE}/flights/${ident}`,
@@ -245,6 +322,7 @@ app.get('/api/aero/flights/:ident', async (req, res) => {
         params: { max_pages: Number(max_pages) }
       }
     )
+    recordServiceOk('aeroapi', Date.now() - t0)
     recordApiCall({
       service: 'aeroapi', endpoint: `/flights/${ident}`,
       credits: callCost, status: 200,
@@ -252,6 +330,7 @@ app.get('/api/aero/flights/:ident', async (req, res) => {
     })
     res.json(response.data)
   } catch (err) {
+    recordServiceError('aeroapi', Date.now() - t0, err.message)
     const status = err.response?.status || 500
     const message = err.response?.data?.title || err.message
     recordApiCall({
@@ -333,6 +412,7 @@ app.get('/api/notams', async (req, res) => {
   for (let i = 0; i < toFetch.length; i += 5) {
     const batch = toFetch.slice(i, i + 5)
     const fetches = batch.map(async (code) => {
+      const t0 = Date.now()
       try {
         const response = await axios.get(FAA_NOTAM_BASE, {
           params: {
@@ -346,6 +426,7 @@ app.get('/api/notams', async (req, res) => {
           },
           timeout: 10000,
         })
+        recordServiceOk('faa_notam', Date.now() - t0)
         const items = (response.data?.items || []).map(item => {
           const notam = item?.properties?.coreNOTAMData?.notam || {}
           return {
@@ -363,6 +444,7 @@ app.get('/api/notams', async (req, res) => {
         _notamCache[code] = { data: items, expiresAt: now + NOTAM_CACHE_TTL }
         results[code] = items
       } catch (err) {
+        recordServiceError('faa_notam', Date.now() - t0, err.message)
         console.warn(`notam fetch failed for ${code}:`, err.response?.status || err.message)
         results[code] = []
       }
@@ -442,6 +524,147 @@ app.get('/api/sightings/activity/hourly', (_req, res) => {
 app.get('/api/sightings/fetches', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 20, 100)
   res.json(getRecentFetches(limit))
+})
+
+// Traffic heatmap — latest position per aircraft from last hour
+// GET /api/sightings/heatmap
+app.get('/api/sightings/heatmap', (_req, res) => {
+  res.json(getTrafficHeatmap())
+})
+
+// ── adsb.fi proxy (CORS bypass) ─────────────────────────────────────────────
+
+// GET /api/adsbfi/hex/:hex — enrich by ICAO hex
+app.get('/api/adsbfi/hex/:hex', async (req, res) => {
+  const t0 = Date.now()
+  try {
+    const hex = req.params.hex.trim().toLowerCase()
+    const resp = await axios.get(`https://opendata.adsb.fi/api/v2/hex/${hex}`, { timeout: 10000 })
+    recordServiceOk('adsbfi', Date.now() - t0)
+    res.json(resp.data)
+  } catch (err) {
+    recordServiceError('adsbfi', Date.now() - t0, err.message)
+    res.status(err.response?.status || 502).json({ error: err.message })
+  }
+})
+
+// GET /api/adsbfi/callsign/:cs — enrich by callsign
+app.get('/api/adsbfi/callsign/:cs', async (req, res) => {
+  const t0 = Date.now()
+  try {
+    const cs = req.params.cs.trim()
+    const resp = await axios.get(`https://opendata.adsb.fi/api/v2/callsign/${cs}`, { timeout: 10000 })
+    recordServiceOk('adsbfi', Date.now() - t0)
+    res.json(resp.data)
+  } catch (err) {
+    recordServiceError('adsbfi', Date.now() - t0, err.message)
+    res.status(err.response?.status || 502).json({ error: err.message })
+  }
+})
+
+// ── Aviation Weather proxy (aviationweather.gov, no CORS) ───────────────────
+
+const AWX_BASE = 'https://aviationweather.gov/api/data'
+
+// GET /api/weather/metar?ids=KJFK,KLAX  or  ?bbox=25,-130,50,-60
+app.get('/api/weather/metar', async (req, res) => {
+  const t0 = Date.now()
+  try {
+    const params = { format: 'json', ...req.query }
+    const resp = await axios.get(`${AWX_BASE}/metar`, { params, timeout: 10000 })
+    recordServiceOk('aviationweather', Date.now() - t0)
+    res.json(resp.data)
+  } catch (err) {
+    recordServiceError('aviationweather', Date.now() - t0, err.message)
+    res.status(err.response?.status || 502).json({ error: err.message })
+  }
+})
+
+// GET /api/weather/pirep?bbox=25,-130,50,-60&age=2&inten=mod
+app.get('/api/weather/pirep', async (req, res) => {
+  const t0 = Date.now()
+  try {
+    const params = { format: 'json', ...req.query }
+    const resp = await axios.get(`${AWX_BASE}/pirep`, { params, timeout: 10000 })
+    recordServiceOk('aviationweather', Date.now() - t0)
+    res.json(resp.data)
+  } catch (err) {
+    recordServiceError('aviationweather', Date.now() - t0, err.message)
+    res.status(err.response?.status || 502).json({ error: err.message })
+  }
+})
+
+// GET /api/weather/sigmet?hazard=conv
+app.get('/api/weather/sigmet', async (req, res) => {
+  const t0 = Date.now()
+  try {
+    const params = { format: 'json', ...req.query }
+    const resp = await axios.get(`${AWX_BASE}/airsigmet`, { params, timeout: 10000 })
+    recordServiceOk('aviationweather', Date.now() - t0)
+    res.json(resp.data)
+  } catch (err) {
+    recordServiceError('aviationweather', Date.now() - t0, err.message)
+    res.status(err.response?.status || 502).json({ error: err.message })
+  }
+})
+
+// ── Anomaly routes ──────────────────────────────────────────────────────────
+
+// Record a batch of anomalies (called by frontend after each fetch)
+// POST /api/anomalies  { anomalies: [...], region: 'usa' }
+app.post('/api/anomalies', (req, res) => {
+  const { anomalies, region } = req.body
+  if (!anomalies || !Array.isArray(anomalies)) {
+    return res.status(400).json({ error: 'anomalies array required' })
+  }
+  try {
+    const recorded = recordAnomalies(anomalies, region)
+    res.json({ recorded })
+  } catch (err) {
+    console.error('anomaly insert error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Resolve anomalies for aircraft no longer flagged
+// POST /api/anomalies/resolve  { icaos: ['abc123', ...] }
+app.post('/api/anomalies/resolve', (req, res) => {
+  const { icaos } = req.body
+  if (!icaos || !Array.isArray(icaos)) {
+    return res.status(400).json({ error: 'icaos array required' })
+  }
+  try {
+    const resolved = resolveAnomalies(icaos)
+    res.json({ resolved })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Recent anomalies
+// GET /api/anomalies?limit=50
+app.get('/api/anomalies', (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 50, 200)
+  res.json(getRecentAnomalies(limit))
+})
+
+// Currently active (unresolved) anomalies
+// GET /api/anomalies/active
+app.get('/api/anomalies/active', (_req, res) => {
+  res.json(getActiveAnomalies())
+})
+
+// Anomaly history for a specific aircraft
+// GET /api/anomalies/aircraft/:icao?limit=20
+app.get('/api/anomalies/aircraft/:icao', (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 20, 100)
+  res.json(getAnomaliesByIcao(req.params.icao, limit))
+})
+
+// Anomaly stats (last 24h)
+// GET /api/anomalies/stats
+app.get('/api/anomalies/stats', (_req, res) => {
+  res.json(getAnomalyStats())
 })
 
 // ── API usage tracking routes ───────────────────────────────────────────────
@@ -561,4 +784,7 @@ app.listen(PORT, () => {
   } else {
     console.log('  ✓  FAA NOTAM credentials loaded')
   }
+
+  // Heavy maintenance (dedup, vacuum, purge) — runs after server is listening
+  runDeferredMaintenance()
 })

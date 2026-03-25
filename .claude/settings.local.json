@@ -27,7 +27,11 @@
       "WebFetch(domain:dip.amesaero.nasa.gov)",
       "Bash(curl -s --max-time 10 'https://notams.aim.faa.gov/notamSearch/search' -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'searchType=0&designatorsForNotamList=KJFK&notamListSort=Location&formatType=DOMESTIC')",
       "Bash(curl -sv --max-time 10 'https://notams.aim.faa.gov/notamSearch/search' -X POST -H 'Content-Type: application/x-www-form-urlencoded' -d 'searchType=0&designatorsForNotamList=KJFK&notamListSort=Location&formatType=DOMESTIC')",
-      "Bash(curl -s --max-time 15 'https://notams.aim.faa.gov/notamWFS/')"
+      "Bash(curl -s --max-time 15 'https://notams.aim.faa.gov/notamWFS/')",
+      "Bash(npm run:*)",
+      "WebFetch(domain:rapidapi.com)",
+      "Bash(node -e \"require\\(''./db''\\)\")",
+      "Bash(node -e \"const db = require\\(''better-sqlite3''\\)\\(''flightterm.db''\\); console.log\\(db.prepare\\(\"\"PRAGMA table_info\\(''sightings''\\)\"\"\\).all\\(\\).map\\(c=>c.name\\).join\\('', ''\\)\\)\")"
     ]
   }
 }

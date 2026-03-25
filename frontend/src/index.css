@@ -30,6 +30,7 @@
   #root {
     @apply h-full bg-bg text-fg font-mono leading-normal;
     font-size: 15px;
+    zoom: 1.05;
   }
 
   ::-webkit-scrollbar {

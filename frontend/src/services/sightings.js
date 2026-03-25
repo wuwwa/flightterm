@@ -14,3 +14,13 @@ export async function fetchOpenSkyUsageToday() {
   const res = await axios.get('/api/usage/today', { params: { service: 'opensky' } })
   return res.data
 }
+
+export async function recordAnomalies(anomalies, region) {
+  const res = await axios.post('/api/anomalies', { anomalies, region })
+  return res.data
+}
+
+export async function resolveAnomalies(icaos) {
+  const res = await axios.post('/api/anomalies/resolve', { icaos })
+  return res.data
+}

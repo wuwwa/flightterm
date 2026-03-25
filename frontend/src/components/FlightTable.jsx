@@ -15,14 +15,14 @@ const COLS = [
   { key: 'db',       label: 'db', hideMobile: true },
 ]
 
-// priority for takeoff sort — lower = closer to takeoff
+// priority for takeoff sort — airborne first, then by phase
 const TAKEOFF_RANK = {
-  [PHASE.GROUND]:   0,
-  [PHASE.CLIMB]:    1,
-  [PHASE.APPROACH]: 2,
-  [PHASE.DESCENT]:  3,
-  [PHASE.CRUISE]:   4,
-  [PHASE.UNKNOWN]:  5,
+  [PHASE.CLIMB]:    0,
+  [PHASE.APPROACH]: 1,
+  [PHASE.DESCENT]:  2,
+  [PHASE.CRUISE]:   3,
+  [PHASE.UNKNOWN]:  4,
+  [PHASE.GROUND]:   5,
 }
 
 export default function FlightTable({ flights, filter, selectedIcao, enrichCache, anomalies = {}, trackHistory = {}, openskyUsage, aeroSpend, onSelect, onArrived, onDeparted }) {
@@ -136,7 +136,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
     })
   }, [filtered, sortKey, sortDir, anomalies, trackHistory, anomalyHighlight, squawkHighlight])
 
-  const limit = showAll ? sorted.length : 200
+  const limit = showAll ? sorted.length : 100
   const displayed = sorted.slice(0, limit)
 
   const anomalyCount = Object.keys(anomalies).length
@@ -169,7 +169,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
   return (
     <div className="flex flex-col bg-bg flex-1 min-h-0">
       <div className="flex flex-wrap justify-between items-center py-0.5 px-1.5 sm:px-2.5 bg-bg2 border-b border-border text-[10px] sm:text-[11px] text-fg3 shrink-0 gap-y-0.5">
-        <span className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-wrap">
+        <span className="flex items-center gap-1 sm:gap-1.5 min-w-0 shrink-0">
           <span className="text-fg">{filtered.length}</span>
           <span>records</span>
           {filtered.length > limit && (
@@ -177,15 +177,18 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
               className="bg-transparent border-none text-acc text-[11px] cursor-pointer p-0 font-mono underline"
               onClick={() => setShowAll(s => !s)}
             >
-              {showAll ? `show 200` : `show all ${filtered.length}`}
+              {showAll ? `show 100` : `show all ${filtered.length}`}
             </button>
           )}
           {!showAll && filtered.length > limit && (
             <span className="text-fg3">(showing {limit})</span>
           )}
+          {newIcaos.size > 0 && <span className="text-grn ml-1">+{newIcaos.size} new</span>}
+        </span>
+        <div className="flex gap-1 items-center w-full sm:w-auto">
           <button
             className={clsx(
-              'text-[11px] cursor-pointer font-mono px-1.5 py-0 rounded border',
+              'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 rounded border flex-1 sm:flex-none text-center',
               sortKey === 'takeoff'
                 ? 'bg-acc/15 border-acc/40 text-acc'
                 : 'bg-transparent border-border text-fg3 hover:text-fg2 hover:border-fg3'
@@ -198,10 +201,9 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
           >
             {sortKey === 'takeoff' ? `takeoff ${sortDir > 0 ? '▲' : '▼'}` : 'takeoff'}
           </button>
-          {newIcaos.size > 0 && <span className="text-grn ml-1">+{newIcaos.size} new</span>}
           <button
             className={clsx(
-              'text-[11px] cursor-pointer font-mono px-1.5 py-0 rounded border',
+              'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 rounded border flex-1 sm:flex-none text-center',
               anomalyHighlight
                 ? 'bg-red/15 border-red/40 text-red'
                 : anomalyCount > 0
@@ -211,33 +213,33 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
             onClick={() => setAnomalyHighlight(h => !h)}
             title={anomalyHighlight ? 'Stop highlighting anomalies' : 'Highlight anomalies'}
           >
-            ! {anomalyCount}
+            anomaly ({anomalyCount})
           </button>
-          <span className="flex items-center gap-0.5 ml-0.5 border border-border rounded overflow-hidden">
-            <span className="text-[9px] text-fg3 px-1 border-r border-border">squawk</span>
-            {[
-              { id: '7700', label: '7700', on: 'bg-red/20 text-red', title: 'Emergency' },
-              { id: '7600', label: '7600', on: 'bg-ylw/20 text-ylw', title: 'Radio failure' },
-              { id: '7500', label: '7500', on: 'bg-red/20 text-red', title: 'Hijack' },
-              { id: '1200', label: 'VFR',  on: 'bg-cyn/20 text-cyn', title: 'VFR traffic' },
-            ].map(f => {
-              const cnt = squawkCounts[f.id] || 0
-              return (
-                <button
-                  key={f.id}
-                  className={clsx(
-                    'text-[10px] cursor-pointer font-mono px-1.5 py-0 border-none',
-                    squawkHighlight === f.id ? f.on : 'bg-transparent text-fg3 hover:text-fg2'
-                  )}
-                  onClick={() => setSquawkHighlight(prev => prev === f.id ? null : f.id)}
-                  title={f.title}
-                >
-                  {f.label} ({cnt})
-                </button>
-              )
-            })}
-          </span>
-        </span>
+        </div>
+        <div className="flex gap-0 items-center w-full sm:w-auto border border-border sm:ml-0.5 rounded overflow-hidden">
+          <span className="text-[9px] text-fg3 px-1 border-r border-border shrink-0">squawk</span>
+          {[
+            { id: '7700', label: '7700', on: 'bg-red/20 text-red', title: 'Emergency' },
+            { id: '7600', label: '7600', on: 'bg-ylw/20 text-ylw', title: 'Radio failure' },
+            { id: '7500', label: '7500', on: 'bg-red/20 text-red', title: 'Hijack' },
+            { id: '1200', label: 'VFR',  on: 'bg-cyn/20 text-cyn', title: 'VFR traffic' },
+          ].map(f => {
+            const cnt = squawkCounts[f.id] || 0
+            return (
+              <button
+                key={f.id}
+                className={clsx(
+                  'text-[10px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 border-none flex-1 text-center',
+                  squawkHighlight === f.id ? f.on : 'bg-transparent text-fg3 hover:text-fg2'
+                )}
+                onClick={() => setSquawkHighlight(prev => prev === f.id ? null : f.id)}
+                title={f.title}
+              >
+                {f.label} ({cnt})
+              </button>
+            )
+          })}
+        </div>
         <span className="hidden sm:flex gap-3 items-center shrink-0">
           {openskyUsage && (
             <span>

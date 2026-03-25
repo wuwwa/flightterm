@@ -1,7 +1,7 @@
 const Database = require('better-sqlite3')
 const path = require('path')
 const fs = require('fs')
-const { isEnabled: s3Enabled, archiveOldDaily } = require('./s3archive')
+const { isEnabled: s3Enabled, archiveBeforePurge } = require('./s3archive')
 
 const DB_DIR = process.env.DB_DIR || __dirname
 const DB_PATH = path.join(DB_DIR, 'flightterm.db')
@@ -108,6 +108,8 @@ if (hasOldSchema && colInfo.length > 0) {
       icao        TEXT    NOT NULL,
       callsign    TEXT,
       country     TEXT,
+      lat         REAL,
+      lon         REAL,
       alt         REAL,
       vel         REAL,
       hdg         REAL,
@@ -142,6 +144,8 @@ if (hasOldSchema && colInfo.length > 0) {
       icao        TEXT    NOT NULL,
       callsign    TEXT,
       country     TEXT,
+      lat         REAL,
+      lon         REAL,
       alt         REAL,
       vel         REAL,
       hdg         REAL,
@@ -179,8 +183,21 @@ if (hasOldSchema && colInfo.length > 0) {
     CREATE INDEX IF NOT EXISTS idx_daily_date ON sightings_daily(date);
     CREATE INDEX IF NOT EXISTS idx_daily_icao ON sightings_daily(icao);
   `)
-} else {
-  // Already migrated — ensure daily table exists
+}
+
+// ── v3 migration: add lat/lon back to sightings ──────────────────────────────
+const v3Cols = db.prepare("PRAGMA table_info('sightings')").all().map(c => c.name)
+if (v3Cols.length > 0 && !v3Cols.includes('lat')) {
+  console.log('db: adding lat/lon columns to sightings...')
+  db.exec(`
+    ALTER TABLE sightings ADD COLUMN lat REAL;
+    ALTER TABLE sightings ADD COLUMN lon REAL;
+  `)
+  console.log('db: lat/lon columns added')
+}
+
+{
+  // Ensure daily table exists
   db.exec(`
     CREATE TABLE IF NOT EXISTS sightings_daily (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -207,12 +224,59 @@ if (hasOldSchema && colInfo.length > 0) {
   `)
 }
 
+// ── anomalies table ──────────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS anomalies (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    icao        TEXT    NOT NULL,
+    callsign    TEXT,
+    score       INTEGER NOT NULL,
+    phase       TEXT,
+    reasons     TEXT,
+    confirmed   INTEGER DEFAULT 0,
+    lat         REAL,
+    lon         REAL,
+    alt         REAL,
+    vel         REAL,
+    hdg         REAL,
+    squawk      TEXT,
+    region      TEXT,
+    resolved    INTEGER DEFAULT 0,
+    resolved_at TEXT,
+    detected_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_anomalies_icao ON anomalies(icao);
+  CREATE INDEX IF NOT EXISTS idx_anomalies_detected ON anomalies(detected_at);
+  CREATE INDEX IF NOT EXISTS idx_anomalies_score ON anomalies(score DESC);
+  CREATE INDEX IF NOT EXISTS idx_anomalies_resolved ON anomalies(resolved);
+`)
+
+// ── v4 migration: add category + severity to anomalies ──────────────────────
+{
+  const cols = db.pragma('table_info(anomalies)').map(c => c.name)
+  if (!cols.includes('category')) {
+    db.exec(`ALTER TABLE anomalies ADD COLUMN category TEXT`)
+    db.exec(`ALTER TABLE anomalies ADD COLUMN severity TEXT`)
+    db.exec(`ALTER TABLE anomalies ADD COLUMN categories TEXT`) // JSON array of all triggered categories
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_anomalies_category ON anomalies(category)`)
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_anomalies_severity ON anomalies(severity)`)
+  }
+}
+
+// ── v5 migration: add weather_context to anomalies ──────────────────────────
+{
+  const cols = db.pragma('table_info(anomalies)').map(c => c.name)
+  if (!cols.includes('weather_context')) {
+    db.exec(`ALTER TABLE anomalies ADD COLUMN weather_context TEXT`) // JSON weather snapshot
+  }
+}
+
 // ── prepared statements (pre-compiled once) ─────────────────────────────────
 
 const _stmts = {
   insert: db.prepare(`
-    INSERT INTO sightings (icao, callsign, country, alt, vel, hdg, grounded, squawk, fetch_id, seen_at)
-    VALUES (@icao, @callsign, @country, @alt, @vel, @hdg, @grounded, @squawk, @fetch_id, @seen_at)
+    INSERT INTO sightings (icao, callsign, country, lat, lon, alt, vel, hdg, grounded, squawk, fetch_id, seen_at)
+    VALUES (@icao, @callsign, @country, @lat, @lon, @alt, @vel, @hdg, @grounded, @squawk, @fetch_id, @seen_at)
   `),
 
   insertFetch: db.prepare(`
@@ -221,7 +285,7 @@ const _stmts = {
   `),
 
   aircraftTrack: db.prepare(`
-    SELECT alt, vel, hdg, grounded, seen_at FROM sightings
+    SELECT lat, lon, alt, vel, hdg, grounded, seen_at FROM sightings
     WHERE icao = ? ORDER BY seen_at DESC LIMIT ?
   `),
 
@@ -342,6 +406,104 @@ const _stmts = {
 
   countSightings: db.prepare(`SELECT COUNT(*) as c FROM sightings`),
   countDaily: db.prepare(`SELECT COUNT(*) as c FROM sightings_daily`),
+
+  // Anomaly statements
+  insertAnomaly: db.prepare(`
+    INSERT INTO anomalies (icao, callsign, score, phase, reasons, confirmed, category, severity, categories, lat, lon, alt, vel, hdg, squawk, region, weather_context, detected_at)
+    VALUES (@icao, @callsign, @score, @phase, @reasons, @confirmed, @category, @severity, @categories, @lat, @lon, @alt, @vel, @hdg, @squawk, @region, @weather_context, @detected_at)
+  `),
+
+  // Skip insert if same icao already has an unresolved anomaly within last 10 minutes
+  findRecentAnomaly: db.prepare(`
+    SELECT id FROM anomalies
+    WHERE icao = ? AND resolved = 0 AND detected_at > datetime('now', '-10 minutes')
+    LIMIT 1
+  `),
+
+  resolveAnomalies: db.prepare(`
+    UPDATE anomalies SET resolved = 1, resolved_at = datetime('now')
+    WHERE icao = ? AND resolved = 0
+  `),
+
+  recentAnomalies: db.prepare(`
+    SELECT * FROM anomalies
+    WHERE detected_at > datetime('now', '-1 hour')
+    ORDER BY detected_at DESC LIMIT ?
+  `),
+
+  activeAnomalies: db.prepare(`
+    SELECT * FROM anomalies WHERE resolved = 0 ORDER BY score DESC
+  `),
+
+  anomaliesByIcao: db.prepare(`
+    SELECT * FROM anomalies WHERE icao = ? ORDER BY detected_at DESC LIMIT ?
+  `),
+
+  // Heatmap: recent sighting positions (1 per aircraft, most recent only)
+  trafficHeatmap: db.prepare(`
+    SELECT s.lat, s.lon FROM sightings s
+    INNER JOIN (
+      SELECT icao, MAX(seen_at) as max_seen FROM sightings
+      WHERE seen_at > datetime('now', '-1 hour') AND lat IS NOT NULL AND lon IS NOT NULL
+      GROUP BY icao
+    ) latest ON s.icao = latest.icao AND s.seen_at = latest.max_seen
+  `),
+
+  anomalyStats: db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN resolved = 0 THEN 1 ELSE 0 END) as active,
+      SUM(CASE WHEN confirmed = 1 THEN 1 ELSE 0 END) as confirmed,
+      AVG(score) as avg_score,
+      MAX(score) as max_score,
+      SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical,
+      SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END) as high,
+      SUM(CASE WHEN severity = 'MEDIUM' THEN 1 ELSE 0 END) as medium,
+      SUM(CASE WHEN category = 'SQUAWK' THEN 1 ELSE 0 END) as cat_squawk,
+      SUM(CASE WHEN category = 'EMERGENCY' THEN 1 ELSE 0 END) as cat_emergency,
+      SUM(CASE WHEN category = 'ALTITUDE' THEN 1 ELSE 0 END) as cat_altitude,
+      SUM(CASE WHEN category = 'SPEED' THEN 1 ELSE 0 END) as cat_speed,
+      SUM(CASE WHEN category = 'HEADING' THEN 1 ELSE 0 END) as cat_heading,
+      SUM(CASE WHEN category = 'DIVERSION' THEN 1 ELSE 0 END) as cat_diversion,
+      SUM(CASE WHEN category = 'PHASE' THEN 1 ELSE 0 END) as cat_phase,
+      SUM(CASE WHEN category = 'INTENT' THEN 1 ELSE 0 END) as cat_intent,
+      COUNT(DISTINCT icao) as unique_aircraft
+    FROM anomalies
+    WHERE detected_at > datetime('now', '-24 hours')
+  `),
+
+  // Mean time to resolution (only for resolved anomalies in last 24h)
+  anomalyMttr: db.prepare(`
+    SELECT AVG(
+      (julianday(resolved_at) - julianday(detected_at)) * 24 * 60
+    ) as avg_minutes
+    FROM anomalies
+    WHERE resolved = 1 AND resolved_at IS NOT NULL
+      AND detected_at > datetime('now', '-24 hours')
+  `),
+
+  // Repeat offenders: aircraft with 2+ anomalies in last 24h
+  anomalyRepeaters: db.prepare(`
+    SELECT icao, callsign, COUNT(*) as count, MAX(score) as max_score, MAX(severity) as max_severity
+    FROM anomalies
+    WHERE detected_at > datetime('now', '-24 hours')
+    GROUP BY icao
+    HAVING count > 1
+    ORDER BY count DESC
+    LIMIT 10
+  `),
+
+  // Hourly anomaly counts (for chart overlay)
+  anomalyHourly: db.prepare(`
+    SELECT
+      CAST(strftime('%H', detected_at) AS INTEGER) AS hour,
+      COUNT(*) AS count,
+      SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical
+    FROM anomalies
+    WHERE detected_at > datetime('now', '-24 hours')
+    GROUP BY hour
+    ORDER BY hour
+  `),
 }
 
 // ── in-memory dedup cache ───────────────────────────────────────────────────
@@ -412,6 +574,8 @@ function recordSightings(flights, source, region) {
       icao:     f.icao,
       callsign: f.callsign || null,
       country:  f.country || null,
+      lat:      f.lat ?? null,
+      lon:      f.lon ?? null,
       alt:      f.alt ?? null,
       vel:      f.vel ?? null,
       hdg:      f.hdg ?? null,
@@ -469,6 +633,95 @@ function getHourlyActivity() {
 
 function getRecentFetches(limit = 20) {
   return _stmts.recentFetches.all(limit)
+}
+
+// ── anomaly persistence ─────────────────────────────────────────────────────
+
+const _insertAnomalyBatch = db.transaction((rows) => {
+  for (const row of rows) _stmts.insertAnomaly.run(row)
+})
+
+function recordAnomalies(anomalies, region) {
+  const now = new Date().toISOString()
+  const rows = []
+
+  for (const a of anomalies) {
+    // Skip if this aircraft already has an unresolved anomaly recently
+    const existing = _stmts.findRecentAnomaly.get(a.icao)
+    if (existing) continue
+
+    rows.push({
+      icao:        a.icao,
+      callsign:    a.callsign || null,
+      score:       a.score,
+      phase:       a.phase || null,
+      reasons:     JSON.stringify(a.reasons || []),
+      confirmed:   a.confirmed ? 1 : 0,
+      category:    a.category || null,
+      severity:    a.severity || null,
+      categories:  JSON.stringify(a.categories || []),
+      lat:         a.lat ?? null,
+      lon:         a.lon ?? null,
+      alt:         a.alt ?? null,
+      vel:         a.vel ?? null,
+      hdg:         a.hdg ?? null,
+      squawk:      a.squawk || null,
+      region:      region || null,
+      weather_context: a.weather_context ? JSON.stringify(a.weather_context) : null,
+      detected_at: now,
+    })
+  }
+
+  if (rows.length > 0) _insertAnomalyBatch(rows)
+  return rows.length
+}
+
+function resolveAnomalies(icaos) {
+  let resolved = 0
+  for (const icao of icaos) {
+    resolved += _stmts.resolveAnomalies.run(icao).changes
+  }
+  return resolved
+}
+
+function parseAnomaly(r) {
+  return {
+    ...r,
+    reasons: JSON.parse(r.reasons || '[]'),
+    categories: JSON.parse(r.categories || '[]'),
+    weather_context: r.weather_context ? JSON.parse(r.weather_context) : null,
+    confirmed: !!r.confirmed,
+    resolved: !!r.resolved,
+  }
+}
+
+function getRecentAnomalies(limit = 50) {
+  return _stmts.recentAnomalies.all(limit).map(parseAnomaly)
+}
+
+function getActiveAnomalies() {
+  return _stmts.activeAnomalies.all().map(parseAnomaly)
+}
+
+function getAnomaliesByIcao(icao, limit = 20) {
+  return _stmts.anomaliesByIcao.all(icao, limit).map(parseAnomaly)
+}
+
+function getTrafficHeatmap() {
+  return _stmts.trafficHeatmap.all()
+}
+
+function getAnomalyStats() {
+  const stats = _stmts.anomalyStats.get()
+  const mttr = _stmts.anomalyMttr.get()
+  const repeaters = _stmts.anomalyRepeaters.all()
+  const hourly = _stmts.anomalyHourly.all()
+  return {
+    ...stats,
+    mttr_minutes: mttr?.avg_minutes ?? null,
+    repeaters,
+    hourly,
+  }
 }
 
 // ── API usage tracking ──────────────────────────────────────────────────────
@@ -535,11 +788,16 @@ function getDbSize() {
   try { return fs.statSync(DB_PATH).size } catch { return 0 }
 }
 
-// ── auto-purge: archive old sightings into daily summaries ──────────────────
-const PURGE_AFTER_DAYS = 3
+// ── auto-purge: 3-hour retention window ─────────────────────────────────────
+// Dev phase: keep only 3 hours of raw data. Archive to S3 before purging.
+// If S3 fails, data stays in SQLite until next cycle succeeds.
+const PURGE_AFTER_HOURS = 3
 
-function purgeOldSightings() {
-  const cutoff = new Date(Date.now() - PURGE_AFTER_DAYS * 86400000).toISOString()
+function getPurgeCutoff() {
+  return new Date(Date.now() - PURGE_AFTER_HOURS * 3600_000).toISOString()
+}
+
+function purgeOldSightings(cutoff) {
   const before = _stmts.countSightings.get().c
 
   const archiveAndDelete = db.transaction(() => {
@@ -552,25 +810,54 @@ function purgeOldSightings() {
   const deleted = archiveAndDelete()
   if (deleted > 0) {
     db.exec('ANALYZE')
-    console.log(`  purge: archived ${deleted} sightings older than ${PURGE_AFTER_DAYS}d (${before} → ${_stmts.countSightings.get().c} rows)`)
+    console.log(`  purge: archived ${deleted} sightings older than ${PURGE_AFTER_HOURS}h (${before} → ${_stmts.countSightings.get().c} rows)`)
   }
   return deleted
 }
 
-// ── purge old daily summaries (fallback when S3 is disabled) ────────────────
-const { ARCHIVE_AFTER_DAYS } = require('./s3archive')
-const DAILY_RETENTION_DAYS = ARCHIVE_AFTER_DAYS // same threshold: 30 days default
+function purgeOldAnomalies(cutoff) {
+  const del = db.prepare('DELETE FROM anomalies WHERE detected_at < ?').run(cutoff)
+  if (del.changes > 0) {
+    console.log(`  purge: deleted ${del.changes} anomalies older than ${PURGE_AFTER_HOURS}h`)
+  }
+  return del.changes
+}
 
 function purgeOldDailySummaries() {
-  const cutoff = new Date(Date.now() - DAILY_RETENTION_DAYS * 86400000)
-    .toISOString()
-    .slice(0, 10)
+  // Daily summaries older than 24h can go — they've been archived to S3
+  const cutoff = new Date(Date.now() - 24 * 3600_000).toISOString().slice(0, 10)
   const before = _stmts.countDaily.get().c
   const del = db.prepare('DELETE FROM sightings_daily WHERE date < ?').run(cutoff)
   if (del.changes > 0) {
-    console.log(`  purge: deleted ${del.changes} daily summaries older than ${DAILY_RETENTION_DAYS}d (${before} → ${_stmts.countDaily.get().c} rows)`)
+    console.log(`  purge: deleted ${del.changes} old daily summaries (${before} → ${_stmts.countDaily.get().c} rows)`)
   }
   return del.changes
+}
+
+// Full purge cycle: S3 archive first, then purge
+async function runPurgeCycle() {
+  const cutoff = getPurgeCutoff()
+  console.log(`purge: starting cycle (cutoff: ${cutoff})`)
+
+  // Try S3 archive first
+  if (s3Enabled()) {
+    const { ok, archived } = await archiveBeforePurge(db, cutoff)
+    if (!ok && archived === 0) {
+      console.error('  ⚠ S3 archive FAILED — skipping purge to preserve data')
+      return
+    }
+    if (!ok) {
+      console.warn('  ⚠ S3 archive partially failed — purging only successfully archived data')
+    }
+  } else {
+    console.log('  purge: S3 not configured — data will be lost after purge')
+  }
+
+  // Purge
+  purgeOldSightings(cutoff)
+  purgeOldAnomalies(cutoff)
+  purgeOldDailySummaries()
+  vacuumDb()
 }
 
 // ── startup dedup of existing data ──────────────────────────────────────────
@@ -626,48 +913,35 @@ function vacuumDb() {
   }
 }
 
-// ── startup maintenance ─────────────────────────────────────────────────────
-function runStartupMaintenance() {
-  console.log('db: running startup maintenance...')
-  deduplicateExisting()
-  purgeOldSightings()
-  vacuumDb()
-  _warmDedup()
-  console.log(`db: ready (${(_stmts.countSightings.get().c).toLocaleString()} sightings, ${(_stmts.countDaily.get().c).toLocaleString()} daily summaries, ${(getDbSize() / 1048576).toFixed(1)} MB)`)
+// ── startup: only warm dedup cache synchronously (fast) ─────────────────────
+// Heavy maintenance (dedup scan, vacuum, purge) is deferred so Express can
+// start listening before Fly's health check times out.
+_warmDedup()
+console.log(`db: ready (${(_stmts.countSightings.get().c).toLocaleString()} sightings, ${(_stmts.countDaily.get().c).toLocaleString()} daily summaries, ${(getDbSize() / 1048576).toFixed(1)} MB)`)
+
+// Deferred heavy maintenance — runs after server is listening
+function runDeferredMaintenance() {
+  setTimeout(async () => {
+    try {
+      console.log('db: running deferred maintenance...')
+      deduplicateExisting()
+      vacuumDb()
+      await runPurgeCycle()
+      console.log('db: deferred maintenance complete')
+    } catch (err) {
+      console.error('deferred maintenance error:', err.message)
+    }
+  }, 2000) // 2s delay — gives Express time to bind
 }
 
-// Run maintenance on module load (server startup)
-runStartupMaintenance()
-
-// Run S3 archival or fallback purge on startup (non-blocking)
-;(async () => {
-  try {
-    if (s3Enabled()) {
-      const { archived } = await archiveOldDaily(db)
-      if (archived > 0) vacuumDb()
-    } else {
-      // No S3 — purge old daily summaries so the DB doesn't grow forever
-      if (purgeOldDailySummaries() > 0) vacuumDb()
-    }
-  } catch (err) {
-    console.error('startup archive/purge error:', err.message)
-  }
-})()
-
-// Schedule periodic purge every 6 hours
+// Schedule purge cycle every hour (matches 3-hour retention window)
 setInterval(async () => {
   try {
-    purgeOldSightings()
-    if (s3Enabled()) {
-      await archiveOldDaily(db)
-    } else {
-      purgeOldDailySummaries()
-    }
-    vacuumDb()
+    await runPurgeCycle()
   } catch (err) {
-    console.error('purge/archive error:', err.message)
+    console.error('purge cycle error:', err.message)
   }
-}, 6 * 3600 * 1000)
+}, 3600 * 1000)
 
 // ── exports ─────────────────────────────────────────────────────────────────
 
@@ -691,8 +965,16 @@ module.exports = {
   getRecentCalls,
   getAeroSpendTotal,
   getAeroSpendMonth,
-  purgeOldSightings,
+  runPurgeCycle,
+  runDeferredMaintenance,
   deduplicateExisting,
   vacuumDb,
   DB_PATH,
+  recordAnomalies,
+  resolveAnomalies,
+  getRecentAnomalies,
+  getActiveAnomalies,
+  getAnomaliesByIcao,
+  getAnomalyStats,
+  getTrafficHeatmap,
 }

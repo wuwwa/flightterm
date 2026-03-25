@@ -49,15 +49,17 @@ export default function TopBar({ stats, source, backendOk, autoOn, lastFetchAt }
           <span className="text-fg3 hidden sm:inline">updated {stats.lastUpdate}</span>
         )}
         <span className={clsx('px-1.5 py-px text-[10px]', badgeClass)}>{source}</span>
-        <span className={clsx('text-[10px]', backendOk ? 'text-grn' : 'text-red')}>
-          {backendOk ? '●' : '○'}
-        </span>
         {autoOn ? (
-          <span className="animate-blink text-grn">● live</span>
+          <span className="animate-blink text-grn text-[10px]">● live</span>
         ) : (
-          <span className="text-[10px] text-fg3">
-            {elapsed != null ? fmtElapsed(elapsed) : 'idle'}
-          </span>
+          <>
+            <span className={clsx('text-[10px]', backendOk ? 'text-grn' : 'text-red')}>
+              {backendOk ? '●' : '○'}
+            </span>
+            <span className="text-[10px] text-fg3">
+              {elapsed != null ? fmtElapsed(elapsed) : 'idle'}
+            </span>
+          </>
         )}
         <span className="text-fg2">{time}</span>
       </div>

@@ -1,6 +1,33 @@
 // ── Flight anomaly scoring engine ───────────────────────────────────────────
-// Pure function — uses only OpenSky/ADSBX data (alt, vel, hdg, grounded).
-// No AeroAPI calls.
+// Uses live ADS-B data + optional enrichment (route, adsb.fi telemetry).
+
+// ── Anomaly categories ──────────────────────────────────────────────────────
+export const CATEGORY = {
+  SQUAWK:    'SQUAWK',     // emergency squawk codes (7700, 7600, 7500)
+  EMERGENCY: 'EMERGENCY',  // adsb.fi emergency field (general, lifeguard, etc.)
+  ALTITUDE:  'ALTITUDE',   // abnormal altitude rate for phase
+  SPEED:     'SPEED',      // abnormal speed change
+  HEADING:   'HEADING',    // unexpected heading change during cruise
+  DIVERSION: 'DIVERSION',  // heading deviates from expected route
+  PHASE:     'PHASE',      // abnormal phase transition (cruise→rapid descent)
+  INTENT:    'INTENT',     // MCP altitude/heading signals imminent maneuver
+}
+
+// ── Severity tiers ──────────────────────────────────────────────────────────
+export const SEVERITY = {
+  CRITICAL: 'CRITICAL',   // squawk 7700/7500, score 80+
+  HIGH:     'HIGH',       // confirmed anomaly, score 60+
+  MEDIUM:   'MEDIUM',     // score 35-59
+  LOW:      'LOW',        // below threshold, not emitted
+}
+
+export function deriveSeverity(score, category, confirmed) {
+  if (category === CATEGORY.SQUAWK || category === CATEGORY.EMERGENCY) return SEVERITY.CRITICAL
+  if (score >= 80) return SEVERITY.CRITICAL
+  if (score >= 60 || confirmed) return SEVERITY.HIGH
+  if (score >= ANOMALY_THRESHOLD) return SEVERITY.MEDIUM
+  return SEVERITY.LOW
+}
 
 // ── Phase detection ─────────────────────────────────────────────────────────
 // Infer flight phase from the last N snapshots
@@ -104,10 +131,12 @@ const AIRPORTS = [
 
 const AIRPORT_PROXIMITY_KM = 50 // suppress descent anomalies within this radius
 
+const DEG = Math.PI / 180
+
 function distKm(lat1, lon1, lat2, lon2) {
   // fast approximation — good enough for 50km checks
   const dLat = (lat2 - lat1) * 111.32
-  const dLon = (lon2 - lon1) * 111.32 * Math.cos((lat1 + lat2) / 2 * Math.PI / 180)
+  const dLon = (lon2 - lon1) * 111.32 * Math.cos((lat1 + lat2) / 2 * DEG)
   return Math.sqrt(dLat * dLat + dLon * dLon)
 }
 
@@ -117,6 +146,26 @@ function nearAirport(lat, lon) {
     if (distKm(lat, lon, ap.lat, ap.lon) < AIRPORT_PROXIMITY_KM) return true
   }
   return false
+}
+
+/**
+ * Compute great-circle initial bearing from point A to point B (in degrees 0-360).
+ * Used for diversion detection: compare this bearing to the aircraft's actual heading.
+ */
+function bearingTo(lat1, lon1, lat2, lon2) {
+  const φ1 = lat1 * DEG, φ2 = lat2 * DEG
+  const Δλ = (lon2 - lon1) * DEG
+  const y = Math.sin(Δλ) * Math.cos(φ2)
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ)
+  return (Math.atan2(y, x) / DEG + 360) % 360
+}
+
+/**
+ * Smallest angular difference between two headings (0-180).
+ */
+function headingDelta(h1, h2) {
+  const d = Math.abs(h1 - h2) % 360
+  return d > 180 ? 360 - d : d
 }
 
 // ── Scoring ─────────────────────────────────────────────────────────────────
@@ -134,13 +183,18 @@ const PHASE_NORMS = {
 /**
  * Score a single aircraft's anomaly level.
  *
- * @param {Array} snapshots - last N snapshots [{ ts, alt, vel, hdg, grounded }]
- * @param {Object} current  - current flight object { alt, vel, hdg, lat, lon, grounded, squawk }
- * @returns {{ score: number, phase: string, reasons: string[], confirmed: boolean }}
- *   score 0-100, reasons array, confirmed = true if anomaly persists 2+ fetches
+ * @param {Array}  snapshots  - last N snapshots [{ ts, alt, vel, hdg, grounded }]
+ * @param {Object} current    - current flight object { alt, vel, hdg, lat, lon, grounded, squawk, mil }
+ * @param {Object} [enrich]   - optional enrichment data:
+ *   enrich.flightroute  - { origin: { latitude, longitude }, destination: { latitude, longitude } }
+ *   enrich.adsbfi       - { navAlt, navHdg, baroRate, emergency, mil }
+ * @returns {{ score, phase, reasons[], confirmed, category, severity, categories[] }}
  */
-export function scoreAnomaly(snapshots, current) {
-  const result = { score: 0, phase: PHASE.UNKNOWN, reasons: [], confirmed: false }
+export function scoreAnomaly(snapshots, current, enrich = null) {
+  const result = {
+    score: 0, phase: PHASE.UNKNOWN, reasons: [], confirmed: false,
+    category: null, severity: SEVERITY.LOW, categories: [],
+  }
 
   if (!snapshots || snapshots.length < 2 || !current) return result
 
@@ -149,6 +203,17 @@ export function scoreAnomaly(snapshots, current) {
 
   const prev = snapshots[snapshots.length - 1]
   const prevPrev = snapshots.length >= 3 ? snapshots[snapshots.length - 2] : null
+  const route = enrich?.flightroute || null
+  const fi = enrich?.adsbfi || null
+
+  // track per-category scores to determine primary category
+  const catScores = {}
+  function addScore(cat, pts, reason) {
+    result.score += pts
+    result.reasons.push(reason)
+    catScores[cat] = (catScores[cat] || 0) + pts
+    if (!result.categories.includes(cat)) result.categories.push(cat)
+  }
 
   // ── 1. Rate-normalized altitude change ────────────────────────────────
   if (prev.alt != null && current.alt != null && prev.ts) {
@@ -158,103 +223,167 @@ export function scoreAnomaly(snapshots, current) {
     const norms = PHASE_NORMS[phase] || PHASE_NORMS[PHASE.UNKNOWN]
     const [normLow, normHigh] = norms.altRate
 
-    // how far outside the expected range?
     let altDeviation = 0
     if (altRate < normLow) altDeviation = Math.abs(altRate - normLow)
     else if (altRate > normHigh) altDeviation = Math.abs(altRate - normHigh)
 
     if (altDeviation > 0) {
-      // scale: 5 m/s deviation from norm = ~30 points, 15 m/s = ~60, 30+ = ~80
       const altScore = Math.min(80, altDeviation * 4)
-      result.score += altScore
-
-      if (altRate < normLow) {
-        result.reasons.push(`descent ${altRate.toFixed(1)} m/s (expected ${normLow} to ${normHigh} in ${phase})`)
-      } else {
-        result.reasons.push(`climb ${altRate.toFixed(1)} m/s (expected ${normLow} to ${normHigh} in ${phase})`)
-      }
+      const dir = altRate < normLow ? 'descent' : 'climb'
+      addScore(CATEGORY.ALTITUDE, altScore, `${dir} ${altRate.toFixed(1)} m/s (expected ${normLow} to ${normHigh} in ${phase})`)
     }
   }
 
   // ── 2. Speed anomaly ──────────────────────────────────────────────────
   if (prev.vel != null && current.vel != null && prev.ts) {
     const dtSec = Math.max(1, (Date.now() - prev.ts) / 1000)
-    const velRate = Math.abs(current.vel - prev.vel) / dtSec  // m/s per second
-
+    const velRate = Math.abs(current.vel - prev.vel) / dtSec
     const norms = PHASE_NORMS[phase] || PHASE_NORMS[PHASE.UNKNOWN]
     const velDeviation = Math.max(0, velRate * dtSec - norms.velChange)
 
     if (velDeviation > 10) {
       const velScore = Math.min(40, velDeviation * 1.5)
-      result.score += velScore
-      result.reasons.push(`speed change ${(current.vel - prev.vel).toFixed(1)} m/s in ${dtSec.toFixed(0)}s`)
+      addScore(CATEGORY.SPEED, velScore, `speed change ${(current.vel - prev.vel).toFixed(1)} m/s in ${dtSec.toFixed(0)}s`)
     }
   }
 
   // ── 3. Heading discontinuity (only meaningful in cruise) ──────────────
   if (phase === PHASE.CRUISE && prev.hdg != null && current.hdg != null) {
-    let hdgDelta = Math.abs(current.hdg - prev.hdg)
-    if (hdgDelta > 180) hdgDelta = 360 - hdgDelta
+    let hdgDelta = headingDelta(current.hdg, prev.hdg)
 
     if (hdgDelta > 45) {
       const hdgScore = Math.min(25, (hdgDelta - 45) * 0.5)
-      result.score += hdgScore
-      result.reasons.push(`heading change ${hdgDelta}° during cruise`)
+      addScore(CATEGORY.HEADING, hdgScore, `heading change ${hdgDelta}° during cruise`)
     }
   }
 
   // ── 4. Phase transition anomaly ───────────────────────────────────────
   if (snapshots.length >= 5) {
     const olderPhase = detectPhase(snapshots.slice(0, -1))
-    // unexpected transitions: cruise→rapid descent is noteworthy
     if (olderPhase === PHASE.CRUISE && phase === PHASE.DESCENT) {
-      // only flag if the descent rate is steep
       if (result.score > 10) {
-        result.score += 15
-        result.reasons.push(`phase transition: cruise → descent`)
+        addScore(CATEGORY.PHASE, 15, `phase transition: cruise → descent`)
       }
     }
   }
 
-  // ── 5. Squawk multiplier ──────────────────────────────────────────────
+  // ── 5. Squawk codes ───────────────────────────────────────────────────
   if (current.squawk === '7700') {
     result.score = Math.max(result.score, 80)
     result.score = Math.min(100, result.score * 1.5)
+    catScores[CATEGORY.SQUAWK] = 100
+    if (!result.categories.includes(CATEGORY.SQUAWK)) result.categories.unshift(CATEGORY.SQUAWK)
     result.reasons.unshift('SQUAWK 7700 — EMERGENCY')
   } else if (current.squawk === '7600') {
-    result.score += 20
-    result.reasons.unshift('SQUAWK 7600 — RADIO FAILURE')
+    addScore(CATEGORY.SQUAWK, 20, 'SQUAWK 7600 — RADIO FAILURE')
   } else if (current.squawk === '7500') {
     result.score = 100
+    catScores[CATEGORY.SQUAWK] = 100
+    if (!result.categories.includes(CATEGORY.SQUAWK)) result.categories.unshift(CATEGORY.SQUAWK)
     result.reasons.unshift('SQUAWK 7500 — HIJACK')
   }
 
-  // ── 6. Airport proximity dampener ─────────────────────────────────────
+  // ── 6. adsb.fi emergency field (catches emergencies beyond squawk) ────
+  if (fi?.emergency) {
+    const em = fi.emergency.toLowerCase()
+    if (em === 'general' || em === 'lifeguard' || em === 'minfuel' || em === 'nordo' || em === 'unlawful' || em === 'downed') {
+      const emScore = em === 'unlawful' ? 100 : em === 'general' ? 60 : 40
+      result.score = Math.max(result.score, emScore)
+      catScores[CATEGORY.EMERGENCY] = emScore
+      if (!result.categories.includes(CATEGORY.EMERGENCY)) result.categories.unshift(CATEGORY.EMERGENCY)
+      result.reasons.unshift(`EMERGENCY: ${fi.emergency.toUpperCase()}`)
+    }
+  }
+
+  // ── 7. Route-aware diversion detection ────────────────────────────────
+  // If we know the destination, compare actual heading to the bearing toward it.
+  // Only meaningful during cruise (approach/descent heading changes are expected).
+  if (route?.destination && current.lat != null && current.lon != null && current.hdg != null && phase === PHASE.CRUISE) {
+    const destLat = route.destination.latitude ?? route.destination.lat
+    const destLon = route.destination.longitude ?? route.destination.lon
+    if (destLat != null && destLon != null) {
+      const expectedBearing = bearingTo(current.lat, current.lon, destLat, destLon)
+      const deviation = headingDelta(current.hdg, expectedBearing)
+
+      // >45° deviation during cruise is noteworthy, >90° is major
+      if (deviation > 45) {
+        const divScore = Math.min(50, (deviation - 45) * 0.7)
+        const destCode = route.destination.icao_code || route.destination.iata_code || '???'
+        addScore(CATEGORY.DIVERSION, divScore, `heading ${current.hdg}° deviates ${Math.round(deviation)}° from ${destCode} (bearing ${Math.round(expectedBearing)}°)`)
+      }
+    }
+  }
+
+  // ── 8. MCP intent signals (autopilot set altitude/heading) ────────────
+  // If adsb.fi gives us what the pilot has dialed into the MCP, we can detect
+  // imminent maneuvers before they show up in position data.
+  if (fi && current.alt != null && phase === PHASE.CRUISE) {
+    // MCP altitude intent: large gap between current alt and MCP target
+    if (fi.navAlt != null) {
+      const currentFt = current.alt * 3.28084 // convert m to ft for comparison
+      const altGap = fi.navAlt - currentFt
+
+      // Pilot set MCP altitude >10,000ft below current — emergency descent imminent
+      if (altGap < -10000) {
+        addScore(CATEGORY.INTENT, 35, `MCP alt ${fi.navAlt} ft — ${Math.abs(Math.round(altGap))} ft below current (emergency descent intent)`)
+      }
+      // Pilot set MCP altitude >5,000ft below during cruise — unusual
+      else if (altGap < -5000 && !nearAirport(current.lat, current.lon)) {
+        addScore(CATEGORY.INTENT, 15, `MCP alt ${fi.navAlt} ft — ${Math.abs(Math.round(altGap))} ft below current`)
+      }
+    }
+
+    // MCP heading intent: pilot dialed heading diverges from current track
+    if (fi.navHdg != null && current.hdg != null) {
+      const mcpDelta = headingDelta(fi.navHdg, current.hdg)
+      if (mcpDelta > 60) {
+        addScore(CATEGORY.INTENT, Math.min(20, (mcpDelta - 60) * 0.5), `MCP hdg ${fi.navHdg}° — ${Math.round(mcpDelta)}° from current track (turn intent)`)
+      }
+    }
+  }
+
+  // ── 9. Speed-only suppression ─────────────────────────────────────────
+  // Speed changes alone are too noisy (wind, ATC, turbulence). Only keep
+  // speed score when another category is also present.
+  if (result.categories.length === 1 && result.categories[0] === CATEGORY.SPEED) {
+    result.score = 0
+    result.reasons = []
+    result.categories = []
+    for (const k of Object.keys(catScores)) catScores[k] = 0
+  }
+
+  // ── 10. Military suppression ──────────────────────────────────────────
+  // Military aircraft routinely maneuver in ways that look anomalous.
+  // Dampen their scores unless it's a squawk/emergency event.
+  if (current.mil || fi?.mil) {
+    const hasEmergency = result.categories.includes(CATEGORY.SQUAWK) || result.categories.includes(CATEGORY.EMERGENCY)
+    if (!hasEmergency && result.score > 0) {
+      result.score = Math.round(result.score * 0.3)
+      result.reasons.push('(military — dampened)')
+    }
+  }
+
+  // ── 10. Airport proximity dampener ────────────────────────────────────
   if (nearAirport(current.lat, current.lon)) {
-    // if the anomaly is purely descent-based during approach, heavily dampen
-    const isDescentOnly = result.reasons.every(r => r.includes('descent') || r.includes('phase transition'))
+    const isDescentOnly = result.categories.every(c => c === CATEGORY.ALTITUDE || c === CATEGORY.PHASE || c === CATEGORY.INTENT)
     if (isDescentOnly && phase !== PHASE.CRUISE) {
       result.score = Math.round(result.score * 0.25)
       result.reasons.push('(near airport — dampened)')
-    } else {
-      // partial dampening for other anomalies near airports
+    } else if (!result.categories.includes(CATEGORY.SQUAWK) && !result.categories.includes(CATEGORY.EMERGENCY)) {
       result.score = Math.round(result.score * 0.6)
       result.reasons.push('(near airport)')
     }
   }
 
-  // ── 7. Multi-fetch confirmation ───────────────────────────────────────
-  // Check if the previous delta also showed the same direction of anomaly
+  // ── 11. Multi-fetch confirmation ──────────────────────────────────────
   if (prevPrev && prev.alt != null && prevPrev.alt != null && current.alt != null) {
     const prevDelta = prev.alt - prevPrev.alt
     const currDelta = current.alt - prev.alt
-    // both descending steeply = confirmed
     if (prevDelta < -300 && currDelta < -300) {
       result.confirmed = true
       result.score = Math.min(100, Math.round(result.score * 1.3))
       result.reasons.push('confirmed (2 consecutive fetches)')
     }
-    // previous was anomalous but current recovered = likely noise
     if (Math.abs(prevDelta) > 500 && Math.abs(currDelta) < 100) {
       result.score = Math.round(result.score * 0.3)
       result.reasons.push('(recovered — likely data noise)')
@@ -263,6 +392,14 @@ export function scoreAnomaly(snapshots, current) {
 
   // clamp
   result.score = Math.round(Math.min(100, Math.max(0, result.score)))
+
+  // ── Determine primary category + severity ─────────────────────────────
+  let maxCat = null, maxCatScore = 0
+  for (const [cat, pts] of Object.entries(catScores)) {
+    if (pts > maxCatScore) { maxCat = cat; maxCatScore = pts }
+  }
+  result.category = maxCat
+  result.severity = deriveSeverity(result.score, result.category, result.confirmed)
 
   return result
 }

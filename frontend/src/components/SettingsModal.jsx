@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { testAdsbxKey } from '../services/adsbx'
+import { testAdsbfi } from '../services/adsbfi'
 import { fetchKeyStatus } from '../services/aeroapi'
 
 const SOURCE_OPTIONS = [
@@ -22,6 +23,8 @@ export default function SettingsModal({ settings, onSave, onClose }) {
   const [local, setLocal] = useState({ ...settings })
   const [testResult, setTestResult] = useState(null)
   const [testing, setTesting] = useState(false)
+  const [adsbfiResult, setAdsbfiResult] = useState(null)
+  const [testingAdsbfi, setTestingAdsbfi] = useState(false)
   const [serverKeys, setServerKeys] = useState(null)
 
   useEffect(() => {
@@ -40,6 +43,18 @@ export default function SettingsModal({ settings, onSave, onClose }) {
       setTestResult({ ok: false, msg: '✗ connection failed' })
     } finally {
       setTesting(false)
+    }
+  }
+
+  const handleTestAdsbfi = async () => {
+    setTestingAdsbfi(true); setAdsbfiResult(null)
+    try {
+      await testAdsbfi()
+      setAdsbfiResult({ ok: true, msg: '✓ adsb.fi reachable' })
+    } catch {
+      setAdsbfiResult({ ok: false, msg: '✗ adsb.fi unreachable' })
+    } finally {
+      setTestingAdsbfi(false)
     }
   }
 
@@ -102,6 +117,26 @@ export default function SettingsModal({ settings, onSave, onClose }) {
               )}
             </div>
           )}
+
+          {/* adsb.fi enrichment */}
+          <div className="mb-4">
+            <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">adsb.fi — aircraft enrichment</div>
+            <span className="text-fg3 text-[10px] block mb-2">free, no key. provides registration, type, operator, vertical rate, MCP altitude, and emergency status per aircraft. used automatically when you select a flight.</span>
+            <div className="flex items-center gap-2">
+              <button
+                className="bg-transparent border border-border2 text-fg2 text-[11px] py-0.5 px-2 cursor-pointer font-mono"
+                onClick={handleTestAdsbfi}
+                disabled={testingAdsbfi}
+              >
+                {testingAdsbfi ? 'testing...' : 'test connection'}
+              </button>
+              {adsbfiResult && (
+                <span className={clsx('text-[11px]', adsbfiResult.ok ? 'text-grn' : 'text-red')}>
+                  {adsbfiResult.msg}
+                </span>
+              )}
+            </div>
+          </div>
 
           {/* User API keys — stored client-side in localStorage */}
           <div className="mb-4">
