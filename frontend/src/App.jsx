@@ -66,7 +66,7 @@ export default function App() {
   const [region, setRegion] = useState('usa')
   const [filter, setFilter] = useState('')
   const [fetching, setFetching] = useState(false)
-  const [autoOn, setAutoOn] = useState(true)
+  const [autoOn, setAutoOn] = useState(false)
   const [activeSource, setActiveSource] = useState('opensky')
   const [backendOk, setBackendOk] = useState(false)
   const [statusText, setStatusText] = useState('idle')
@@ -162,9 +162,14 @@ export default function App() {
       'enrichment: adsbdb (free, auto) · aeroapi (on-demand, $0.005/call)',
       'info'
     )
-    // Auto-fetch on first load in production
+    // Fetch once on load, then enable auto-refresh (production only)
     const isProd = !window.location.hostname.includes('localhost')
-    if (isProd) setTimeout(() => fetchFlightsRef.current?.(), 500)
+    if (isProd) {
+      setTimeout(() => {
+        fetchFlightsRef.current?.()
+        setAutoOn(true)
+      }, 500)
+    }
   }, [])
 
   // ── resolve which source to actually use ─────────────────────────────────────
@@ -376,7 +381,6 @@ export default function App() {
   // ── auto-refresh ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (autoOn) {
-      fetchFlightsRef.current?.()
       autoRef.current = setInterval(
         () => fetchFlightsRef.current?.(),
         settings.interval * 1000
