@@ -13,6 +13,10 @@ const {
   getRecentAnomalies, getActiveAnomalies, getAnomaliesByIcao, getAnomalyStats,
   getTrafficHeatmap,
   runDeferredMaintenance,
+  forcePurge,
+  getRoutesBulk,
+  upsertRoutesBatch,
+  getRouteCount,
 } = require('./db')
 const { getStatus: getS3Status, isEnabled: s3IsEnabled } = require('./s3archive')
 
@@ -219,6 +223,17 @@ app.get('/api/health/archive', (_req, res) => {
           ? 'Awaiting first archive cycle'
           : 'S3 not configured — data purged without archival',
   })
+})
+
+// POST /api/admin/force-purge — bypass S3, delete old data immediately
+app.post('/api/admin/force-purge', (_req, res) => {
+  try {
+    const result = forcePurge()
+    res.json({ ok: true, ...result })
+  } catch (err) {
+    console.error('force-purge error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // ── API key status (read-only, never exposes actual values) ─────────────────
@@ -530,6 +545,46 @@ app.get('/api/sightings/fetches', (req, res) => {
 // GET /api/sightings/heatmap
 app.get('/api/sightings/heatmap', (_req, res) => {
   res.json(getTrafficHeatmap())
+})
+
+// ── Route cache endpoints ───────────────────────────────────────────────────
+
+// POST /api/routes/lookup  { callsigns: ['UAL123', 'DAL456'] }
+// Returns cached routes for the given callsigns + list of unknown ones
+app.post('/api/routes/lookup', (req, res) => {
+  const { callsigns } = req.body
+  if (!callsigns || !Array.isArray(callsigns)) {
+    return res.status(400).json({ error: 'callsigns array required' })
+  }
+  try {
+    const routes = getRoutesBulk(callsigns)
+    const unknown = callsigns.filter(cs => !routes[cs])
+
+    res.json({ routes, unknown, cached: Object.keys(routes).length, total: getRouteCount() })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST /api/routes/save  { routes: [{ callsign, origin_icao, origin_lat, ... }] }
+// Batch upsert routes into cache
+app.post('/api/routes/save', (req, res) => {
+  const { routes } = req.body
+  if (!routes || !Array.isArray(routes)) {
+    return res.status(400).json({ error: 'routes array required' })
+  }
+  try {
+    upsertRoutesBatch(routes)
+    console.log(`routes: cached ${routes.length} new route(s) (total: ${getRouteCount()})`)
+    res.json({ saved: routes.length, total: getRouteCount() })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/routes/stats
+app.get('/api/routes/stats', (_req, res) => {
+  res.json({ total: getRouteCount() })
 })
 
 // ── adsb.fi proxy (CORS bypass) ─────────────────────────────────────────────

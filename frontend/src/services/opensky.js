@@ -29,7 +29,11 @@ export async function fetchStates(region = 'global', userKeys = {}) {
     grounded: s[8]  ?? false,
     vel:      s[9]  != null ? parseFloat(s[9].toFixed(1))  : null,
     hdg:      s[10] != null ? Math.round(s[10])             : null,
+    vertRate: s[11] != null ? parseFloat(s[11].toFixed(1)) : null,
+    geoAlt:   s[13] != null ? Math.round(s[13])             : null,
     squawk:   s[14] || null,
+    posSrc:   s[16] ?? 0,   // 0=ADS-B, 1=ASTERIX, 2=MLAT, 3=FLARM
+    ndb:      s[17] ?? null, // number of receivers
     mil:      false,
     src:      'opensky',
   }))

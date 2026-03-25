@@ -271,6 +271,27 @@ db.exec(`
   }
 }
 
+// ── callsign route cache ─────────────────────────────────────────────────────
+// Stores callsign→route mappings so diversion detection works for all aircraft,
+// not just ones the user has clicked on. Routes are stable per callsign (e.g.
+// UAL123 is almost always the same city pair). Cache self-corrects via staleness
+// checks and heading-vs-destination mismatch detection.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS callsign_routes (
+    callsign        TEXT PRIMARY KEY,
+    origin_icao     TEXT,
+    origin_lat      REAL,
+    origin_lon      REAL,
+    destination_icao TEXT,
+    destination_lat REAL,
+    destination_lon REAL,
+    source          TEXT DEFAULT 'adsbdb',
+    last_seen       TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_routes_updated ON callsign_routes(updated_at);
+`)
+
 // ── prepared statements (pre-compiled once) ─────────────────────────────────
 
 const _stmts = {
@@ -494,6 +515,44 @@ const _stmts = {
   `),
 
   // Hourly anomaly counts (for chart overlay)
+  // ── Route cache statements ──────────────────────────────────────────────
+  routeLookup: db.prepare(`
+    SELECT * FROM callsign_routes WHERE callsign = ?
+  `),
+
+  routeBulkLookup: db.prepare(`
+    SELECT * FROM callsign_routes WHERE callsign IN (SELECT value FROM json_each(?))
+  `),
+
+  routeUpsert: db.prepare(`
+    INSERT INTO callsign_routes (callsign, origin_icao, origin_lat, origin_lon, destination_icao, destination_lat, destination_lon, source, last_seen, updated_at)
+    VALUES (@callsign, @origin_icao, @origin_lat, @origin_lon, @destination_icao, @destination_lat, @destination_lon, @source, datetime('now'), datetime('now'))
+    ON CONFLICT(callsign) DO UPDATE SET
+      origin_icao = excluded.origin_icao,
+      origin_lat = excluded.origin_lat,
+      origin_lon = excluded.origin_lon,
+      destination_icao = excluded.destination_icao,
+      destination_lat = excluded.destination_lat,
+      destination_lon = excluded.destination_lon,
+      source = excluded.source,
+      last_seen = datetime('now'),
+      updated_at = datetime('now')
+  `),
+
+  routeTouch: db.prepare(`
+    UPDATE callsign_routes SET last_seen = datetime('now') WHERE callsign = ?
+  `),
+
+  routeCount: db.prepare(`
+    SELECT COUNT(*) as c FROM callsign_routes
+  `),
+
+  routeStale: db.prepare(`
+    SELECT callsign FROM callsign_routes
+    WHERE updated_at < datetime('now', '-30 days')
+    LIMIT 50
+  `),
+
   anomalyHourly: db.prepare(`
     SELECT
       CAST(strftime('%H', detected_at) AS INTEGER) AS hour,
@@ -724,6 +783,58 @@ function getAnomalyStats() {
   }
 }
 
+// ── Route cache functions ────────────────────────────────────────────────────
+
+function getRoute(callsign) {
+  return _stmts.routeLookup.get(callsign) || null
+}
+
+// Bulk lookup: pass an array of callsigns, get back a map { callsign: route }
+function getRoutesBulk(callsigns) {
+  if (!callsigns || callsigns.length === 0) return {}
+  const rows = _stmts.routeBulkLookup.all(JSON.stringify(callsigns))
+  const map = {}
+  for (const r of rows) map[r.callsign] = r
+  return map
+}
+
+// Upsert a route (insert or update if callsign already exists)
+function upsertRoute(route) {
+  _stmts.routeUpsert.run({
+    callsign: route.callsign,
+    origin_icao: route.origin_icao || null,
+    origin_lat: route.origin_lat ?? null,
+    origin_lon: route.origin_lon ?? null,
+    destination_icao: route.destination_icao || null,
+    destination_lat: route.destination_lat ?? null,
+    destination_lon: route.destination_lon ?? null,
+    source: route.source || 'adsbdb',
+  })
+}
+
+// Batch upsert (transactional)
+const upsertRoutesBatch = db.transaction((routes) => {
+  for (const r of routes) upsertRoute(r)
+})
+
+// Touch last_seen for callsigns still active (keeps stale detection accurate)
+function touchRoutes(callsigns) {
+  if (!callsigns || callsigns.length === 0) return
+  const touch = db.transaction((list) => {
+    for (const cs of list) _stmts.routeTouch.run(cs)
+  })
+  touch(callsigns)
+}
+
+function getRouteCount() {
+  return _stmts.routeCount.get().c
+}
+
+// Callsigns not seen/updated in 30+ days — candidates for re-enrichment
+function getStaleRoutes() {
+  return _stmts.routeStale.all().map(r => r.callsign)
+}
+
 // ── API usage tracking ──────────────────────────────────────────────────────
 
 function calcOpenSkyCredits(query) {
@@ -857,7 +968,17 @@ async function runPurgeCycle() {
   purgeOldSightings(cutoff)
   purgeOldAnomalies(cutoff)
   purgeOldDailySummaries()
+  purgeStaleRoutes()
   vacuumDb()
+}
+
+function purgeStaleRoutes() {
+  // Remove routes not updated in 60+ days — airline route changes, seasonal shifts
+  const del = db.prepare("DELETE FROM callsign_routes WHERE updated_at < datetime('now', '-60 days')").run()
+  if (del.changes > 0) {
+    console.log(`  purge: deleted ${del.changes} stale route cache entries (>60d)`)
+  }
+  return del.changes
 }
 
 // ── startup dedup of existing data ──────────────────────────────────────────
@@ -934,6 +1055,20 @@ function runDeferredMaintenance() {
   }, 2000) // 2s delay — gives Express time to bind
 }
 
+// Force purge — bypasses S3, deletes everything outside the retention window
+function forcePurge() {
+  const cutoff = getPurgeCutoff()
+  console.log(`force-purge: deleting all data older than ${cutoff}`)
+  const sightings = purgeOldSightings(cutoff)
+  const anomalies = purgeOldAnomalies(cutoff)
+  const daily = purgeOldDailySummaries()
+  vacuumDb()
+  const remaining = _stmts.countSightings.get().c
+  const size = getDbSize()
+  console.log(`force-purge: complete (${remaining.toLocaleString()} sightings, ${(size / 1048576).toFixed(1)} MB)`)
+  return { sightings, anomalies, daily, remaining, size_mb: +(size / 1048576).toFixed(1) }
+}
+
 // Schedule purge cycle every hour (matches 3-hour retention window)
 setInterval(async () => {
   try {
@@ -977,4 +1112,12 @@ module.exports = {
   getAnomaliesByIcao,
   getAnomalyStats,
   getTrafficHeatmap,
+  forcePurge,
+  getRoute,
+  getRoutesBulk,
+  upsertRoute,
+  upsertRoutesBatch,
+  touchRoutes,
+  getRouteCount,
+  getStaleRoutes,
 }

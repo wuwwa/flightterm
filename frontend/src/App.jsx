@@ -12,11 +12,11 @@ import DashboardPanel from './components/DashboardPanel'
 
 import { fetchStates } from './services/opensky'
 import { fetchAdsbx } from './services/adsbx'
-import { enrichFlight } from './services/adsbdb'
+import { enrichFlight, fetchRouteOnly } from './services/adsbdb'
 import { enrichByHex } from './services/adsbfi'
 import { checkHealth, fetchAeroSpend } from './services/aeroapi'
 
-import { recordSightings, fetchOpenSkyUsageToday, fetchAircraftTrack, recordAnomalies, resolveAnomalies } from './services/sightings'
+import { recordSightings, fetchOpenSkyUsageToday, fetchAircraftTrack, recordAnomalies, resolveAnomalies, lookupRoutes, saveRoutes } from './services/sightings'
 import { scoreAnomaly, ANOMALY_THRESHOLD } from './utils/anomaly'
 import { fetchMetars, fetchPireps, fetchSigmets, summarizeMetar, summarizePireps, summarizeSigmets } from './services/weather'
 
@@ -108,6 +108,14 @@ export default function App() {
   // ── anomalies: icaos with sudden alt/vel changes ──────────────────────────
   const [anomalies, setAnomalies] = useState({}) // { icao: { score, phase, reasons[], confirmed, label } }
 
+  // ── weather context from previous fetch cycle (available for scoring) ──────
+  const weatherRef = useRef(null) // { sigmets: {...}, pireps: {...} }
+
+  // ── route cache: callsign → { destination_lat, destination_lon, destination_icao, ... }
+  const routeCacheRef = useRef({})    // in-memory mirror of backend cache
+  const enrichQueueRef = useRef([])   // callsigns waiting for ADSBdb enrichment
+  const enrichingRef = useRef(false)  // is the background enrichment loop running?
+
   // ── auto-refresh ref ────────────────────────────────────────────────────────
   const autoRef = useRef(null)
   const fetchFlightsRef = useRef(null)
@@ -123,6 +131,52 @@ export default function App() {
     setLogEntries([makeEntry('log cleared', 'info')])
   }, [])
 
+  // ── background route enrichment queue (1 req/sec to ADSBdb) ─────────────────
+  // Processes unknown callsigns in the background, saves results to backend cache.
+  // Self-corrects stale entries when heading doesn't match cached destination.
+  const startEnrichQueue = useCallback(() => {
+    if (enrichingRef.current) return // already running
+    enrichingRef.current = true
+
+    async function processQueue() {
+      while (enrichQueueRef.current.length > 0) {
+        const cs = enrichQueueRef.current.shift()
+        try {
+          const route = await fetchRouteOnly(cs)
+          if (route?.destination) {
+            const destLat = route.destination.latitude ?? route.destination.lat
+            const destLon = route.destination.longitude ?? route.destination.lon
+            const originLat = route.origin?.latitude ?? route.origin?.lat
+            const originLon = route.origin?.longitude ?? route.origin?.lon
+
+            if (destLat != null && destLon != null) {
+              const entry = {
+                callsign: cs,
+                origin_icao: route.origin?.icao_code || route.origin?.iata_code || null,
+                origin_lat: originLat ?? null,
+                origin_lon: originLon ?? null,
+                destination_icao: route.destination?.icao_code || route.destination?.iata_code || null,
+                destination_lat: destLat,
+                destination_lon: destLon,
+                source: route._source || 'adsbdb',
+              }
+              // Save to backend + local cache
+              saveRoutes([entry]).catch(() => {})
+              routeCacheRef.current[cs] = entry
+            }
+          }
+        } catch {}
+        // Rate limit: 1 req/sec
+        if (enrichQueueRef.current.length > 0) {
+          await new Promise(r => setTimeout(r, 1100))
+        }
+      }
+      enrichingRef.current = false
+    }
+
+    processQueue()
+  }, [])
+
   // ── refresh usage from backend ───────────────────────────────────────────────
   const refreshAeroSpend = useCallback(() => {
     fetchAeroSpend()
@@ -136,40 +190,77 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  // ── backend health check ─────────────────────────────────────────────────────
-  useEffect(() => {
-    checkHealth()
-      .then((d) => {
-        setBackendOk(true)
-        log(`backend ok · opensky: ${d.opensky_configured ? '✓' : '✗'} · aeroapi: ${d.aeroapi_configured ? '✓' : '✗'} · notam: ${d.faa_notam_configured ? '✓' : '✗'}`, 'ok')
-        refreshAeroSpend()
-        refreshOpenskyUsage()
-      })
-      .catch(() => {
-        setBackendOk(false)
-        log(
-          'backend offline — start the Express server (cd backend && npm run dev)',
-          'warn'
-        )
-      })
-  }, [])
+  // ── loading state for initial boot ──────────────────────────────────────────
+  const [booting, setBooting] = useState(true)
+  const [bootMsg, setBootMsg] = useState('connecting to backend…')
 
-  // ── boot log + initial fetch ─────────────────────────────────────────────────
+  // ── backend health check → initial fetch → auto ────────────────────────────
   useEffect(() => {
-    log('flightterm v4 ready', 'ok')
-    log('live: opensky (default) · adsbx (optional) — see ⚙ settings', 'info')
-    log(
-      'enrichment: adsbdb (free, auto) · aeroapi (on-demand, $0.005/call)',
-      'info'
-    )
-    // Fetch once on load, then enable auto-refresh (production only)
     const isProd = !window.location.hostname.includes('localhost')
-    if (isProd) {
-      setTimeout(() => {
-        fetchFlightsRef.current?.()
-        setAutoOn(true)
-      }, 500)
+    let cancelled = false
+
+    log('flightterm v4 booting…', 'info')
+    console.log('[boot] starting — isProd:', isProd)
+
+    // Retry health check up to 10 times (covers Fly cold start)
+    async function waitForBackend(retries = 10, delay = 2000) {
+      for (let i = 0; i < retries; i++) {
+        try {
+          console.log(`[boot] health check attempt ${i + 1}/${retries}`)
+          setBootMsg(i === 0 ? 'connecting to backend…' : `waiting for backend… (${i + 1}/${retries})`)
+          if (i > 0) log(`backend: retrying… (${i + 1}/${retries})`, 'warn')
+          const d = await checkHealth()
+          if (cancelled) return null
+          setBackendOk(true)
+          log(`backend ok · opensky: ${d.opensky_configured ? '✓' : '✗'} · aeroapi: ${d.aeroapi_configured ? '✓' : '✗'} · notam: ${d.faa_notam_configured ? '✓' : '✗'}`, 'ok')
+          console.log('[boot] backend ready')
+          return d
+        } catch {
+          if (cancelled) return null
+          if (i < retries - 1) {
+            console.log(`[boot] backend not ready, retrying in ${delay}ms`)
+            await new Promise(r => setTimeout(r, delay))
+          }
+        }
+      }
+      setBackendOk(false)
+      log('backend offline — start the Express server (cd backend && npm run dev)', 'warn')
+      console.log('[boot] backend unreachable after retries')
+      return null
     }
+
+    async function boot() {
+      log('connecting to backend…', 'info')
+      const health = await waitForBackend()
+      if (cancelled) return
+
+      if (health) {
+        log('loading usage data…', 'info')
+        setBootMsg('loading usage data…')
+        console.log('[boot] refreshing usage data')
+        await Promise.allSettled([refreshAeroSpend(), refreshOpenskyUsage()])
+        log('usage data loaded', 'ok')
+      }
+
+      if (isProd && health) {
+        log('fetching initial flight data…', 'info')
+        setBootMsg('fetching flights…')
+        console.log('[boot] initial fetch')
+        await fetchFlightsRef.current?.()
+        if (cancelled) return
+        log(`auto-refresh enabled (${settings.interval}s)`, 'ok')
+        console.log('[boot] enabling auto-refresh')
+        setAutoOn(true)
+      }
+
+      setBooting(false)
+      setBootMsg('')
+      log('flightterm v4 ready', 'ok')
+      console.log('[boot] complete')
+    }
+
+    boot()
+    return () => { cancelled = true }
   }, [])
 
   // ── resolve which source to actually use ─────────────────────────────────────
@@ -254,26 +345,105 @@ export default function App() {
         for (const f of result) {
           if (f.alt == null && f.vel == null) continue
           const arr = next[f.icao] ? [...next[f.icao]] : []
-          arr.push({ ts: now, lat: f.lat, lon: f.lon, alt: f.alt, vel: f.vel, hdg: f.hdg, grounded: f.grounded })
+          arr.push({ ts: now, lat: f.lat, lon: f.lon, alt: f.alt, vel: f.vel, hdg: f.hdg, grounded: f.grounded, vertRate: f.vertRate, geoAlt: f.geoAlt, posSrc: f.posSrc, ndb: f.ndb })
           if (arr.length > MAX_SNAPSHOTS) arr.shift()
           next[f.icao] = arr
         }
         return next
       })
 
+      // ── route lookup for diversion detection ──────────────────────────────
+      // Only query the backend for callsigns NOT already in the local cache.
+      // This keeps the HTTP + SQL cost proportional to new aircraft, not total.
+      const allCallsigns = [...new Set(result.map(f => f.callsign).filter(cs => cs && cs !== '—'))]
+      const uncached = allCallsigns.filter(cs => !routeCacheRef.current[cs])
+
+      if (uncached.length > 0) {
+        try {
+          const { routes, unknown } = await lookupRoutes(uncached)
+          // Merge backend hits into local cache
+          for (const [cs, route] of Object.entries(routes)) {
+            routeCacheRef.current[cs] = route
+          }
+          // Queue unknowns for background ADSBdb enrichment
+          if (unknown.length > 0) {
+            const queued = new Set(enrichQueueRef.current)
+            const toAdd = unknown.filter(cs => !queued.has(cs))
+            enrichQueueRef.current.push(...toAdd)
+            startEnrichQueue()
+          }
+          // Only log when there's something new to report
+          if (Object.keys(routes).length > 0 || unknown.length > 0) {
+            const cached = Object.keys(routeCacheRef.current).length
+            log(`routes: ${Object.keys(routes).length} new from cache, ${unknown.length} queued · ${cached} total`, 'info')
+          }
+        } catch {
+          // Backend offline — continue without route data
+        }
+      }
+
       // ── score anomalies using phase-aware engine ─────────────────────────
-      // Pass enrichment data (route + adsb.fi) when available for richer scoring
+      // Pass enrichment data (route + adsb.fi + cached routes) for richer scoring
       const prevTrack = trackHistoryRef.current
       const newAnomalies = {}
       for (const f of result) {
         const hist = prevTrack[f.icao]
         if (!hist || hist.length < 2) continue
-        const enrich = enrichCache[f.icao] || null
-        const { score, phase, reasons, confirmed, category, severity, categories } = scoreAnomaly(hist, f, enrich)
+        // Build enrichment: merge click-enrichment with cached route data
+        let enrich = enrichCache[f.icao] || null
+        const cachedRoute = routeCacheRef.current[f.callsign]
+        if (cachedRoute && !enrich?.flightroute) {
+          // Inject cached route as flightroute for diversion detection
+          enrich = {
+            ...(enrich || {}),
+            flightroute: {
+              destination: { latitude: cachedRoute.destination_lat, longitude: cachedRoute.destination_lon, icao_code: cachedRoute.destination_icao },
+              origin: { latitude: cachedRoute.origin_lat, longitude: cachedRoute.origin_lon, icao_code: cachedRoute.origin_icao },
+            },
+          }
+        }
+        const { score, phase, reasons, confirmed, category, severity, categories } = scoreAnomaly(hist, f, enrich, weatherRef.current, result)
         if (score >= ANOMALY_THRESHOLD) {
           newAnomalies[f.icao] = { score, phase, reasons, confirmed, category, severity, categories, label: reasons[0] || 'anomaly' }
         }
       }
+
+      // ── stale route detection ──────────────────────────────────────────────
+      // If a cruising aircraft's heading consistently deviates >60° from the
+      // cached destination bearing, the cache is probably wrong — re-enrich.
+      const staleReenrich = []
+      for (const f of result) {
+        if (f.grounded || f.hdg == null || f.lat == null || !f.callsign || f.callsign === '—') continue
+        const cached = routeCacheRef.current[f.callsign]
+        if (!cached?.destination_lat) continue
+        const hist = prevTrack[f.icao]
+        if (!hist || hist.length < 3) continue
+        // Only check cruise-phase aircraft
+        const alts = hist.slice(-3).filter(s => s.alt != null).map(s => s.alt)
+        if (alts.length < 2) continue
+        const avgDelta = Math.abs(alts[alts.length - 1] - alts[0]) / alts.length
+        if (avgDelta > 50) continue // not cruising
+
+        // Compute bearing to cached destination
+        const dLat = cached.destination_lat - f.lat
+        const dLon = cached.destination_lon - f.lon
+        const bearing = (Math.atan2(dLon * Math.cos(f.lat * Math.PI / 180), dLat) * 180 / Math.PI + 360) % 360
+        const delta = Math.abs(f.hdg - bearing) % 360
+        const hdgDiff = delta > 180 ? 360 - delta : delta
+
+        if (hdgDiff > 60) {
+          staleReenrich.push(f.callsign)
+          delete routeCacheRef.current[f.callsign]
+        }
+      }
+      if (staleReenrich.length > 0) {
+        const queued = new Set(enrichQueueRef.current)
+        const toAdd = staleReenrich.filter(cs => !queued.has(cs))
+        enrichQueueRef.current.push(...toAdd)
+        startEnrichQueue()
+        log(`routes: ${staleReenrich.length} stale route(s) queued for re-enrichment`, 'info')
+      }
+
       setAnomalies(newAnomalies)
       if (Object.keys(newAnomalies).length > 0) {
         const confirmed = Object.values(newAnomalies).filter(a => a.confirmed).length
@@ -307,6 +477,8 @@ export default function App() {
           ]).then(([pireps, sigmets]) => {
             const pirepSummary = summarizePireps(pireps)
             const sigmetSummary = summarizeSigmets(sigmets)
+            // Store weather for next scoring cycle
+            weatherRef.current = { sigmets: sigmetSummary, pireps: pirepSummary }
             if (pirepSummary.count > 0 || sigmetSummary.count > 0) {
               const wxContext = { pireps: pirepSummary, sigmets: sigmetSummary }
               // Attach weather to each anomaly and re-persist
@@ -315,6 +487,7 @@ export default function App() {
               if (pirepSummary.severe) log(`weather: severe PIREPs near anomaly area (${pirepSummary.maxTurbulence || pirepSummary.maxIcing})`, 'warn')
               if (sigmetSummary.convective > 0) log(`weather: ${sigmetSummary.convective} convective SIGMET(s) active`, 'warn')
             } else {
+              weatherRef.current = null
               recordAnomalies(anomalyPayload, region).catch(() => {})
             }
           }).catch(() => {
@@ -528,6 +701,19 @@ export default function App() {
   // ── render ────────────────────────────────────────────────────────────────────
   return (
     <>
+      {/* Boot loading bar */}
+      {booting && (
+        <div className="fixed top-0 left-0 right-0 z-100">
+          <div className="h-0.5 bg-acc/30 overflow-hidden">
+            <div className="h-full bg-acc animate-pulse w-2/3" style={{ animation: 'bootbar 1.5s ease-in-out infinite' }} />
+          </div>
+          <div className="bg-bg2/95 border-b border-border text-center py-1.5 text-[10px] text-fg3">
+            {bootMsg}
+          </div>
+          <style>{`@keyframes bootbar { 0% { transform: translateX(-100%) } 50% { transform: translateX(50%) } 100% { transform: translateX(200%) } }`}</style>
+        </div>
+      )}
+
       {/* Page 1: flight tracker — fills one viewport */}
       <div
         className="grid grid-rows-[auto_auto_auto_1fr] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"

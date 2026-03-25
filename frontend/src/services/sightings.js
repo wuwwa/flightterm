@@ -24,3 +24,17 @@ export async function resolveAnomalies(icaos) {
   const res = await axios.post('/api/anomalies/resolve', { icaos })
   return res.data
 }
+
+// ── Route cache ──────────────────────────────────────────────────────────────
+
+// Bulk lookup: returns { routes: { callsign: routeObj }, unknown: ['CS1', ...] }
+export async function lookupRoutes(callsigns) {
+  const res = await axios.post('/api/routes/lookup', { callsigns })
+  return res.data
+}
+
+// Save enriched routes to backend cache
+export async function saveRoutes(routes) {
+  const res = await axios.post('/api/routes/save', { routes })
+  return res.data
+}

@@ -39,3 +39,24 @@ export async function enrichFlight(icao, callsign) {
 
   return { aircraft, flightroute }
 }
+
+// Lightweight route-only lookup by callsign (skips aircraft enrichment).
+// Used by the background enrichment queue — cheaper than full enrichFlight.
+export async function fetchRouteOnly(callsign) {
+  const cs = callsign.trim().replace(/\s+/g, '')
+  if (!cs || cs === '—') return null
+
+  try {
+    const res = await axios.get(`${BASE}/callsign/${cs}`)
+    const route = res.data?.response?.flightroute
+    if (route) return { ...route, _source: 'adsbdb' }
+  } catch {}
+
+  // Fallback to hexdb
+  try {
+    const hexRoute = await fetchHexdbRoute(cs)
+    if (hexRoute) return { origin: hexRoute.origin, destination: hexRoute.destination, _source: 'hexdb' }
+  } catch {}
+
+  return null
+}
