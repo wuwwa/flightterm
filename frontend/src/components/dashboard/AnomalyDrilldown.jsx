@@ -90,13 +90,7 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
         {anomaly && <button onClick={onClose} className="text-fg3 hover:text-fg1 text-[11px] px-1">✕</button>}
       </div>
 
-      {!anomaly && (
-        <div className="py-8 text-center text-fg3/40 text-[10px]">
-          click an anomaly in the feed or on the map
-        </div>
-      )}
-
-      {anomaly && <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border">
         {/* Column 1: detection + aircraft identity */}
         <div className="bg-bg1 py-1">
           <Group title="detection" color="text-red">
@@ -224,7 +218,7 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
             )}
           </Group>
         </div>
-      </div>}
+      </div>
     </div>
   )
 }
