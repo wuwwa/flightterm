@@ -225,7 +225,7 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
           {loading && <span className="text-fg3">updating...</span>}
         </span>
       </div>
-      <div className="h-64">
+      <div className="h-64 relative">
         <MapContainer
           center={center}
           zoom={4}
@@ -315,6 +315,43 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
             </Marker>
           ))}
         </MapContainer>
+        {/* Legend */}
+        <div className="absolute bottom-1.5 right-1.5 z-500 bg-bg1/85 border border-border rounded px-2 py-1 text-[8px] leading-relaxed font-mono pointer-events-none">
+          <div className="flex items-center gap-1.5">
+            <svg width="10" height="10" viewBox="0 0 20 20"><path d={PLANE_PATH} fill="#ff3333" stroke="#0d0d0d" strokeWidth="0.8"/></svg>
+            <span className="text-red">critical</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <svg width="10" height="10" viewBox="0 0 20 20"><path d={PLANE_PATH} fill="#ffcc00" stroke="#0d0d0d" strokeWidth="0.8"/></svg>
+            <span className="text-ylw">high</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <svg width="10" height="10" viewBox="0 0 20 20"><path d={PLANE_PATH} fill="#888888" stroke="#0d0d0d" strokeWidth="0.8"/></svg>
+            <span className="text-fg3">medium</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <svg width="10" height="10" viewBox="0 0 20 20"><path d={PLANE_PATH} fill="#555555" stroke="#0d0d0d" strokeWidth="0.8" opacity="0.4"/></svg>
+            <span className="text-fg3/50">resolved</span>
+          </div>
+          {showWx && <>
+            <div className="flex items-center gap-1.5 mt-0.5 border-t border-white/5 pt-0.5">
+              <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="5,1 9,5 5,9 1,5" fill="#ffcc00" stroke="#0d0d0d" strokeWidth="0.6"/></svg>
+              <span className="text-ylw">PIREP</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-red">---</span>
+              <span className="text-red">SIGMET convective</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-ylw">---</span>
+              <span className="text-ylw">SIGMET turb</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-cyn">---</span>
+              <span className="text-cyn">SIGMET ice</span>
+            </div>
+          </>}
+        </div>
       </div>
     </div>
   )

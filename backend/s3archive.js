@@ -30,9 +30,10 @@ const MAX_ROWS_PER_CYCLE = 50_000
 let s3 = null
 if (BUCKET) {
   s3 = new S3Client({ region: REGION })
-  console.log(`s3: archival enabled → s3://${BUCKET}/${PREFIX}`)
+  console.log(`[s3] ✓ archival enabled → s3://${BUCKET}/${PREFIX}`)
+  console.log(`[s3]   region=${REGION} | AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID ? 'set (' + process.env.AWS_ACCESS_KEY_ID.substring(0, 4) + '...)' : 'NOT SET'}`)
 } else {
-  console.log('s3: archival disabled (S3_BUCKET not set)')
+  console.log('[s3] ✗ archival disabled (S3_BUCKET not set)')
 }
 
 // ── status tracking ─────────────────────────────────────────────────────────
@@ -60,40 +61,59 @@ function getStatus() {
 async function _upload(key, rows, label) {
   const json = JSON.stringify(rows)
   const compressed = zlib.gzipSync(json)
+  const sizeMB = (compressed.length / 1024 / 1024).toFixed(2)
+  const sizeKB = (compressed.length / 1024).toFixed(1)
 
   if (compressed.length > MAX_UPLOAD_BYTES) {
-    console.warn(`  s3: SKIPPED ${label} — ${(compressed.length / 1024 / 1024).toFixed(1)} MB exceeds limit`)
+    console.warn(`[s3]   ✗ SKIP ${label} — ${sizeMB} MB exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit`)
     return false
   }
 
-  await s3.send(new PutObjectCommand({
-    Bucket: BUCKET,
-    Key: key,
-    Body: compressed,
-    ContentType: 'application/gzip',
-    ContentEncoding: 'gzip',
-    Metadata: {
-      'row-count': String(rows.length),
-      'archived-at': new Date().toISOString(),
-    },
-  }))
+  const t0 = Date.now()
+  console.log(`[s3]   ↑ uploading ${label} → ${key} (${sizeKB} KB)...`)
 
-  console.log(`  s3: uploaded ${key} (${rows.length} rows, ${(compressed.length / 1024).toFixed(1)} KB)`)
-  return true
+  try {
+    await s3.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: compressed,
+      ContentType: 'application/gzip',
+      ContentEncoding: 'gzip',
+      Metadata: {
+        'row-count': String(rows.length),
+        'archived-at': new Date().toISOString(),
+      },
+    }))
+    const ms = Date.now() - t0
+    console.log(`[s3]   ✓ uploaded ${label} (${sizeKB} KB, ${ms}ms)`)
+    return true
+  } catch (err) {
+    const ms = Date.now() - t0
+    console.error(`[s3]   ✗ FAILED ${label} after ${ms}ms: ${err.name} — ${err.message}`)
+    throw err
+  }
 }
 
 // Archive all data that's about to be purged.
 // Called with the cutoff timestamp — archives everything older than cutoff.
 // Returns { ok: boolean, sightings, daily, anomalies }
 async function archiveBeforePurge(db, cutoff) {
-  if (!s3) return { ok: false, reason: 'disabled' }
+  if (!s3) {
+    console.log('[s3] archive skipped — not configured')
+    return { ok: false, reason: 'disabled' }
+  }
 
   _status.totalRuns++
   _status.lastRun = new Date().toISOString()
+  const t0 = Date.now()
+
+  console.log(`[s3] ── archive cycle #${_status.totalRuns} ──────────────────────────`)
+  console.log(`[s3]   cutoff: ${cutoff}`)
 
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   let totalRows = 0
   let anyFailed = false
+  const steps = []
 
   // ── 1. Archive raw sightings about to be purged ───────────────────────
   try {
@@ -101,16 +121,19 @@ async function archiveBeforePurge(db, cutoff) {
       .prepare('SELECT * FROM sightings WHERE seen_at < ?')
       .all(cutoff)
 
+    console.log(`[s3]   sightings: ${sightings.length} rows to archive`)
     if (sightings.length > 0 && sightings.length <= MAX_ROWS_PER_CYCLE) {
-      const ok = await _upload(`${PREFIX}sightings/${ts}.json.gz`, sightings, `sightings (${sightings.length})`)
-      if (ok) totalRows += sightings.length
+      const ok = await _upload(`${PREFIX}sightings/${ts}.json.gz`, sightings, `sightings (${sightings.length} rows)`)
+      if (ok) { totalRows += sightings.length; steps.push(`sightings: ${sightings.length}`) }
       else anyFailed = true
     } else if (sightings.length > MAX_ROWS_PER_CYCLE) {
-      console.warn(`  s3: SKIPPED sightings — ${sightings.length} rows exceeds ${MAX_ROWS_PER_CYCLE} limit`)
+      console.warn(`[s3]   ✗ SKIP sightings — ${sightings.length} rows exceeds ${MAX_ROWS_PER_CYCLE} limit`)
       anyFailed = true
+    } else {
+      console.log(`[s3]   sightings: nothing to archive`)
     }
   } catch (err) {
-    console.error(`  s3: FAILED sightings archive: ${err.message}`)
+    console.error(`[s3]   ✗ sightings archive error: ${err.message}`)
     anyFailed = true
     _status.lastError = `sightings: ${err.message}`
   }
@@ -121,13 +144,16 @@ async function archiveBeforePurge(db, cutoff) {
       .prepare('SELECT * FROM sightings_daily')
       .all()
 
+    console.log(`[s3]   daily: ${daily.length} rows to archive`)
     if (daily.length > 0 && daily.length <= MAX_ROWS_PER_CYCLE) {
-      const ok = await _upload(`${PREFIX}daily/${ts}.json.gz`, daily, `daily (${daily.length})`)
-      if (ok) totalRows += daily.length
+      const ok = await _upload(`${PREFIX}daily/${ts}.json.gz`, daily, `daily (${daily.length} rows)`)
+      if (ok) { totalRows += daily.length; steps.push(`daily: ${daily.length}`) }
       else anyFailed = true
+    } else if (daily.length === 0) {
+      console.log(`[s3]   daily: nothing to archive`)
     }
   } catch (err) {
-    console.error(`  s3: FAILED daily archive: ${err.message}`)
+    console.error(`[s3]   ✗ daily archive error: ${err.message}`)
     anyFailed = true
     _status.lastError = `daily: ${err.message}`
   }
@@ -138,13 +164,16 @@ async function archiveBeforePurge(db, cutoff) {
       .prepare('SELECT * FROM anomalies WHERE detected_at < ?')
       .all(cutoff)
 
+    console.log(`[s3]   anomalies: ${anomalies.length} rows to archive`)
     if (anomalies.length > 0 && anomalies.length <= MAX_ROWS_PER_CYCLE) {
-      const ok = await _upload(`${PREFIX}anomalies/${ts}.json.gz`, anomalies, `anomalies (${anomalies.length})`)
-      if (ok) totalRows += anomalies.length
+      const ok = await _upload(`${PREFIX}anomalies/${ts}.json.gz`, anomalies, `anomalies (${anomalies.length} rows)`)
+      if (ok) { totalRows += anomalies.length; steps.push(`anomalies: ${anomalies.length}`) }
       else anyFailed = true
+    } else if (anomalies.length === 0) {
+      console.log(`[s3]   anomalies: nothing to archive`)
     }
   } catch (err) {
-    console.error(`  s3: FAILED anomaly archive: ${err.message}`)
+    console.error(`[s3]   ✗ anomaly archive error: ${err.message}`)
     anyFailed = true
     _status.lastError = `anomalies: ${err.message}`
   }
@@ -152,26 +181,31 @@ async function archiveBeforePurge(db, cutoff) {
   // ── Update status ─────────────────────────────────────────────────────
   _status.lastArchived = totalRows
   _status.totalArchived += totalRows
+  const elapsed = Date.now() - t0
 
   if (totalRows > 0 && !anyFailed) {
     _status.lastResult = 'ok'
     _status.lastSuccess = new Date().toISOString()
     _status.lastError = null
     _status.totalFailures = 0
+    console.log(`[s3] ✓ archive complete — ${totalRows} rows in ${elapsed}ms [${steps.join(' | ')}]`)
+    console.log(`[s3]   lifetime total: ${_status.totalArchived.toLocaleString()} rows archived`)
   } else if (totalRows > 0 && anyFailed) {
     _status.lastResult = 'partial'
     _status.totalFailures++
+    console.warn(`[s3] ⚠ partial — ${totalRows} rows archived, some failed (${elapsed}ms)`)
   } else if (anyFailed) {
     _status.lastResult = 'error'
     _status.totalFailures++
+    console.error(`[s3] ✗ archive FAILED — 0 rows archived (${elapsed}ms) — ${_status.totalFailures} consecutive failure(s)`)
+    console.error(`[s3]   data will NOT be purged until S3 succeeds`)
   } else {
     _status.lastResult = 'empty'
     _status.lastError = null
+    console.log(`[s3] ○ archive cycle empty — nothing to archive (${elapsed}ms)`)
   }
 
-  if (_status.totalFailures > 0) {
-    console.error(`  ⚠ S3 ARCHIVAL ${anyFailed ? 'FAILED' : 'PARTIAL'} — ${_status.totalFailures} consecutive failure(s). Data will NOT be purged until S3 succeeds.`)
-  }
+  console.log(`[s3] ──────────────────────────────────────────────────`)
 
   return { ok: !anyFailed, archived: totalRows }
 }
