@@ -6,6 +6,7 @@ import WeatherStatus from './dashboard/WeatherStatus'
 import ServiceHealth from './dashboard/ServiceHealth'
 import DocsPanel from './dashboard/DocsPanel'
 import HeatMap from './dashboard/HeatMap'
+import TopTraffic from './dashboard/TopTraffic'
 import {
   fetchAnomalyFeed,
   fetchAnomalyStats,
@@ -76,6 +77,9 @@ export default function DashboardPanel({ backendOk }) {
         <StatsCards stats={sightingStats} anomalyStats={anomalyStats} />
         <ActivityChart hourly={hourly} anomalyHourly={anomalyHourly} />
       </div>
+
+      {/* Bottom row — top traffic */}
+      <TopTraffic backendOk={backendOk} />
 
       {showDocs && <DocsPanel onClose={() => setShowDocs(false)} />}
     </div>
