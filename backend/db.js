@@ -902,7 +902,7 @@ function getDbSize() {
 // ── auto-purge: 3-hour retention window ─────────────────────────────────────
 // Dev phase: keep only 3 hours of raw data. Archive to S3 before purging.
 // If S3 fails, data stays in SQLite until next cycle succeeds.
-const PURGE_AFTER_HOURS = 3
+const PURGE_AFTER_HOURS = 2
 
 function getPurgeCutoff() {
   return new Date(Date.now() - PURGE_AFTER_HOURS * 3600_000).toISOString()
@@ -945,26 +945,21 @@ function purgeOldDailySummaries() {
   return del.changes
 }
 
-// Full purge cycle: S3 archive first, then purge
+// Full purge cycle: delete everything older than retention window.
+// S3 archival is disabled for now — just purge directly.
 async function runPurgeCycle() {
   const cutoff = getPurgeCutoff()
   console.log(`purge: starting cycle (cutoff: ${cutoff})`)
 
-  // Try S3 archive first
-  if (s3Enabled()) {
-    const { ok, archived } = await archiveBeforePurge(db, cutoff)
-    if (!ok && archived === 0) {
-      console.error('  ⚠ S3 archive FAILED — skipping purge to preserve data')
-      return
-    }
-    if (!ok) {
-      console.warn('  ⚠ S3 archive partially failed — purging only successfully archived data')
-    }
-  } else {
-    console.log('  purge: S3 not configured — data will be lost after purge')
-  }
+  // TODO: re-enable S3 archival when ready
+  // if (s3Enabled()) {
+  //   const { ok, archived } = await archiveBeforePurge(db, cutoff)
+  //   if (!ok && archived === 0) {
+  //     console.error('  ⚠ S3 archive FAILED — skipping purge to preserve data')
+  //     return
+  //   }
+  // }
 
-  // Purge
   purgeOldSightings(cutoff)
   purgeOldAnomalies(cutoff)
   purgeOldDailySummaries()
@@ -1069,14 +1064,14 @@ function forcePurge() {
   return { sightings, anomalies, daily, remaining, size_mb: +(size / 1048576).toFixed(1) }
 }
 
-// Schedule purge cycle every hour (matches 3-hour retention window)
+// Schedule purge cycle every 2 hours (matches 2-hour retention window)
 setInterval(async () => {
   try {
     await runPurgeCycle()
   } catch (err) {
     console.error('purge cycle error:', err.message)
   }
-}, 3600 * 1000)
+}, 2 * 3600 * 1000)
 
 // ── exports ─────────────────────────────────────────────────────────────────
 

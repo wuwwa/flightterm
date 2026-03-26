@@ -13,7 +13,6 @@ const {
   getRecentAnomalies, getActiveAnomalies, getAnomaliesByIcao, getAnomalyStats,
   getTrafficHeatmap,
   runDeferredMaintenance,
-  forcePurge,
   getRoutesBulk,
   upsertRoutesBatch,
   getRouteCount,
@@ -224,17 +223,6 @@ app.get('/api/health/archive', (_req, res) => {
           ? 'Awaiting first archive cycle'
           : 'S3 not configured — data purged without archival',
   })
-})
-
-// POST /api/admin/force-purge — bypass S3, delete old data immediately
-app.post('/api/admin/force-purge', (_req, res) => {
-  try {
-    const result = forcePurge()
-    res.json({ ok: true, ...result })
-  } catch (err) {
-    console.error('force-purge error:', err.message)
-    res.status(500).json({ error: err.message })
-  }
 })
 
 // ── API key status (read-only, never exposes actual values) ─────────────────
@@ -659,6 +647,34 @@ app.get('/api/adsbfi/callsign/:cs', async (req, res) => {
   } catch (err) {
     recordServiceError('adsbfi', Date.now() - t0, err.message)
     res.status(err.response?.status || 502).json({ error: err.message })
+  }
+})
+
+// GET /api/hexdb/route/:callsign — proxy hexdb.io route lookup (no CORS from browser)
+app.get('/api/hexdb/route/:callsign', async (req, res) => {
+  const cs = req.params.callsign.trim().replace(/\s+/g, '')
+  if (!cs) return res.status(400).json({ error: 'missing callsign' })
+  try {
+    const routeRes = await axios.get(`https://hexdb.io/api/v1/route/icao/${cs}`, { timeout: 8000 })
+    const routeStr = routeRes.data
+    if (!routeStr || typeof routeStr !== 'string' || !routeStr.includes('-')) {
+      return res.json({ route: null })
+    }
+    const [originIcao, destIcao] = routeStr.split('-').map(s => s.trim())
+    // Fetch airport details in parallel
+    const [originRes, destRes] = await Promise.allSettled([
+      axios.get(`https://hexdb.io/api/v1/airport/icao/${originIcao}`, { timeout: 8000 }),
+      axios.get(`https://hexdb.io/api/v1/airport/icao/${destIcao}`, { timeout: 8000 }),
+    ])
+    const parseAirport = (r, icao) => {
+      if (r.status !== 'fulfilled' || !r.value?.data) return { icao }
+      const d = r.value.data
+      return { icao, iata: d.iata || null, name: d.airport || null, lat: d.latitude != null ? parseFloat(d.latitude) : null, lon: d.longitude != null ? parseFloat(d.longitude) : null, municipality: d.municipality || null, country: d.country || null }
+    }
+    res.json({ route: { origin: parseAirport(originRes, originIcao), destination: parseAirport(destRes, destIcao), source: 'hexdb' } })
+  } catch (err) {
+    if (err.response?.status === 404) return res.json({ route: null })
+    res.status(502).json({ error: err.message })
   }
 })
 

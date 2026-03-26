@@ -4,10 +4,8 @@
 // purge cycle deletes them from SQLite. Runs every hour (matching the 3-hour
 // retention window). Does nothing if S3 is not configured.
 //
-// Safety:
-//   - Max 5 MB per upload (rejects abnormally large payloads)
-//   - Max 50,000 rows per table per cycle (circuit breaker)
-//   - Only deletes from SQLite AFTER successful upload
+// Sightings are uploaded in 10K-row batches to avoid blocking the event loop
+// and exceeding S3 payload limits.
 //
 // Env vars:
 //   S3_BUCKET              – bucket name (required to enable archival)
@@ -23,9 +21,8 @@ const BUCKET = process.env.S3_BUCKET
 const REGION = process.env.S3_REGION || 'us-east-1'
 const PREFIX = process.env.S3_PREFIX || 'flightterm/'
 
-// Safety limits
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024  // 5 MB per file
-const MAX_ROWS_PER_CYCLE = 50_000
+const BATCH_SIZE = 10_000                  // rows per sightings upload
 
 let s3 = null
 if (BUCKET) {
@@ -39,38 +36,35 @@ if (BUCKET) {
 // ── status tracking ─────────────────────────────────────────────────────────
 const _status = {
   enabled: !!s3,
-  lastRun: null,        // ISO timestamp of last attempt
-  lastSuccess: null,    // ISO timestamp of last successful upload
-  lastResult: null,     // 'ok' | 'empty' | 'error' | 'skipped'
-  lastError: null,      // error message if failed
-  lastArchived: 0,      // rows archived in last run
-  totalArchived: 0,     // rows archived since startup
+  lastRun: null,
+  lastSuccess: null,
+  lastResult: null,
+  lastError: null,
+  lastArchived: 0,
+  totalArchived: 0,
   totalRuns: 0,
-  totalFailures: 0,     // consecutive failures (resets on success)
+  totalFailures: 0,
 }
 
-function isEnabled() {
-  return !!s3
-}
+function isEnabled() { return !!s3 }
+function getStatus() { return { ..._status } }
 
-function getStatus() {
-  return { ..._status }
-}
+// Yield event loop so HTTP requests aren't starved during long archives
+const tick = () => new Promise(r => setImmediate(r))
 
 // Upload a gzipped JSON payload to S3. Returns true on success.
 async function _upload(key, rows, label) {
   const json = JSON.stringify(rows)
   const compressed = zlib.gzipSync(json)
-  const sizeMB = (compressed.length / 1024 / 1024).toFixed(2)
   const sizeKB = (compressed.length / 1024).toFixed(1)
 
   if (compressed.length > MAX_UPLOAD_BYTES) {
-    console.warn(`[s3]   ✗ SKIP ${label} — ${sizeMB} MB exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit`)
+    console.warn(`[s3]   ✗ SKIP ${label} — ${(compressed.length / 1024 / 1024).toFixed(2)} MB exceeds limit`)
     return false
   }
 
   const t0 = Date.now()
-  console.log(`[s3]   ↑ uploading ${label} → ${key} (${sizeKB} KB)...`)
+  console.log(`[s3]   ↑ ${label} → ${key} (${sizeKB} KB)...`)
 
   try {
     await s3.send(new PutObjectCommand({
@@ -79,24 +73,17 @@ async function _upload(key, rows, label) {
       Body: compressed,
       ContentType: 'application/gzip',
       ContentEncoding: 'gzip',
-      Metadata: {
-        'row-count': String(rows.length),
-        'archived-at': new Date().toISOString(),
-      },
+      Metadata: { 'row-count': String(rows.length), 'archived-at': new Date().toISOString() },
     }))
-    const ms = Date.now() - t0
-    console.log(`[s3]   ✓ uploaded ${label} (${sizeKB} KB, ${ms}ms)`)
+    console.log(`[s3]   ✓ ${label} (${sizeKB} KB, ${Date.now() - t0}ms)`)
     return true
   } catch (err) {
-    const ms = Date.now() - t0
-    console.error(`[s3]   ✗ FAILED ${label} after ${ms}ms: ${err.name} — ${err.message}`)
+    console.error(`[s3]   ✗ FAILED ${label} (${Date.now() - t0}ms): ${err.name} — ${err.message}`)
     throw err
   }
 }
 
-// Archive all data that's about to be purged.
-// Called with the cutoff timestamp — archives everything older than cutoff.
-// Returns { ok: boolean, sightings, daily, anomalies }
+// Archive all data about to be purged.
 async function archiveBeforePurge(db, cutoff) {
   if (!s3) {
     console.log('[s3] archive skipped — not configured')
@@ -115,70 +102,85 @@ async function archiveBeforePurge(db, cutoff) {
   let anyFailed = false
   const steps = []
 
-  // ── 1. Archive raw sightings about to be purged ───────────────────────
+  // ── 1. Sightings — batched to avoid memory/payload issues ───────────
   try {
-    const sightings = db
-      .prepare('SELECT * FROM sightings WHERE seen_at < ?')
-      .all(cutoff)
+    const countRow = db.prepare('SELECT COUNT(*) as c FROM sightings WHERE seen_at < ?').get(cutoff)
+    const total = countRow.c
+    console.log(`[s3]   sightings: ${total} rows to archive (${BATCH_SIZE}/batch)`)
 
-    console.log(`[s3]   sightings: ${sightings.length} rows to archive`)
-    if (sightings.length > 0 && sightings.length <= MAX_ROWS_PER_CYCLE) {
-      const ok = await _upload(`${PREFIX}sightings/${ts}.json.gz`, sightings, `sightings (${sightings.length} rows)`)
-      if (ok) { totalRows += sightings.length; steps.push(`sightings: ${sightings.length}`) }
-      else anyFailed = true
-    } else if (sightings.length > MAX_ROWS_PER_CYCLE) {
-      console.warn(`[s3]   ✗ SKIP sightings — ${sightings.length} rows exceeds ${MAX_ROWS_PER_CYCLE} limit`)
-      anyFailed = true
+    if (total > 0) {
+      const stmt = db.prepare('SELECT * FROM sightings WHERE seen_at < ? ORDER BY seen_at LIMIT ? OFFSET ?')
+      let offset = 0
+      let batchNum = 0
+      let batchFailed = false
+
+      while (offset < total) {
+        await tick() // yield so HTTP stays responsive
+        const batch = stmt.all(cutoff, BATCH_SIZE, offset)
+        if (batch.length === 0) break
+        batchNum++
+        try {
+          const ok = await _upload(
+            `${PREFIX}sightings/${ts}_batch${String(batchNum).padStart(3, '0')}.json.gz`,
+            batch,
+            `sightings batch ${batchNum} (${batch.length} rows)`
+          )
+          if (ok) totalRows += batch.length
+          else batchFailed = true
+        } catch {
+          batchFailed = true
+        }
+        offset += batch.length
+      }
+
+      if (batchFailed) anyFailed = true
+      else steps.push(`sightings: ${total}`)
     } else {
       console.log(`[s3]   sightings: nothing to archive`)
     }
   } catch (err) {
-    console.error(`[s3]   ✗ sightings archive error: ${err.message}`)
+    console.error(`[s3]   ✗ sightings error: ${err.message}`)
     anyFailed = true
     _status.lastError = `sightings: ${err.message}`
   }
 
-  // ── 2. Archive daily summaries ────────────────────────────────────────
+  // ── 2. Daily summaries ──────────────────────────────────────────────
   try {
-    const daily = db
-      .prepare('SELECT * FROM sightings_daily')
-      .all()
-
+    await tick()
+    const daily = db.prepare('SELECT * FROM sightings_daily').all()
     console.log(`[s3]   daily: ${daily.length} rows to archive`)
-    if (daily.length > 0 && daily.length <= MAX_ROWS_PER_CYCLE) {
+    if (daily.length > 0) {
       const ok = await _upload(`${PREFIX}daily/${ts}.json.gz`, daily, `daily (${daily.length} rows)`)
       if (ok) { totalRows += daily.length; steps.push(`daily: ${daily.length}`) }
       else anyFailed = true
-    } else if (daily.length === 0) {
+    } else {
       console.log(`[s3]   daily: nothing to archive`)
     }
   } catch (err) {
-    console.error(`[s3]   ✗ daily archive error: ${err.message}`)
+    console.error(`[s3]   ✗ daily error: ${err.message}`)
     anyFailed = true
     _status.lastError = `daily: ${err.message}`
   }
 
-  // ── 3. Archive anomalies about to be purged ───────────────────────────
+  // ── 3. Anomalies ───────────────────────────────────────────────────
   try {
-    const anomalies = db
-      .prepare('SELECT * FROM anomalies WHERE detected_at < ?')
-      .all(cutoff)
-
+    await tick()
+    const anomalies = db.prepare('SELECT * FROM anomalies WHERE detected_at < ?').all(cutoff)
     console.log(`[s3]   anomalies: ${anomalies.length} rows to archive`)
-    if (anomalies.length > 0 && anomalies.length <= MAX_ROWS_PER_CYCLE) {
+    if (anomalies.length > 0) {
       const ok = await _upload(`${PREFIX}anomalies/${ts}.json.gz`, anomalies, `anomalies (${anomalies.length} rows)`)
       if (ok) { totalRows += anomalies.length; steps.push(`anomalies: ${anomalies.length}`) }
       else anyFailed = true
-    } else if (anomalies.length === 0) {
+    } else {
       console.log(`[s3]   anomalies: nothing to archive`)
     }
   } catch (err) {
-    console.error(`[s3]   ✗ anomaly archive error: ${err.message}`)
+    console.error(`[s3]   ✗ anomalies error: ${err.message}`)
     anyFailed = true
     _status.lastError = `anomalies: ${err.message}`
   }
 
-  // ── Update status ─────────────────────────────────────────────────────
+  // ── Status ──────────────────────────────────────────────────────────
   _status.lastArchived = totalRows
   _status.totalArchived += totalRows
   const elapsed = Date.now() - t0
@@ -189,7 +191,7 @@ async function archiveBeforePurge(db, cutoff) {
     _status.lastError = null
     _status.totalFailures = 0
     console.log(`[s3] ✓ archive complete — ${totalRows} rows in ${elapsed}ms [${steps.join(' | ')}]`)
-    console.log(`[s3]   lifetime total: ${_status.totalArchived.toLocaleString()} rows archived`)
+    console.log(`[s3]   lifetime: ${_status.totalArchived.toLocaleString()} rows`)
   } else if (totalRows > 0 && anyFailed) {
     _status.lastResult = 'partial'
     _status.totalFailures++
@@ -197,16 +199,15 @@ async function archiveBeforePurge(db, cutoff) {
   } else if (anyFailed) {
     _status.lastResult = 'error'
     _status.totalFailures++
-    console.error(`[s3] ✗ archive FAILED — 0 rows archived (${elapsed}ms) — ${_status.totalFailures} consecutive failure(s)`)
-    console.error(`[s3]   data will NOT be purged until S3 succeeds`)
+    console.error(`[s3] ✗ FAILED — 0 rows (${elapsed}ms) — ${_status.totalFailures} consecutive failure(s)`)
+    console.error(`[s3]   data preserved until S3 succeeds`)
   } else {
     _status.lastResult = 'empty'
     _status.lastError = null
-    console.log(`[s3] ○ archive cycle empty — nothing to archive (${elapsed}ms)`)
+    console.log(`[s3] ○ empty — nothing to archive (${elapsed}ms)`)
   }
 
   console.log(`[s3] ──────────────────────────────────────────────────`)
-
   return { ok: !anyFailed, archived: totalRows }
 }
 

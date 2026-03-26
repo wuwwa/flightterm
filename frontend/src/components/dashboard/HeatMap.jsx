@@ -164,7 +164,7 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
     refresh()
     const id = setInterval(refresh, 60_000) // 1 min — keep map in sync with anomaly state
     return () => clearInterval(id)
-  }, [backendOk])
+  }, [backendOk, region])
 
   const points = anomalies.filter(a => a.lat != null && a.lon != null)
   const center = REGION_CENTERS[region] || REGION_CENTERS.usa

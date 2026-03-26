@@ -19,7 +19,7 @@ import { checkHealth, fetchAeroSpend } from './services/aeroapi'
 
 import { recordSightings, fetchOpenSkyUsageToday, fetchAircraftTrack, recordAnomalies, resolveAnomalies, lookupRoutes, saveRoutes } from './services/sightings'
 import { scoreAnomaly, ANOMALY_THRESHOLD } from './utils/anomaly'
-import { fetchMetars, fetchPireps, fetchSigmets, summarizeMetar, summarizePireps, summarizeSigmets } from './services/weather'
+import { fetchMetars, fetchPireps, fetchSigmets, summarizePireps, summarizeSigmets } from './services/weather'
 
 // ── default settings ──────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
