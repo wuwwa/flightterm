@@ -39,3 +39,8 @@ export async function fetchArchiveHealth() {
   const res = await axios.get('/api/health/archive', { timeout: 10000 })
   return res.data
 }
+
+export async function fetchAnomaliesByIcao(icao, limit = 20) {
+  const res = await axios.get(`/api/anomalies/aircraft/${icao}`, { params: { limit } })
+  return res.data
+}

@@ -5,9 +5,9 @@ import { testAdsbfi } from '../services/adsbfi'
 import { fetchKeyStatus } from '../services/aeroapi'
 
 const SOURCE_OPTIONS = [
-  { key: 'auto',    name: 'auto',          desc: 'use adsbx if key\nset, else opensky' },
-  { key: 'opensky', name: 'opensky only',  desc: 'free · no key\nrate limited (anon)' },
-  { key: 'adsbx',   name: 'adsbx only',   desc: 'requires key\nunfiltered · ~$10/mo' },
+  { key: 'auto',    name: 'auto',    desc: 'opensky default\nadsbx if key set' },
+  { key: 'opensky', name: 'opensky', desc: 'free · global bbox\n4K credits/day' },
+  { key: 'adsbx',   name: 'adsbx',   desc: 'requires key\nunfiltered · ~$10/mo' },
 ]
 
 function StatusDot({ ok, label }) {
@@ -97,6 +97,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 <StatusDot ok={!!local.userOsClientId && !!local.userOsClientSecret} label="opensky (yours)" />
                 <StatusDot ok={serverKeys.aeroapi} label="aeroapi (server)" />
                 <StatusDot ok={!!local.userAeroKey} label="aeroapi (yours)" />
+                <StatusDot ok={true} label="airplanes.live (free)" />
                 <StatusDot ok={!!local.adsbxKey} label="adsbx (yours)" />
                 <StatusDot ok={serverKeys.faa_notam} label="faa notam (server)" />
                 <StatusDot ok={serverKeys.s3_archive?.enabled} label={

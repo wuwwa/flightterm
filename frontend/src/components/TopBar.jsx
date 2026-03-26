@@ -3,6 +3,7 @@ import clsx from 'clsx'
 
 const BADGE_CLASSES = {
   opensky:  'text-grn border border-grn',
+  apl:      'text-mag border border-mag',
   adsbx:    'text-acc border border-acc',
   fallback: 'text-ylw border border-ylw',
 }

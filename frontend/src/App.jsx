@@ -12,6 +12,7 @@ import DashboardPanel from './components/DashboardPanel'
 
 import { fetchStates } from './services/opensky'
 import { fetchAdsbx } from './services/adsbx'
+import { fetchAplByHex } from './services/airplaneslive'
 import { enrichFlight, fetchRouteOnly } from './services/adsbdb'
 import { enrichByHex } from './services/adsbfi'
 import { checkHealth, fetchAeroSpend } from './services/aeroapi'
@@ -121,6 +122,8 @@ export default function App() {
   const fetchFlightsRef = useRef(null)
   const openskyUsageRef = useRef(null)
   openskyUsageRef.current = openskyUsage
+
+  const anomalyMissRef = useRef({})      // icao → consecutive miss count (grace period before resolve)
 
   // ── logging ──────────────────────────────────────────────────────────────────
   const log = useCallback((msg, type = '') => {
@@ -264,6 +267,8 @@ export default function App() {
   }, [])
 
   // ── resolve which source to actually use ─────────────────────────────────────
+  // OpenSky is primary for fleet scanning (one bbox call, instant).
+  // ADSBx if user has a key. Airplanes.live is used to enrich anomalies only.
   function resolveSource() {
     if (settings.sourcePref === 'adsbx') return 'adsbx'
     if (settings.sourcePref === 'opensky') return 'opensky'
@@ -274,8 +279,9 @@ export default function App() {
   const fetchFlights = useCallback(async () => {
     if (fetching) return
 
-    // ── credit guard ────────────────────────────────────────────────────────
     const src = resolveSource()
+
+    // ── credit guard (opensky only) ──────────────────────────────────────────
     if (src === 'opensky' && openskyUsageRef.current?.remaining <= 0) {
       log('opensky: daily credit limit reached — fetch blocked', 'err')
       return
@@ -288,33 +294,24 @@ export default function App() {
     let result = null
     let usedSource = src
 
-    if (src === 'adsbx' && result === null) {
+    // ── ADSBx (paid, unfiltered) ─────────────────────────────────────────────
+    if (src === 'adsbx') {
       try {
-        log(
-          `adsbx: querying lat/lon radius ${settings.adsbxRadius}nm · region=${region}`,
-          'info'
-        )
-        const { flights: f, remaining } = await fetchAdsbx(
-          region,
-          settings.adsbxKey,
-          settings.adsbxRadius
-        )
+        log(`adsbx: querying lat/lon radius ${settings.adsbxRadius}nm · region=${region}`, 'info')
+        const { flights: f, remaining } = await fetchAdsbx(region, settings.adsbxKey, settings.adsbxRadius)
         result = f
         setActiveSource('adsbx')
         const ms = Math.round(performance.now() - t0)
-        log(
-          `adsbx: ${f.length} aircraft (${ms}ms)${remaining ? ` · quota remaining: ${remaining}` : ''}`,
-          'ok'
-        )
-        const mil = f.filter((x) => x.mil).length
+        log(`adsbx: ${f.length} aircraft (${ms}ms)${remaining ? ` · quota remaining: ${remaining}` : ''}`, 'ok')
+        const mil = f.filter(x => x.mil).length
         if (mil > 0) log(`adsbx: ${mil} military aircraft in feed`, 'warn')
       } catch (err) {
         log(`adsbx failed (${err.message}) — falling back to opensky`, 'warn')
-        setActiveSource('fallback')
         usedSource = 'opensky'
       }
     }
 
+    // ── OpenSky (primary, free, bounding box) ────────────────────────────────
     if ((src === 'opensky' || usedSource === 'opensky') && result === null) {
       try {
         log(`opensky: GET states/all · region=${region}`, 'info')
@@ -444,7 +441,14 @@ export default function App() {
         log(`routes: ${staleReenrich.length} stale route(s) queued for re-enrichment`, 'info')
       }
 
-      setAnomalies(newAnomalies)
+      // Merge: keep grace-period anomalies (fading) alongside fresh ones
+      const merged = { ...newAnomalies }
+      for (const icao of Object.keys(anomalies)) {
+        if (!merged[icao] && anomalyMissRef.current[icao]) {
+          merged[icao] = { ...anomalies[icao], fading: true }
+        }
+      }
+      setAnomalies(merged)
       if (Object.keys(newAnomalies).length > 0) {
         const confirmed = Object.values(newAnomalies).filter(a => a.confirmed).length
         log(`anomalies: ${Object.keys(newAnomalies).length} scored above threshold${confirmed ? ` (${confirmed} confirmed)` : ''}`, 'warn')
@@ -518,13 +522,32 @@ export default function App() {
             })
             .catch(() => {})
         }
+
+        // Airplanes.live enrichment is on-demand only — triggered when the analyst
+        // clicks an anomaly in the investigation panel (AnomalyDrilldown).
       }
 
-      // Resolve anomalies for aircraft no longer flagged
+      // Resolve anomalies — require 3 consecutive misses before resolving.
+      // OpenSky often drops aircraft between calls (coverage gaps, timing).
+      // A single miss shouldn't instantly resolve a real anomaly.
+      const RESOLVE_AFTER = 3  // consecutive cycles without scoring
       const prevAnomalyIcaos = Object.keys(anomalies)
-      const resolvedIcaos = prevAnomalyIcaos.filter(icao => !newAnomalies[icao])
+      const misses = anomalyMissRef.current
+      const resolvedIcaos = []
+      for (const icao of prevAnomalyIcaos) {
+        if (newAnomalies[icao]) {
+          delete misses[icao]  // still anomalous — reset
+        } else {
+          misses[icao] = (misses[icao] || 0) + 1
+          if (misses[icao] >= RESOLVE_AFTER) {
+            resolvedIcaos.push(icao)
+            delete misses[icao]
+          }
+        }
+      }
       if (resolvedIcaos.length > 0) {
         resolveAnomalies(resolvedIcaos).catch(() => {})
+        log(`anomalies: ${resolvedIcaos.length} resolved after ${RESOLVE_AFTER} clear cycles`, 'info')
       }
 
       // ── summary stats ─────────────────────────────────────────────────────
@@ -551,25 +574,37 @@ export default function App() {
     fetchFlightsRef.current = fetchFlights
   }, [fetchFlights])
 
-  // ── auto-refresh ──────────────────────────────────────────────────────────────
+  // ── auto-refresh with ramp-up ────────────────────────────────────────────────
+  // Starts at 10s on first load, doubles each cycle until hitting the configured interval.
+  // This gets data on screen fast without hammering the API long-term.
+  const rampRef = useRef(10) // current interval in seconds (starts at 10)
   useEffect(() => {
-    if (autoOn) {
-      autoRef.current = setInterval(
-        () => fetchFlightsRef.current?.(),
-        settings.interval * 1000
-      )
-      return () => clearInterval(autoRef.current)
+    if (!autoOn) return
+    const targetInterval = settings.interval // user-configured steady-state (default 90s)
+    function scheduleNext() {
+      const delay = rampRef.current
+      autoRef.current = setTimeout(() => {
+        fetchFlightsRef.current?.()
+        // Double the interval until we hit the target
+        if (rampRef.current < targetInterval) {
+          rampRef.current = Math.min(rampRef.current * 2, targetInterval)
+        }
+        scheduleNext()
+      }, delay * 1000)
     }
+    scheduleNext()
+    return () => clearTimeout(autoRef.current)
   }, [autoOn, settings.interval])
 
   const toggleAuto = () => {
     if (autoOn) {
-      clearInterval(autoRef.current)
+      clearTimeout(autoRef.current)
       setAutoOn(false)
       log('auto-refresh disabled', 'info')
     } else {
+      rampRef.current = 10  // restart ramp from 10s
       setAutoOn(true)
-      log(`auto-refresh enabled (${settings.interval}s)`, 'info')
+      log('auto-refresh enabled (10s → ' + settings.interval + 's)', 'info')
     }
   }
 
@@ -611,22 +646,25 @@ export default function App() {
 
       if (enrichCache[flight.icao]) return
 
-      // Fetch ADSBdb + adsb.fi enrichment in parallel
+      // Fetch ADSBdb + adsb.fi + airplanes.live enrichment in parallel
       log(`enriching ${flight.icao} / ${flight.callsign}`, 'info')
-      const [adsbdbResult, adsbfiResult] = await Promise.allSettled([
+      const [adsbdbResult, adsbfiResult, aplResult] = await Promise.allSettled([
         enrichFlight(flight.icao, flight.callsign),
         enrichByHex(flight.icao),
+        fetchAplByHex(flight.icao),
       ])
 
       const adsbdb = adsbdbResult.status === 'fulfilled' ? adsbdbResult.value : { aircraft: null, flightroute: null }
       const adsbfi = adsbfiResult.status === 'fulfilled' ? adsbfiResult.value : null
+      const aplData = aplResult.status === 'fulfilled' ? aplResult.value : null
 
-      setEnrichCache((prev) => ({ ...prev, [flight.icao]: { ...adsbdb, adsbfi } }))
+      setEnrichCache((prev) => ({ ...prev, [flight.icao]: { ...adsbdb, adsbfi, apl: aplData } }))
 
       const parts = []
       if (adsbdb.aircraft) parts.push('aircraft=found')
       if (adsbdb.flightroute) parts.push(`route=${adsbdb.flightroute._source || 'adsbdb'}`)
       if (adsbfi) parts.push(`adsb.fi=${[adsbfi.type, adsbfi.reg, adsbfi.operator].filter(Boolean).join('/') || 'ok'}`)
+      if (aplData) parts.push(`apl=${[aplData.ias ? `IAS:${aplData.ias}` : null, aplData.mach ? `M${aplData.mach}` : null, aplData.windSpeed ? `wind:${aplData.windDir}°/${aplData.windSpeed}kt` : null].filter(Boolean).join('/') || 'ok'}`)
       log(`enrich: ${flight.icao} — ${parts.join(' · ') || 'no data'}`, parts.length ? 'ok' : 'warn')
     },
     [enrichCache, log]
@@ -674,10 +712,8 @@ export default function App() {
       `settings saved · source=${newSettings.sourcePref} interval=${newSettings.interval}s`,
       'ok'
     )
-    if (autoOn) {
-      clearInterval(autoRef.current)
-      autoRef.current = setInterval(fetchFlights, newSettings.interval * 1000)
-    }
+    // Reset ramp to the new target interval (already ramped up by now)
+    rampRef.current = newSettings.interval
     setShowSettings(false)
   }
 
@@ -824,7 +860,7 @@ export default function App() {
       </div>
 
       {/* Page 2: dashboard — always visible, scroll down to see */}
-      <DashboardPanel backendOk={backendOk} />
+      <DashboardPanel backendOk={backendOk} activeSource={activeSource} region={region} lastFetchAt={lastFetchAt} />
 
       {/* Sticky status bar — always at bottom of viewport */}
       <div className="sticky bottom-0 z-40 bg-acc py-0.5 px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg">

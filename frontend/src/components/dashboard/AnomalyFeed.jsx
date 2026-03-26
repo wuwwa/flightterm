@@ -41,7 +41,7 @@ function weatherTags(wx) {
   return tags.length ? tags : null
 }
 
-export default function AnomalyFeed({ anomalies = [] }) {
+export default function AnomalyFeed({ anomalies = [], onSelect, selectedIcao }) {
   if (!anomalies.length) {
     return (
       <div className="bg-bg1 py-6 px-2.5 text-center text-fg3 text-[10px]">
@@ -59,46 +59,45 @@ export default function AnomalyFeed({ anomalies = [] }) {
       {anomalies.map((a) => (
         <div
           key={a.id}
+          onClick={() => onSelect?.(a)}
           className={clsx(
             'border-b px-2.5 py-1',
+            onSelect && 'cursor-pointer hover:brightness-125',
+            a.icao === selectedIcao && 'ring-1 ring-acc ring-inset',
             a.resolved ? 'opacity-40 bg-bg1 border-white/3' : (SEV_COLORS[a.severity] || SEV_COLORS.MEDIUM),
           )}
         >
-          {/* Top row: severity badge + icao + callsign + time */}
+          {/* Row 1: severity + icao + score */}
           <div className="flex items-center gap-1.5 text-[10px]">
             {!a.resolved && a.severity && (
-              <span className={clsx('text-[8px] px-1 py-px rounded font-bold tracking-wider', SEV_BADGE[a.severity] || SEV_BADGE.MEDIUM)}>
+              <span className={clsx('text-[8px] px-1 py-px rounded font-bold tracking-wider shrink-0', SEV_BADGE[a.severity] || SEV_BADGE.MEDIUM)}>
                 {a.severity}
               </span>
             )}
-            {a.category && (
-              <span className={clsx('text-[9px]', CAT_COLORS[a.category] || 'text-fg3')}>
-                {a.category}
-              </span>
-            )}
             <span className="text-acc">{a.icao}</span>
-            <span className="text-ylw">{a.callsign || '—'}</span>
-            <span className="ml-auto text-fg3 shrink-0">{fmtTime(a.detected_at)}</span>
-            {a.resolved ? (
-              <span className="text-grn text-[9px]">resolved</span>
-            ) : (
-              <span className="text-red font-bold">{a.score}</span>
-            )}
+            <span className="text-ylw truncate">{a.callsign || '—'}</span>
+            <span className="ml-auto shrink-0 flex items-center gap-1.5">
+              <span className="text-fg3 text-[9px]">{fmtTime(a.detected_at)}</span>
+              {a.resolved ? (
+                <span className="text-grn text-[9px]">resolved</span>
+              ) : (
+                <span className="text-red font-bold">{a.score}</span>
+              )}
+            </span>
           </div>
+          {/* Row 2: category */}
+          {!a.resolved && a.category && (
+            <div className="text-[9px] mt-0.5 pl-1">
+              <span className={CAT_COLORS[a.category] || 'text-fg3'}>{a.category}</span>
+              {a.categories?.length > 1 && a.categories.slice(1).map((cat) => (
+                <span key={cat} className={clsx('ml-1', CAT_COLORS[cat] || 'text-fg3')}>+{cat}</span>
+              ))}
+            </div>
+          )}
           {/* Reason line */}
           {!a.resolved && a.reasons?.length > 0 && (
             <div className="text-[9px] text-fg3 mt-0.5 truncate pl-1">
               {a.reasons[0]}
-            </div>
-          )}
-          {/* Secondary categories */}
-          {!a.resolved && a.categories?.length > 1 && (
-            <div className="flex gap-1 mt-0.5 pl-1">
-              {a.categories.slice(1).map((cat) => (
-                <span key={cat} className={clsx('text-[8px]', CAT_COLORS[cat] || 'text-fg3')}>
-                  +{cat}
-                </span>
-              ))}
             </div>
           )}
           {/* Weather context */}

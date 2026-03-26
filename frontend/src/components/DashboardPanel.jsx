@@ -1,41 +1,37 @@
 import { useState, useEffect, useCallback } from 'react'
 import AnomalyFeed from './dashboard/AnomalyFeed'
 import StatsCards from './dashboard/StatsCards'
-import ActivityChart from './dashboard/ActivityChart'
 import WeatherStatus from './dashboard/WeatherStatus'
 import ServiceHealth from './dashboard/ServiceHealth'
 import DocsPanel from './dashboard/DocsPanel'
 import HeatMap from './dashboard/HeatMap'
-import TopTraffic from './dashboard/TopTraffic'
+import AnomalyDrilldown from './dashboard/AnomalyDrilldown'
 import {
   fetchAnomalyFeed,
   fetchAnomalyStats,
   fetchSightingStats,
-  fetchHourlyActivity,
 } from '../services/dashboard'
 
 const POLL_INTERVAL = 30_000
 
-export default function DashboardPanel({ backendOk }) {
+export default function DashboardPanel({ backendOk, activeSource, region: appRegion, lastFetchAt }) {
   const [anomalies, setAnomalies] = useState([])
   const [anomalyStats, setAnomalyStats] = useState(null)
   const [sightingStats, setSightingStats] = useState(null)
-  const [hourly, setHourly] = useState([])
   const [showDocs, setShowDocs] = useState(false)
+  const [selectedAnomaly, setSelectedAnomaly] = useState(null)
 
   const refresh = useCallback(async () => {
     if (!backendOk) return
     try {
-      const [a, as2, ss, h] = await Promise.all([
+      const [a, as2, ss] = await Promise.all([
         fetchAnomalyFeed(50),
         fetchAnomalyStats(),
         fetchSightingStats(),
-        fetchHourlyActivity(),
       ])
       setAnomalies(a)
       setAnomalyStats(as2)
       setSightingStats(ss)
-      setHourly(h)
     } catch {}
   }, [backendOk])
 
@@ -46,7 +42,10 @@ export default function DashboardPanel({ backendOk }) {
     return () => clearInterval(id)
   }, [backendOk, refresh])
 
-  const anomalyHourly = anomalyStats?.hourly || []
+  const handleAnomalyClick = useCallback((anomaly) => {
+    if (!anomaly?.icao) return
+    setSelectedAnomaly(prev => prev?.icao === anomaly.icao ? null : anomaly)
+  }, [])
 
   return (
     <div className="min-h-screen bg-bg1 border-t border-border">
@@ -64,22 +63,24 @@ export default function DashboardPanel({ backendOk }) {
 
       {/* Status bars — weather + service health side by side */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-border">
-        <WeatherStatus region="usa" backendOk={backendOk} />
+        <WeatherStatus region={appRegion || 'usa'} backendOk={backendOk} />
         <ServiceHealth backendOk={backendOk} />
       </div>
 
       {/* Heatmap — full width */}
-      <HeatMap backendOk={backendOk} region="usa" />
+      <HeatMap backendOk={backendOk} region={appRegion || 'usa'} activeSource={activeSource} lastFetchAt={lastFetchAt} onSelect={handleAnomalyClick} />
 
-      {/* Content — 3 columns on desktop, stacked on mobile */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border p-px">
-        <AnomalyFeed anomalies={anomalies} />
-        <StatsCards stats={sightingStats} anomalyStats={anomalyStats} />
-        <ActivityChart hourly={hourly} anomalyHourly={anomalyHourly} />
+      {/* Main content: feed sidebar + drilldown/stats right */}
+      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-px bg-border">
+        {/* Left: anomaly feed */}
+        <AnomalyFeed anomalies={anomalies} onSelect={handleAnomalyClick} selectedIcao={selectedAnomaly?.icao} />
+
+        {/* Right: investigation panel + stats */}
+        <div className="bg-bg1">
+          <AnomalyDrilldown anomaly={selectedAnomaly} onClose={() => setSelectedAnomaly(null)} />
+          <StatsCards stats={sightingStats} anomalyStats={anomalyStats} />
+        </div>
       </div>
-
-      {/* Bottom row — top traffic */}
-      <TopTraffic backendOk={backendOk} />
 
       {showDocs && <DocsPanel onClose={() => setShowDocs(false)} />}
     </div>

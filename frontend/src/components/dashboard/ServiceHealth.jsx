@@ -4,6 +4,7 @@ import { fetchServiceHealth, fetchArchiveHealth } from '../../services/dashboard
 
 const LABEL = {
   opensky:          'OpenSky',
+  airplaneslive:    'Airplanes.live',
   adsbfi:           'adsb.fi',
   aviationweather:  'AvnWx',
   aeroapi:          'AeroAPI',
@@ -12,6 +13,7 @@ const LABEL = {
 
 const LIMITS = {
   opensky:         '4,000 credits/day (authenticated)',
+  airplaneslive:   '1 req/sec · unfiltered · no credits',
   adsbfi:          '1 req/sec (public)',
   aviationweather: '100 req/min',
   aeroapi:         'pay-per-call ($0.005+)',

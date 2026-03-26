@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, Marker, Polygon, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Polygon, Circle, Rectangle, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { fetchAnomalyFeed } from '../../services/dashboard'
 import { fetchSigmets, fetchPireps } from '../../services/weather'
+import { REGIONS } from '../../services/opensky'
 
 const REGION_CENTERS = {
   usa:      [38, -96],
   europe:   [50, 15],
   asia:     [35, 110],
   atlantic: [35, -40],
+  global:   [30, 0],
 }
 
 const REGION_BBOX = {
@@ -49,12 +51,13 @@ function pirepIcon(intensity) {
 
 const PLANE_PATH = 'M10 2 L12.5 8 L18 9.5 L12.5 11 L13 17 L10 15 L7 17 L7.5 11 L2 9.5 L7.5 8 Z'
 
-function planeIcon(hdg = 0, severity = 'MEDIUM') {
-  const color = SEV_COLORS[severity] || SEV_COLORS.MEDIUM
+function planeIcon(hdg = 0, severity = 'MEDIUM', resolved = false) {
+  const color = resolved ? '#555555' : (SEV_COLORS[severity] || SEV_COLORS.MEDIUM)
   const s = severity === 'CRITICAL' ? 24 : severity === 'HIGH' ? 20 : 16
   const h = s / 2
+  const opacity = resolved ? 0.4 : 1
   return L.divIcon({
-    html: `<svg width="${s}" height="${s}" viewBox="0 0 20 20" style="transform:rotate(${hdg}deg)">
+    html: `<svg width="${s}" height="${s}" viewBox="0 0 20 20" style="transform:rotate(${hdg}deg);opacity:${opacity}">
       <path d="${PLANE_PATH}" fill="${color}" stroke="#0d0d0d" stroke-width="0.8"/>
     </svg>`,
     className: '',
@@ -77,12 +80,69 @@ function AutoBounds({ points }) {
   return null
 }
 
-export default function HeatMap({ backendOk, region = 'usa' }) {
+// ── Search boundary overlay ─────────────────────────────────────────────────
+// Shows where data is being fetched from. Pulses briefly on each refresh.
+function SearchBoundary({ activeSource, region, lastFetchAt }) {
+  const [opacity, setOpacity] = useState(0.25)
+
+  // Pulse on refresh: flash bright then fade
+  useEffect(() => {
+    if (!lastFetchAt) return
+    setOpacity(0.4)
+    const t1 = setTimeout(() => setOpacity(0.15), 1500)
+    const t2 = setTimeout(() => setOpacity(0.08), 3000)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [lastFetchAt])
+
+  // OpenSky — show bounding box rectangle
+  if ((activeSource === 'opensky' || activeSource === 'fallback') && REGIONS[region]?.bbox) {
+    const b = REGIONS[region].bbox
+    return (
+      <Rectangle
+        bounds={[[b.lamin, b.lomin], [b.lamax, b.lomax]]}
+        pathOptions={{
+          color: '#33ff66',
+          fillColor: 'transparent',
+          fillOpacity: 0,
+          weight: 1,
+          opacity: opacity,
+          dashArray: '8 4',
+        }}
+      />
+    )
+  }
+
+  // ADSBx — show single circle from region center
+  if (activeSource === 'adsbx') {
+    const center = REGION_CENTERS[region]
+    if (center) {
+      return (
+        <Circle
+          center={center}
+          radius={100 * 1852} // default 100nm radius
+          pathOptions={{
+            color: '#44ccff',
+            fillColor: '#44ccff',
+            fillOpacity: opacity * 0.2,
+            weight: 1,
+            opacity: opacity,
+            dashArray: '6 4',
+          }}
+        />
+      )
+    }
+  }
+
+  return null
+}
+
+export default function HeatMap({ backendOk, region = 'usa', activeSource, lastFetchAt, onSelect }) {
   const [anomalies, setAnomalies] = useState([])
   const [sigmets, setSigmets] = useState([])
   const [pireps, setPireps] = useState([])
   const [loading, setLoading] = useState(false)
   const [showWx, setShowWx] = useState(true)
+  const [showBounds, setShowBounds] = useState(true)
 
   const refresh = () => {
     if (!backendOk) return
@@ -102,11 +162,11 @@ export default function HeatMap({ backendOk, region = 'usa' }) {
   useEffect(() => {
     if (!backendOk) return
     refresh()
-    const id = setInterval(refresh, 300_000) // 5 min — same as WeatherStatus
+    const id = setInterval(refresh, 60_000) // 1 min — keep map in sync with anomaly state
     return () => clearInterval(id)
   }, [backendOk])
 
-  const points = anomalies.filter(a => a.lat != null && a.lon != null && !a.resolved)
+  const points = anomalies.filter(a => a.lat != null && a.lon != null)
   const center = REGION_CENTERS[region] || REGION_CENTERS.usa
 
   // SIGMET polygons with valid coords
@@ -130,11 +190,21 @@ export default function HeatMap({ backendOk, region = 'usa' }) {
   const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0 }
   for (const p of points) counts[p.severity] = (counts[p.severity] || 0) + 1
 
+  const sourceLabel = activeSource === 'adsbx' ? 'adsbx'
+    : activeSource === 'opensky' ? 'opensky'
+    : activeSource || '—'
+
   return (
     <div className="bg-bg1">
       <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border flex justify-between items-center">
         <span>anomaly map</span>
         <span className="flex gap-2 items-center">
+          <button
+            onClick={() => setShowBounds(b => !b)}
+            className={`px-1.5 py-px border rounded transition-colors ${showBounds ? 'border-mag/50 text-mag' : 'border-border text-fg3'}`}
+          >
+            {showBounds ? sourceLabel : 'SCAN'}
+          </button>
           <button
             onClick={() => setShowWx(w => !w)}
             className={`px-1.5 py-px border rounded transition-colors ${showWx ? 'border-acc/50 text-acc' : 'border-border text-fg3'}`}
@@ -159,8 +229,8 @@ export default function HeatMap({ backendOk, region = 'usa' }) {
         <MapContainer
           center={center}
           zoom={4}
-          scrollWheelZoom={true}
-          zoomControl={false}
+          scrollWheelZoom={false}
+          zoomControl={true}
           attributionControl={false}
           style={{ height: '100%', width: '100%', background: '#0d0d0d' }}
         >
@@ -170,7 +240,16 @@ export default function HeatMap({ backendOk, region = 'usa' }) {
           />
           <AutoBounds points={points} />
 
-          {/* SIGMET polygons — rendered first (behind everything) */}
+          {/* Search boundaries — rendered first (behind everything) */}
+          {showBounds && (
+            <SearchBoundary
+              activeSource={activeSource}
+              region={region}
+              lastFetchAt={lastFetchAt}
+            />
+          )}
+
+          {/* SIGMET polygons */}
           {showWx && sigmetPolys.map((s, i) => {
             const style = SIGMET_STYLE[s.hazard] || SIGMET_STYLE.TURB
             return (
@@ -221,8 +300,9 @@ export default function HeatMap({ backendOk, region = 'usa' }) {
             <Marker
               key={a.id || i}
               position={[a.lat, a.lon]}
-              icon={planeIcon(a.hdg || 0, a.severity)}
-              zIndexOffset={1000}
+              icon={planeIcon(a.hdg || 0, a.severity, a.resolved)}
+              zIndexOffset={a.resolved ? 500 : 1000}
+              eventHandlers={{ click: () => onSelect?.(a) }}
             >
               <Tooltip direction="top" offset={[0, -10]}>
                 <div style={{ fontSize: '10px', lineHeight: '1.3', fontFamily: 'monospace' }}>

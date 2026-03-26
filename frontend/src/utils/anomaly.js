@@ -213,8 +213,8 @@ const CLASS_TOLERANCE = {
   B6: 2.0,   // UAV / drone
 }
 
-function classMultiplier(enrich) {
-  const cat = enrich?.adsbfi?.category
+function classMultiplier(enrich, current) {
+  const cat = enrich?.adsbfi?.category || enrich?.apl?.category || current?.category
   if (!cat) return 1.0
   return CLASS_TOLERANCE[cat] ?? 1.0
 }
@@ -390,13 +390,39 @@ export function scoreAnomaly(snapshots, current, enrich = null, weather = null, 
   const prev = snapshots[snapshots.length - 1]
   const prevPrev = snapshots.length >= 3 ? snapshots[snapshots.length - 2] : null
   const route = enrich?.flightroute || null
-  const fi = enrich?.adsbfi || null
+  // Merge adsb.fi + airplanes.live enrichment + live flight fields for MCP/nav data.
+  // Prefer adsb.fi where available, then apl enrichment, then live flight fields (apl source).
+  const adsbfi = enrich?.adsbfi || null
+  const aplEnrich = enrich?.apl || null
+  const fi = adsbfi ? {
+    ...adsbfi,
+    // Fill gaps from airplanes.live if adsb.fi doesn't have them
+    navAlt: adsbfi.navAlt ?? aplEnrich?.navAltMcp ?? current.navAltMcp ?? null,
+    navHdg: adsbfi.navHdg ?? aplEnrich?.navHeading ?? current.navHeading ?? null,
+    emergency: adsbfi.emergency ?? aplEnrich?.emergency ?? current.emergency ?? null,
+    mil: adsbfi.mil ?? aplEnrich?.mil ?? current.mil ?? false,
+    category: adsbfi.category ?? aplEnrich?.category ?? current.category ?? null,
+  } : aplEnrich ? {
+    navAlt: aplEnrich.navAltMcp ?? current.navAltMcp ?? null,
+    navHdg: aplEnrich.navHeading ?? current.navHeading ?? null,
+    baroRate: aplEnrich.vertRate != null ? Math.round(aplEnrich.vertRate / 0.00508) : null, // convert m/s → ft/min
+    emergency: aplEnrich.emergency ?? current.emergency ?? null,
+    mil: aplEnrich.mil ?? current.mil ?? false,
+    category: aplEnrich.category ?? current.category ?? null,
+  } : current.navAltMcp != null ? {
+    // Live flight data from airplanes.live primary source
+    navAlt: current.navAltMcp ?? null,
+    navHdg: current.navHeading ?? null,
+    emergency: current.emergency ?? null,
+    mil: current.mil ?? false,
+    category: current.category ?? null,
+  } : null
 
   // Combined tolerance multiplier: aircraft class × altitude band × route proximity
   // Light aircraft at low altitude near destination = very wide tolerances
   // Heavy jet at FL350+ mid-route = tight tolerances — deviations matter
   const routeMult = routeProximityMultiplier(current.lat, current.lon, route)
-  const classMult = classMultiplier(enrich) * altitudeBandMultiplier(current.alt) * routeMult
+  const classMult = classMultiplier(enrich, current) * altitudeBandMultiplier(current.alt) * routeMult
 
   // track per-category scores to determine primary category
   const catScores = {}

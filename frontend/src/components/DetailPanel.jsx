@@ -67,12 +67,14 @@ export default function DetailPanel({
     )
   }
 
-  const { aircraft, flightroute, adsbfi } = enrichData || {}
+  const { aircraft, flightroute, adsbfi, apl } = enrichData || {}
   const aeroData = aeroCache[flight.icao]
   const srcTag =
-    flight.src === 'adsbx'
-      ? { label: 'adsbx', colorClass: 'text-acc' }
-      : { label: 'opensky', colorClass: 'text-grn' }
+    flight.src === 'apl'
+      ? { label: 'airplanes.live', colorClass: 'text-mag' }
+      : flight.src === 'adsbx'
+        ? { label: 'adsbx', colorClass: 'text-acc' }
+        : { label: 'opensky', colorClass: 'text-grn' }
 
   const handleAeroQuery = async () => {
     if (aeroLoading || !flight.callsign || flight.callsign === '—') return
@@ -148,6 +150,9 @@ export default function DetailPanel({
         value={flight.grounded ? 'ground' : 'airborne'}
         colorClass={flight.grounded ? 'text-ylw' : 'text-grn'}
       />
+      {flight.country && <DRow label="country" value={flight.country} colorClass="text-fg3" />}
+      {flight.mach != null && <DRow label="mach" value={`M${flight.mach}`} colorClass="text-acc" />}
+      {flight.ias != null && <DRow label="IAS" value={`${flight.ias} kt`} colorClass="text-fg3" />}
 
       {/* adsb.fi telemetry — extra fields not in OpenSky/ADSBx */}
       <Section title="adsb.fi telemetry" srcTag={{ label: 'adsb.fi', colorClass: 'text-cyn' }} />
@@ -185,6 +190,27 @@ export default function DetailPanel({
           {adsbfi.year && <DRow label="year" value={adsbfi.year} colorClass="text-fg3" />}
           {adsbfi.mil && <DRow label="military" value="yes" colorClass="text-red" />}
           {adsbfi.category && <DRow label="category" value={adsbfi.category} colorClass="text-fg3" />}
+        </>
+      )}
+
+      {/* Airplanes.live deep telemetry — IAS, TAS, wind, MCP, roll */}
+      {apl && (
+        <>
+          <Section title="deep telemetry" srcTag={{ label: 'airplanes.live', colorClass: 'text-mag' }} />
+          {apl.ias != null && <DRow label="IAS" value={`${apl.ias} kt`} colorClass="text-cyn" />}
+          {apl.tas != null && <DRow label="TAS" value={`${apl.tas} kt`} colorClass="text-cyn" />}
+          {apl.mach != null && <DRow label="mach" value={`M${apl.mach}`} colorClass="text-acc" />}
+          {apl.roll != null && <DRow label="roll" value={`${apl.roll > 0 ? '+' : ''}${apl.roll}°`} colorClass={Math.abs(apl.roll) > 25 ? 'text-ylw' : 'text-fg'} />}
+          {apl.trackRate != null && <DRow label="turn rate" value={`${apl.trackRate > 0 ? '+' : ''}${apl.trackRate}°/s`} colorClass="text-fg3" />}
+          {apl.navAltMcp != null && <DRow label="MCP alt" value={`${apl.navAltMcp} ft`} colorClass="text-cyn" />}
+          {apl.navAltFms != null && <DRow label="FMS alt" value={`${apl.navAltFms} ft`} colorClass="text-cyn" />}
+          {apl.navHeading != null && <DRow label="sel heading" value={`${apl.navHeading}°`} colorClass="text-fg3" />}
+          {apl.navModes && apl.navModes.length > 0 && <DRow label="nav modes" value={apl.navModes.join(', ')} colorClass="text-grn" />}
+          {(apl.windDir != null || apl.windSpeed != null) && (
+            <DRow label="wind" value={`${apl.windDir ?? '—'}° / ${apl.windSpeed ?? '—'} kt`} colorClass="text-mag" />
+          )}
+          {apl.oat != null && <DRow label="OAT" value={`${apl.oat}°C`} colorClass="text-fg3" />}
+          {apl.emergency && apl.emergency !== 'none' && <DRow label="⚠ emergency" value={apl.emergency} colorClass="text-red" />}
         </>
       )}
 

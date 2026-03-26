@@ -164,6 +164,7 @@ const _serviceHealth = {
   aviationweather: { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
   aeroapi:         { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
   faa_notam:       { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
+  airplaneslive:   { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
   // adsbdb + hexdb are called directly from the browser (CORS-enabled), not proxied
 }
 
@@ -585,6 +586,50 @@ app.post('/api/routes/save', (req, res) => {
 // GET /api/routes/stats
 app.get('/api/routes/stats', (_req, res) => {
   res.json({ total: getRouteCount() })
+})
+
+// ── airplanes.live proxy (rate limited, service health tracked) ──────────────
+
+const APL_BASE = 'https://api.airplanes.live/v2'
+let _aplLastReq = 0  // timestamp of last request — enforce 1 req/sec server-side
+
+async function aplFetch(path, res) {
+  // Server-side rate limiting: wait if needed to respect 1 req/sec
+  const now = Date.now()
+  const wait = Math.max(0, 1050 - (now - _aplLastReq))
+  if (wait > 0) await new Promise(r => setTimeout(r, wait))
+  _aplLastReq = Date.now()
+
+  const t0 = Date.now()
+  try {
+    const resp = await axios.get(`${APL_BASE}${path}`, { timeout: 10000 })
+    recordServiceOk('airplaneslive', Date.now() - t0)
+    res.json(resp.data)
+  } catch (err) {
+    recordServiceError('airplaneslive', Date.now() - t0, err.message)
+    res.status(err.response?.status || 502).json({ error: err.message })
+  }
+}
+
+// GET /api/apl/point?lat=37&lon=-122&radius=250
+app.get('/api/apl/point', (req, res) => {
+  const { lat, lon, radius } = req.query
+  aplFetch(`/point/${lat}/${lon}/${Math.min(radius || 250, 250)}`, res)
+})
+
+// GET /api/apl/hex?hex=a12345
+app.get('/api/apl/hex', (req, res) => {
+  aplFetch(`/hex/${(req.query.hex || '').trim().toLowerCase()}`, res)
+})
+
+// GET /api/apl/squawk?code=7700
+app.get('/api/apl/squawk', (req, res) => {
+  aplFetch(`/squawk/${req.query.code || '7700'}`, res)
+})
+
+// GET /api/apl/mil
+app.get('/api/apl/mil', (_req, res) => {
+  aplFetch('/mil', res)
 })
 
 // ── adsb.fi proxy (CORS bypass) ─────────────────────────────────────────────
