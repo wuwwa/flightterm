@@ -626,7 +626,7 @@ export default function App() {
 
       // Only fetch what's missing
       log(`enriching ${flight.icao} / ${flight.callsign}`, 'info')
-      const needsAdsbdb = !cached?.aircraft && cached?.aircraft !== null
+      const needsAdsbdb = cached?.aircraft === undefined && cached?.flightroute === undefined
       const needsAdsbfi = !cached?.adsbfi
       const needsApl = !cached?.apl
 
@@ -652,44 +652,9 @@ export default function App() {
     [enrichCache, log]
   )
 
-  // ── background enrichment — adsb.fi only (type, reg, operator) ───────────────
-  // First 100 flights (2 pages) enriched quickly at 300ms intervals.
-  // Remaining flights enrich slowly at 2s intervals during idle cycles.
-  const PAGE_SIZE = 50
-  const FAST_BATCH = PAGE_SIZE * 2  // first 2 pages
-  const bgEnrichRef = useRef(null)
-  useEffect(() => {
-    if (bgEnrichRef.current) clearTimeout(bgEnrichRef.current)
-    if (flights.length === 0) return
-
-    const unenriched = flights.filter(f => !enrichCache[f.icao]?.adsbfi)
-    if (unenriched.length === 0) return
-
-    let cancelled = false
-    let i = 0
-
-    function enrichNext() {
-      if (cancelled || i >= unenriched.length) return
-      const f = unenriched[i++]
-      const delay = i <= FAST_BATCH ? 300 : 2000
-      enrichByHex(f.icao)
-        .then(adsbfi => {
-          if (cancelled || !adsbfi) return
-          setEnrichCache(prev => ({
-            ...prev,
-            [f.icao]: { ...(prev[f.icao] || {}), adsbfi },
-          }))
-        })
-        .catch(() => {})
-        .finally(() => {
-          if (!cancelled) bgEnrichRef.current = setTimeout(enrichNext, delay)
-        })
-    }
-
-    // Delay 2s after flights load so the table renders first
-    bgEnrichRef.current = setTimeout(enrichNext, 2000)
-    return () => { cancelled = true; clearTimeout(bgEnrichRef.current) }
-  }, [flights])
+  // ── no background enrichment — type/reg populate on click only ───────────────
+  // All enrichment (adsbdb, adsb.fi, airplanes.live) is deferred to row click
+  // to avoid rate-limiting. Table columns that need enrichment show '—' until clicked.
 
   // ── arrived / departed aircraft log ──────────────────────────────────────────
   const handleArrived = useCallback(
