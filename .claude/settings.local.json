@@ -32,7 +32,8 @@
       "WebFetch(domain:rapidapi.com)",
       "Bash(node -e \"require\\(''./db''\\)\")",
       "Bash(node -e \"const db = require\\(''better-sqlite3''\\)\\(''flightterm.db''\\); console.log\\(db.prepare\\(\"\"PRAGMA table_info\\(''sightings''\\)\"\"\\).all\\(\\).map\\(c=>c.name\\).join\\('', ''\\)\\)\")",
-      "Bash(grep -r \"min-h-screen\\\\|max-h-\\\\|overflow\" /Users/wilsonwu/flightterm/frontend/src/components/dashboard/*.jsx)"
+      "Bash(grep -r \"min-h-screen\\\\|max-h-\\\\|overflow\" /Users/wilsonwu/flightterm/frontend/src/components/dashboard/*.jsx)",
+      "Bash(git config:*)"
     ]
   }
 }
