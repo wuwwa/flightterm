@@ -51,7 +51,7 @@ export default function AnomalyFeed({ anomalies = [], onSelect, selectedIcao }) 
   }
 
   return (
-    <div className="bg-bg1 overflow-y-auto max-h-[70vh]">
+    <div className="bg-bg1 overflow-y-auto h-full">
       <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border sticky top-0 z-10 flex justify-between">
         <span>anomaly feed</span>
         <span>{anomalies.length} events</span>

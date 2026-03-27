@@ -71,11 +71,15 @@ export default function DashboardPanel({ backendOk, activeSource, region: appReg
       <HeatMap backendOk={backendOk} region={appRegion || 'usa'} activeSource={activeSource} lastFetchAt={lastFetchAt} onSelect={handleAnomalyClick} />
 
       {/* Main content: feed sidebar + drilldown/stats right */}
-      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-px bg-border">
-        {/* Left: anomaly feed */}
-        <AnomalyFeed anomalies={anomalies} onSelect={handleAnomalyClick} selectedIcao={selectedAnomaly?.icao} />
+      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] md:grid-rows-[1fr] gap-px bg-border">
+        {/* Left: anomaly feed — matches right column height */}
+        <div className="relative">
+          <div className="md:absolute md:inset-0">
+            <AnomalyFeed anomalies={anomalies} onSelect={handleAnomalyClick} selectedIcao={selectedAnomaly?.icao} />
+          </div>
+        </div>
 
-        {/* Right: investigation panel + stats */}
+        {/* Right: investigation panel + stats — drives row height */}
         <div className="bg-bg1">
           <AnomalyDrilldown anomaly={selectedAnomaly} onClose={() => setSelectedAnomaly(null)} />
           <StatsCards stats={sightingStats} anomalyStats={anomalyStats} />
