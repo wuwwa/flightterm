@@ -114,31 +114,12 @@ export default function App() {
 
   // ── route cache: callsign → { destination_lat, destination_lon, destination_icao, ... }
   const routeCacheRef = useRef({})    // in-memory mirror of backend cache
-  const enrichQueueRef = useRef([])   // callsigns waiting for ADSBdb enrichment
-  const enrichingRef = useRef(false)  // is the background enrichment loop running?
+  const enrichQueueRef = useRef([])   // callsigns waiting for route enrichment
+  const enrichingRef = useRef(false)
 
-  // ── auto-refresh ref ────────────────────────────────────────────────────────
-  const autoRef = useRef(null)
-  const fetchFlightsRef = useRef(null)
-  const openskyUsageRef = useRef(null)
-  openskyUsageRef.current = openskyUsage
-
-  const anomalyMissRef = useRef({})      // icao → consecutive miss count (grace period before resolve)
-
-  // ── logging ──────────────────────────────────────────────────────────────────
-  const log = useCallback((msg, type = '') => {
-    setLogEntries((prev) => [...prev.slice(-199), makeEntry(msg, type)])
-  }, [])
-
-  const clearLog = useCallback(() => {
-    setLogEntries([makeEntry('log cleared', 'info')])
-  }, [])
-
-  // ── background route enrichment queue (1 req/sec to ADSBdb) ─────────────────
-  // Processes unknown callsigns in the background, saves results to backend cache.
-  // Self-corrects stale entries when heading doesn't match cached destination.
+  // ── slow route enrichment queue (1 req / 15s to avoid 429s) ────────────────
   const startEnrichQueue = useCallback(() => {
-    if (enrichingRef.current) return // already running
+    if (enrichingRef.current) return
     enrichingRef.current = true
 
     async function processQueue() {
@@ -163,21 +144,42 @@ export default function App() {
                 destination_lon: destLon,
                 source: route._source || 'adsbdb',
               }
-              // Save to backend + local cache
               saveRoutes([entry]).catch(() => {})
               routeCacheRef.current[cs] = entry
             }
           }
-        } catch {}
-        // Rate limit: 1 req/sec
+        } catch (err) {
+          // Stop queue on rate limit
+          if (err?.response?.status === 429) {
+            enrichQueueRef.current = []
+            break
+          }
+        }
         if (enrichQueueRef.current.length > 0) {
-          await new Promise(r => setTimeout(r, 1100))
+          await new Promise(r => setTimeout(r, 15000))
         }
       }
       enrichingRef.current = false
     }
 
     processQueue()
+  }, [])
+
+  // ── auto-refresh ref ────────────────────────────────────────────────────────
+  const autoRef = useRef(null)
+  const fetchFlightsRef = useRef(null)
+  const openskyUsageRef = useRef(null)
+  openskyUsageRef.current = openskyUsage
+
+  const anomalyMissRef = useRef({})      // icao → consecutive miss count (grace period before resolve)
+
+  // ── logging ──────────────────────────────────────────────────────────────────
+  const log = useCallback((msg, type = '') => {
+    setLogEntries((prev) => [...prev.slice(-199), makeEntry(msg, type)])
+  }, [])
+
+  const clearLog = useCallback(() => {
+    setLogEntries([makeEntry('log cleared', 'info')])
   }, [])
 
   // ── refresh usage from backend ───────────────────────────────────────────────
@@ -362,7 +364,7 @@ export default function App() {
           for (const [cs, route] of Object.entries(routes)) {
             routeCacheRef.current[cs] = route
           }
-          // Queue unknowns for background ADSBdb enrichment
+          // Queue unknowns for slow background route enrichment (1 req / 15s)
           if (unknown.length > 0) {
             const queued = new Set(enrichQueueRef.current)
             const toAdd = unknown.filter(cs => !queued.has(cs))
@@ -403,42 +405,6 @@ export default function App() {
         if (score >= ANOMALY_THRESHOLD) {
           newAnomalies[f.icao] = { score, phase, reasons, confirmed, category, severity, categories, label: reasons[0] || 'anomaly' }
         }
-      }
-
-      // ── stale route detection ──────────────────────────────────────────────
-      // If a cruising aircraft's heading consistently deviates >60° from the
-      // cached destination bearing, the cache is probably wrong — re-enrich.
-      const staleReenrich = []
-      for (const f of result) {
-        if (f.grounded || f.hdg == null || f.lat == null || !f.callsign || f.callsign === '—') continue
-        const cached = routeCacheRef.current[f.callsign]
-        if (!cached?.destination_lat) continue
-        const hist = prevTrack[f.icao]
-        if (!hist || hist.length < 3) continue
-        // Only check cruise-phase aircraft
-        const alts = hist.slice(-3).filter(s => s.alt != null).map(s => s.alt)
-        if (alts.length < 2) continue
-        const avgDelta = Math.abs(alts[alts.length - 1] - alts[0]) / alts.length
-        if (avgDelta > 50) continue // not cruising
-
-        // Compute bearing to cached destination
-        const dLat = cached.destination_lat - f.lat
-        const dLon = cached.destination_lon - f.lon
-        const bearing = (Math.atan2(dLon * Math.cos(f.lat * Math.PI / 180), dLat) * 180 / Math.PI + 360) % 360
-        const delta = Math.abs(f.hdg - bearing) % 360
-        const hdgDiff = delta > 180 ? 360 - delta : delta
-
-        if (hdgDiff > 60) {
-          staleReenrich.push(f.callsign)
-          delete routeCacheRef.current[f.callsign]
-        }
-      }
-      if (staleReenrich.length > 0) {
-        const queued = new Set(enrichQueueRef.current)
-        const toAdd = staleReenrich.filter(cs => !queued.has(cs))
-        enrichQueueRef.current.push(...toAdd)
-        startEnrichQueue()
-        log(`routes: ${staleReenrich.length} stale route(s) queued for re-enrichment`, 'info')
       }
 
       // Merge: keep grace-period anomalies (fading) alongside fresh ones

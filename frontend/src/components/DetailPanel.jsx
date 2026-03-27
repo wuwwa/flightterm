@@ -97,6 +97,38 @@ export default function DetailPanel({
         <div className="py-1.5 px-2.5 text-[10px] text-fg3">select a row to inspect</div>
       )}
 
+      {/* Flight map */}
+      <Section title="map" />
+      <FlightMap
+        snapshots={flight ? trackHistory : []}
+        flight={flight}
+        flights={flights}
+        fullscreen={mapFullscreen}
+        onToggleFullscreen={() => setMapFullscreen(p => !p)}
+      />
+
+      {/* Aircraft */}
+      <Section title="aircraft" />
+      {aircraft ? (
+        <>
+          <DRow label="type" value={aircraft.type} />
+          <DRow label="icao type" value={aircraft.icao_type} colorClass="text-fg3" />
+          <DRow label="manufacturer" value={aircraft.manufacturer} colorClass="text-acc" />
+          <DRow label="registration" value={aircraft.registration} colorClass="text-ylw" />
+          <DRow label="owner" value={aircraft.registered_owner} />
+          <DRow label="country" value={aircraft.registered_owner_country_name} colorClass="text-fg3" />
+        </>
+      ) : (
+        <>
+          <DRow label="type" />
+          <DRow label="icao type" />
+          <DRow label="manufacturer" />
+          <DRow label="registration" />
+          <DRow label="owner" />
+          <DRow label="country" />
+        </>
+      )}
+
       {/* Photo */}
       {aircraft?.url_photo_thumbnail && (
         <img
@@ -134,6 +166,10 @@ export default function DetailPanel({
       <DRow label="military" value={adsbfi?.mil ? 'yes' : null} colorClass="text-red" />
       <DRow label="category" value={adsbfi?.category} colorClass="text-fg3" />
 
+      {/* Track history sparklines */}
+      <Section title="track" />
+      <TrackChart snapshots={flight ? trackHistory : []} />
+
       {/* Deep telemetry */}
       <Section title="deep telemetry" srcTag={{ label: 'airplanes.live', colorClass: 'text-mag' }} />
       <DRow label="IAS" value={apl?.ias != null ? `${apl.ias} kt` : null} colorClass="text-cyn" />
@@ -147,42 +183,6 @@ export default function DetailPanel({
       <DRow label="nav modes" value={apl?.navModes?.length > 0 ? apl.navModes.join(', ') : null} colorClass="text-grn" />
       <DRow label="wind" value={apl?.windDir != null || apl?.windSpeed != null ? `${apl.windDir ?? '—'}° / ${apl.windSpeed ?? '—'} kt` : null} colorClass="text-mag" />
       <DRow label="OAT" value={apl?.oat != null ? `${apl.oat}°C` : null} colorClass="text-fg3" />
-
-      {/* Flight map */}
-      <Section title="map" />
-      <FlightMap
-        snapshots={flight ? trackHistory : []}
-        flight={flight}
-        flights={flights}
-        fullscreen={mapFullscreen}
-        onToggleFullscreen={() => setMapFullscreen(p => !p)}
-      />
-
-      {/* Track history sparklines */}
-      <Section title="track" />
-      <TrackChart snapshots={flight ? trackHistory : []} />
-
-      {/* Aircraft */}
-      <Section title="aircraft" />
-      {aircraft ? (
-        <>
-          <DRow label="type" value={aircraft.type} />
-          <DRow label="icao type" value={aircraft.icao_type} colorClass="text-fg3" />
-          <DRow label="manufacturer" value={aircraft.manufacturer} colorClass="text-acc" />
-          <DRow label="registration" value={aircraft.registration} colorClass="text-ylw" />
-          <DRow label="owner" value={aircraft.registered_owner} />
-          <DRow label="country" value={aircraft.registered_owner_country_name} colorClass="text-fg3" />
-        </>
-      ) : (
-        <>
-          <DRow label="type" />
-          <DRow label="icao type" />
-          <DRow label="manufacturer" />
-          <DRow label="registration" />
-          <DRow label="owner" />
-          <DRow label="country" />
-        </>
-      )}
 
       {/* Route */}
       <Section title="route" />
