@@ -860,6 +860,18 @@ app.get('/api/aero/spend', async (_req, res) => {
     } catch {}
   }
 
+  // If no key is configured, report zero spend — stale DB records from
+  // another machine / key shouldn't block usage or mislead the UI.
+  if (!process.env.AEROAPI_KEY) {
+    return res.json({
+      total_spend: 0, total_calls: 0,
+      db_spend: 0, db_calls: 0,
+      month_spend: 0, month_calls: 0,
+      cap: AERO_CAP, cap_remaining: AERO_CAP, cap_reached: false,
+      source: 'unconfigured',
+    })
+  }
+
   // prefer FlightAware's authoritative total_cost, fall back to our DB
   const realSpend = fa?.total_cost ?? dbTotal.total_spend
   const realCalls = fa?.total_calls ?? dbTotal.total_calls

@@ -234,115 +234,121 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
 
   return (
     <div className="flex flex-col bg-bg flex-1 min-h-0">
-      <div className="flex flex-wrap justify-between items-center py-0.5 px-1.5 sm:px-2.5 bg-bg2 border-b border-border text-[10px] sm:text-[11px] text-fg3 shrink-0 gap-y-0.5">
-        <span className="flex items-center gap-1 sm:gap-1.5 min-w-0 shrink-0">
-          <span className="text-fg">{filtered.length}</span>
-          <span>records</span>
-          {!showAll && totalPages > 1 && (
-            <>
+      <div className="shrink-0 bg-bg2 border-b border-border text-[10px] sm:text-[11px] text-fg3">
+        {/* Row 1: records, filters, squawk */}
+        <div className="flex flex-wrap justify-between items-center py-0.5 px-1.5 sm:px-2.5 gap-y-0.5">
+          <span className="flex items-center gap-1 sm:gap-1.5 min-w-0 shrink-0">
+            <span className="text-fg">{filtered.length}</span>
+            <span>records</span>
+            {!showAll && totalPages > 1 && (
+              <>
+                <button
+                  className="bg-transparent border border-border text-fg3 hover:text-fg2 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={safePage === 0}
+                >
+                  ‹
+                </button>
+                <span className="text-fg3 text-[10px]">{safePage + 1}/{totalPages}</span>
+                <button
+                  className="bg-transparent border border-border text-fg3 hover:text-fg2 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
+                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={safePage >= totalPages - 1}
+                >
+                  ›
+                </button>
+              </>
+            )}
+            {filtered.length > PAGE_SIZE && (
               <button
-                className="bg-transparent border border-border text-fg3 hover:text-fg2 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
-                onClick={() => setPage(p => Math.max(0, p - 1))}
-                disabled={safePage === 0}
+                className="bg-transparent border-none text-acc text-[10px] sm:text-[11px] cursor-pointer p-0 font-mono underline"
+                onClick={() => { setShowAll(s => !s); setPage(0) }}
               >
-                ‹
+                {showAll ? `page (${PAGE_SIZE})` : `show all ${filtered.length}`}
               </button>
-              <span className="text-fg3 text-[10px]">{safePage + 1}/{totalPages}</span>
-              <button
-                className="bg-transparent border border-border text-fg3 hover:text-fg2 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
-                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                disabled={safePage >= totalPages - 1}
-              >
-                ›
-              </button>
-            </>
-          )}
-          {filtered.length > PAGE_SIZE && (
+            )}
+            {newIcaos.size > 0 && <span className="text-grn ml-1">+{newIcaos.size} new</span>}
+          </span>
+          <div className="flex gap-1 items-center w-full sm:w-auto">
             <button
-              className="bg-transparent border-none text-acc text-[10px] sm:text-[11px] cursor-pointer p-0 font-mono underline"
-              onClick={() => { setShowAll(s => !s); setPage(0) }}
-            >
-              {showAll ? `page (${PAGE_SIZE})` : `show all ${filtered.length}`}
-            </button>
-          )}
-          {newIcaos.size > 0 && <span className="text-grn ml-1">+{newIcaos.size} new</span>}
-        </span>
-        <div className="flex gap-1 items-center w-full sm:w-auto">
-          <button
-            className={clsx(
-              'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 rounded border flex-1 sm:flex-none text-center',
-              sortKey === 'takeoff'
-                ? 'bg-acc/15 border-acc/40 text-acc'
-                : 'bg-transparent border-border text-fg3 hover:text-fg2 hover:border-fg3'
-            )}
-            onClick={() => {
-              if (sortKey === 'takeoff') setSortDir(d => d * -1)
-              else { setSortKey('takeoff'); setSortDir(1) }
-            }}
-            title="Sort by takeoff proximity (ground → climb → cruise)"
-          >
-            {sortKey === 'takeoff' ? `takeoff ${sortDir > 0 ? '▲' : '▼'}` : 'takeoff'}
-          </button>
-          <button
-            className={clsx(
-              'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 rounded border flex-1 sm:flex-none text-center',
-              anomalyHighlight
-                ? 'bg-red/15 border-red/40 text-red'
-                : anomalyCount > 0
-                  ? 'bg-transparent border-border text-red hover:border-red/40'
+              className={clsx(
+                'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 rounded border flex-1 sm:flex-none text-center',
+                sortKey === 'takeoff'
+                  ? 'bg-acc/15 border-acc/40 text-acc'
                   : 'bg-transparent border-border text-fg3 hover:text-fg2 hover:border-fg3'
+              )}
+              onClick={() => {
+                if (sortKey === 'takeoff') setSortDir(d => d * -1)
+                else { setSortKey('takeoff'); setSortDir(1) }
+              }}
+              title="Sort by takeoff proximity (ground → climb → cruise)"
+            >
+              {sortKey === 'takeoff' ? `takeoff ${sortDir > 0 ? '▲' : '▼'}` : 'takeoff'}
+            </button>
+            <button
+              className={clsx(
+                'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 rounded border flex-1 sm:flex-none text-center',
+                anomalyHighlight
+                  ? 'bg-red/15 border-red/40 text-red'
+                  : anomalyCount > 0
+                    ? 'bg-transparent border-border text-red hover:border-red/40'
+                    : 'bg-transparent border-border text-fg3 hover:text-fg2 hover:border-fg3'
+              )}
+              onClick={() => setAnomalyHighlight(h => !h)}
+              title={anomalyHighlight ? 'Stop highlighting anomalies' : 'Highlight anomalies'}
+            >
+              anomaly ({anomalyCount})
+            </button>
+          </div>
+          <div className="flex gap-0 items-center w-full sm:w-auto border border-border sm:ml-0.5 rounded overflow-hidden">
+            <span className="text-[9px] text-fg3 px-1 border-r border-border shrink-0">squawk</span>
+            {[
+              { id: '7700', label: '7700', on: 'bg-red/20 text-red', title: 'Emergency' },
+              { id: '7600', label: '7600', on: 'bg-ylw/20 text-ylw', title: 'Radio failure' },
+              { id: '7500', label: '7500', on: 'bg-red/20 text-red', title: 'Hijack' },
+              { id: '1200', label: 'VFR',  on: 'bg-cyn/20 text-cyn', title: 'VFR traffic' },
+            ].map(f => {
+              const cnt = squawkCounts[f.id] || 0
+              return (
+                <button
+                  key={f.id}
+                  className={clsx(
+                    'text-[10px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 border-none flex-1 text-center',
+                    squawkHighlight === f.id ? f.on : 'bg-transparent text-fg3 hover:text-fg2'
+                  )}
+                  onClick={() => setSquawkHighlight(prev => prev === f.id ? null : f.id)}
+                  title={f.title}
+                >
+                  {f.label} ({cnt})
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        {/* Row 2: API usage */}
+        {(openskyUsage || (aeroSpend && aeroSpend.source !== 'unconfigured')) && (
+          <div className="flex gap-3 items-center py-0.5 px-1.5 sm:px-2.5 border-t border-white/3">
+            {openskyUsage && (
+              <span>
+                <span className="text-acc">opensky</span>{' '}
+                <span className={openskyUsage.remaining < 400 ? 'text-red' : openskyUsage.remaining < 1000 ? 'text-ylw' : 'text-grn'}>
+                  {openskyUsage.remaining}
+                </span>
+                <span className="text-fg2">/{openskyUsage.daily_limit}</span>
+              </span>
             )}
-            onClick={() => setAnomalyHighlight(h => !h)}
-            title={anomalyHighlight ? 'Stop highlighting anomalies' : 'Highlight anomalies'}
-          >
-            anomaly ({anomalyCount})
-          </button>
-        </div>
-        <div className="flex gap-0 items-center w-full sm:w-auto border border-border sm:ml-0.5 rounded overflow-hidden">
-          <span className="text-[9px] text-fg3 px-1 border-r border-border shrink-0">squawk</span>
-          {[
-            { id: '7700', label: '7700', on: 'bg-red/20 text-red', title: 'Emergency' },
-            { id: '7600', label: '7600', on: 'bg-ylw/20 text-ylw', title: 'Radio failure' },
-            { id: '7500', label: '7500', on: 'bg-red/20 text-red', title: 'Hijack' },
-            { id: '1200', label: 'VFR',  on: 'bg-cyn/20 text-cyn', title: 'VFR traffic' },
-          ].map(f => {
-            const cnt = squawkCounts[f.id] || 0
-            return (
-              <button
-                key={f.id}
-                className={clsx(
-                  'text-[10px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 border-none flex-1 text-center',
-                  squawkHighlight === f.id ? f.on : 'bg-transparent text-fg3 hover:text-fg2'
-                )}
-                onClick={() => setSquawkHighlight(prev => prev === f.id ? null : f.id)}
-                title={f.title}
-              >
-                {f.label} ({cnt})
-              </button>
-            )
-          })}
-        </div>
-        <span className="hidden sm:flex gap-3 items-center shrink-0">
-          {openskyUsage && (
-            <span>
-              <span className="text-acc">opensky</span>{' '}
-              <span className={openskyUsage.remaining < 400 ? 'text-red' : openskyUsage.remaining < 1000 ? 'text-ylw' : 'text-grn'}>
-                {openskyUsage.remaining}
+            {aeroSpend && aeroSpend.source !== 'unconfigured' && (
+              <span>
+                <span className="text-mag">aero</span>{' '}
+                <span className={aeroSpend.cap_reached ? 'text-red' : aeroSpend.cap_remaining < 1 ? 'text-ylw' : 'text-grn'}>
+                  ${aeroSpend.cap_remaining.toFixed(2)}
+                </span>
+                <span className="text-fg2">/${aeroSpend.cap.toFixed(2)}</span>
+                {aeroSpend.cap_reached && <span className="text-red ml-1">CAP</span>}
               </span>
-              <span className="text-fg2">/{openskyUsage.daily_limit}</span>
-            </span>
-          )}
-          {aeroSpend && (
-            <span>
-              <span className="text-mag">aero</span>{' '}
-              <span className={aeroSpend.cap_reached ? 'text-red' : aeroSpend.cap_remaining < 1 ? 'text-ylw' : 'text-grn'}>
-                ${aeroSpend.cap_remaining.toFixed(2)}
-              </span>
-              <span className="text-fg2">/${aeroSpend.cap.toFixed(2)}</span>
-              {aeroSpend.cap_reached && <span className="text-red ml-1">CAP</span>}
-            </span>
-          )}
-        </span>
+            )}
+          </div>
+        )}
       </div>
       <div className="overflow-auto flex-1 min-h-0">
       <table className="w-full border-separate border-spacing-0">

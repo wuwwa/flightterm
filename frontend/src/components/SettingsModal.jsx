@@ -122,7 +122,6 @@ export default function SettingsModal({ settings, onSave, onClose }) {
           {/* adsb.fi enrichment */}
           <div className="mb-4">
             <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">adsb.fi — aircraft enrichment</div>
-            <span className="text-fg3 text-[10px] block mb-2">free, no key. provides registration, type, operator, vertical rate, MCP altitude, and emergency status per aircraft. used automatically when you select a flight.</span>
             <div className="flex items-center gap-2">
               <button
                 className="bg-transparent border border-border2 text-fg2 text-[11px] py-0.5 px-2 cursor-pointer font-mono"
