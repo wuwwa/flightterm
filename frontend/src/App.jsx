@@ -19,7 +19,7 @@ import { checkHealth, fetchAeroSpend } from './services/aeroapi'
 
 import { recordSightings, fetchOpenSkyUsageToday, fetchAircraftTrack, recordAnomalies, resolveAnomalies, lookupRoutes, saveRoutes } from './services/sightings'
 import { scoreAnomaly, ANOMALY_THRESHOLD } from './utils/anomaly'
-import { fetchMetars, fetchPireps, fetchSigmets, summarizePireps, summarizeSigmets } from './services/weather'
+import { fetchPireps, fetchSigmets, summarizePireps, summarizeSigmets } from './services/weather'
 
 // ── default settings ──────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -251,7 +251,7 @@ export default function App() {
         console.log('[boot] initial fetch')
         await fetchFlightsRef.current?.()
         if (cancelled) return
-        log(`auto-refresh enabled (${settings.interval}s)`, 'ok')
+        log(`auto-refresh enabled (10s → 15 → 20 → 30 → 50 → ${settings.interval}s)`, 'ok')
         console.log('[boot] enabling auto-refresh')
         setAutoOn(true)
       }
@@ -501,30 +501,8 @@ export default function App() {
           recordAnomalies(anomalyPayload, region).catch(() => {})
         }
 
-        // Enrich top anomalies with adsb.fi telemetry (1 req/sec rate limit)
-        const toEnrich = Object.keys(newAnomalies)
-          .filter(icao => !enrichCache[icao]?.adsbfi)
-          .sort((a, b) => newAnomalies[b].score - newAnomalies[a].score)
-          .slice(0, 3) // max 3 per cycle
-        for (let i = 0; i < toEnrich.length; i++) {
-          const icao = toEnrich[i]
-          if (i > 0) await new Promise(r => setTimeout(r, 1100)) // respect 1 req/sec
-          enrichByHex(icao)
-            .then(data => {
-              if (!data) return
-              setEnrichCache(prev => ({
-                ...prev,
-                [icao]: { ...(prev[icao] || {}), adsbfi: data },
-              }))
-              if (data.emergency) {
-                log(`⚠ adsb.fi: ${icao} emergency=${data.emergency}`, 'err')
-              }
-            })
-            .catch(() => {})
-        }
-
-        // Airplanes.live enrichment is on-demand only — triggered when the analyst
-        // clicks an anomaly in the investigation panel (AnomalyDrilldown).
+        // Anomaly enrichment runs in background — doesn't block table render.
+        // Background enrichment (adsb.fi) handles these via the useEffect below.
       }
 
       // Resolve anomalies — require 3 consecutive misses before resolving.
@@ -575,20 +553,18 @@ export default function App() {
   }, [fetchFlights])
 
   // ── auto-refresh with ramp-up ────────────────────────────────────────────────
-  // Starts at 10s on first load, doubles each cycle until hitting the configured interval.
-  // This gets data on screen fast without hammering the API long-term.
-  const rampRef = useRef(10) // current interval in seconds (starts at 10)
+  // Fixed sequence: 10s → 15s → 20s → 30s → 50s → 90s (steady state)
+  const RAMP_STEPS = [10, 15, 20, 30, 50, 90]
+  const rampIdx = useRef(0)
+  const [currentInterval, setCurrentInterval] = useState(RAMP_STEPS[0])
   useEffect(() => {
     if (!autoOn) return
-    const targetInterval = settings.interval // user-configured steady-state (default 90s)
     function scheduleNext() {
-      const delay = rampRef.current
+      const delay = RAMP_STEPS[rampIdx.current] || settings.interval
+      setCurrentInterval(delay)
       autoRef.current = setTimeout(() => {
         fetchFlightsRef.current?.()
-        // Double the interval until we hit the target
-        if (rampRef.current < targetInterval) {
-          rampRef.current = Math.min(rampRef.current * 2, targetInterval)
-        }
+        if (rampIdx.current < RAMP_STEPS.length - 1) rampIdx.current++
         scheduleNext()
       }, delay * 1000)
     }
@@ -602,7 +578,7 @@ export default function App() {
       setAutoOn(false)
       log('auto-refresh disabled', 'info')
     } else {
-      rampRef.current = 10  // restart ramp from 10s
+      rampIdx.current = 0  // restart ramp from 10s
       setAutoOn(true)
       log('auto-refresh enabled (10s → ' + settings.interval + 's)', 'info')
     }
@@ -644,21 +620,27 @@ export default function App() {
           .catch(() => {})
       }
 
-      if (enrichCache[flight.icao]) return
+      // Skip if fully enriched (has adsbdb + adsbfi + apl)
+      const cached = enrichCache[flight.icao]
+      if (cached?.aircraft !== undefined && cached?.adsbfi && cached?.apl) return
 
-      // Fetch ADSBdb + adsb.fi + airplanes.live enrichment in parallel
+      // Only fetch what's missing
       log(`enriching ${flight.icao} / ${flight.callsign}`, 'info')
+      const needsAdsbdb = !cached?.aircraft && cached?.aircraft !== null
+      const needsAdsbfi = !cached?.adsbfi
+      const needsApl = !cached?.apl
+
       const [adsbdbResult, adsbfiResult, aplResult] = await Promise.allSettled([
-        enrichFlight(flight.icao, flight.callsign),
-        enrichByHex(flight.icao),
-        fetchAplByHex(flight.icao),
+        needsAdsbdb ? enrichFlight(flight.icao, flight.callsign) : Promise.resolve(cached ? { aircraft: cached.aircraft, flightroute: cached.flightroute } : { aircraft: null, flightroute: null }),
+        needsAdsbfi ? enrichByHex(flight.icao) : Promise.resolve(cached?.adsbfi),
+        needsApl ? fetchAplByHex(flight.icao) : Promise.resolve(cached?.apl),
       ])
 
       const adsbdb = adsbdbResult.status === 'fulfilled' ? adsbdbResult.value : { aircraft: null, flightroute: null }
       const adsbfi = adsbfiResult.status === 'fulfilled' ? adsbfiResult.value : null
       const aplData = aplResult.status === 'fulfilled' ? aplResult.value : null
 
-      setEnrichCache((prev) => ({ ...prev, [flight.icao]: { ...adsbdb, adsbfi, apl: aplData } }))
+      setEnrichCache((prev) => ({ ...prev, [flight.icao]: { ...prev[flight.icao], ...adsbdb, adsbfi: adsbfi || prev[flight.icao]?.adsbfi, apl: aplData } }))
 
       const parts = []
       if (adsbdb.aircraft) parts.push('aircraft=found')
@@ -669,6 +651,45 @@ export default function App() {
     },
     [enrichCache, log]
   )
+
+  // ── background enrichment — adsb.fi only (type, reg, operator) ───────────────
+  // First 100 flights (2 pages) enriched quickly at 300ms intervals.
+  // Remaining flights enrich slowly at 2s intervals during idle cycles.
+  const PAGE_SIZE = 50
+  const FAST_BATCH = PAGE_SIZE * 2  // first 2 pages
+  const bgEnrichRef = useRef(null)
+  useEffect(() => {
+    if (bgEnrichRef.current) clearTimeout(bgEnrichRef.current)
+    if (flights.length === 0) return
+
+    const unenriched = flights.filter(f => !enrichCache[f.icao]?.adsbfi)
+    if (unenriched.length === 0) return
+
+    let cancelled = false
+    let i = 0
+
+    function enrichNext() {
+      if (cancelled || i >= unenriched.length) return
+      const f = unenriched[i++]
+      const delay = i <= FAST_BATCH ? 300 : 2000
+      enrichByHex(f.icao)
+        .then(adsbfi => {
+          if (cancelled || !adsbfi) return
+          setEnrichCache(prev => ({
+            ...prev,
+            [f.icao]: { ...(prev[f.icao] || {}), adsbfi },
+          }))
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) bgEnrichRef.current = setTimeout(enrichNext, delay)
+        })
+    }
+
+    // Delay 2s after flights load so the table renders first
+    bgEnrichRef.current = setTimeout(enrichNext, 2000)
+    return () => { cancelled = true; clearTimeout(bgEnrichRef.current) }
+  }, [flights])
 
   // ── arrived / departed aircraft log ──────────────────────────────────────────
   const handleArrived = useCallback(
@@ -712,8 +733,8 @@ export default function App() {
       `settings saved · source=${newSettings.sourcePref} interval=${newSettings.interval}s`,
       'ok'
     )
-    // Reset ramp to the new target interval (already ramped up by now)
-    rampRef.current = newSettings.interval
+    // Reset ramp to steady state (already ramped up by now)
+    rampIdx.current = RAMP_STEPS.length - 1
     setShowSettings(false)
   }
 
@@ -782,7 +803,7 @@ export default function App() {
             onOpenNotams={() => setShowNotams(true)}
             region={region}
             onRegionChange={handleRegionChange}
-            interval={settings.interval}
+            interval={currentInterval}
             lastFetchAt={lastFetchAt}
           />
         </div>

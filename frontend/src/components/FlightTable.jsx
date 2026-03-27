@@ -6,14 +6,55 @@ import { detectPhase, PHASE } from '../utils/anomaly'
 const COLS = [
   { key: 'icao',     label: 'icao24' },
   { key: 'callsign', label: 'callsign' },
-  { key: 'country',  label: 'country', hideMobile: true },
+  { key: 'type',     label: 'type', hideMobile: true },
+  { key: 'reg',      label: 'reg', hideMobile: true },
+  { key: 'country',  label: 'ctry', hideMobile: true },
+  { key: 'pos',      label: 'pos', hideMobile: true },
   { key: 'alt',      label: 'alt (m)' },
+  { key: 'vrate',    label: 'vrate', hideMobile: true },
+  { key: 'phase',    label: 'phase' },
+  { key: 'squawk',   label: 'squawk', hide: true },
   { key: 'vel',      label: 'spd (m/s)', hide: true },
-  { key: 'hdg',      label: 'hdg',       hide: true },
-  { key: 'squawk',   label: 'squawk',   hide: true },
-  { key: 'status',   label: 'status' },
-  { key: 'db',       label: 'db', hideMobile: true },
+  { key: 'hdg',      label: 'hdg', hide: true },
 ]
+
+// Abbreviate common country names to 2-3 chars
+const COUNTRY_SHORT = {
+  'united states': 'US', 'canada': 'CA', 'united kingdom': 'UK', 'germany': 'DE',
+  'france': 'FR', 'italy': 'IT', 'spain': 'ES', 'netherlands': 'NL', 'belgium': 'BE',
+  'switzerland': 'CH', 'austria': 'AT', 'sweden': 'SE', 'norway': 'NO', 'denmark': 'DK',
+  'finland': 'FI', 'ireland': 'IE', 'portugal': 'PT', 'poland': 'PL', 'greece': 'GR',
+  'turkey': 'TR', 'russia': 'RU', 'china': 'CN', 'japan': 'JP', 'south korea': 'KR',
+  'india': 'IN', 'australia': 'AU', 'new zealand': 'NZ', 'brazil': 'BR', 'mexico': 'MX',
+  'argentina': 'AR', 'colombia': 'CO', 'chile': 'CL', 'israel': 'IL', 'egypt': 'EG',
+  'south africa': 'ZA', 'saudi arabia': 'SA', 'united arab emirates': 'AE',
+  'thailand': 'TH', 'singapore': 'SG', 'malaysia': 'MY', 'indonesia': 'ID',
+  'philippines': 'PH', 'taiwan': 'TW', 'hong kong': 'HK', 'czech republic': 'CZ',
+  'czechia': 'CZ', 'romania': 'RO', 'hungary': 'HU', 'iceland': 'IS', 'luxembourg': 'LU',
+  'unknown': '—',
+}
+function shortCountry(c) {
+  if (!c) return '—'
+  return COUNTRY_SHORT[c.toLowerCase()] || c.slice(0, 3).toUpperCase()
+}
+
+const PHASE_LABEL = {
+  [PHASE.CLIMB]:    'climb',
+  [PHASE.CRUISE]:   'cruise',
+  [PHASE.DESCENT]:  'descent',
+  [PHASE.APPROACH]: 'approach',
+  [PHASE.GROUND]:   'ground',
+  [PHASE.UNKNOWN]:  '—',
+}
+
+const PHASE_COLOR = {
+  [PHASE.CLIMB]:    'text-grn',
+  [PHASE.CRUISE]:   'text-cyn',
+  [PHASE.DESCENT]:  'text-ylw',
+  [PHASE.APPROACH]: 'text-mag',
+  [PHASE.GROUND]:   'text-fg3',
+  [PHASE.UNKNOWN]:  'text-fg3',
+}
 
 // priority for takeoff sort — airborne first, then by phase
 const TAKEOFF_RANK = {
@@ -26,8 +67,10 @@ const TAKEOFF_RANK = {
 }
 
 export default function FlightTable({ flights, filter, selectedIcao, enrichCache, anomalies = {}, trackHistory = {}, openskyUsage, aeroSpend, onSelect, onArrived, onDeparted }) {
+  const PAGE_SIZE = 50
   const [sortKey, setSortKey] = useState('takeoff')
   const [sortDir, setSortDir] = useState(1)
+  const [page, setPage] = useState(0)
   const [showAll, setShowAll] = useState(false)
   const [anomalyHighlight, setAnomalyHighlight] = useState(false)
   const [squawkHighlight, setSquawkHighlight] = useState(null) // null | '7700' | '7600' | '7500' | '1200'
@@ -100,6 +143,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
   const q = filter.toLowerCase()
 
   const filtered = useMemo(() => {
+    setPage(0) // reset to first page on filter change
     let list = flights.filter(f =>
       f.callsign.toLowerCase().includes(q) ||
       f.country.toLowerCase().includes(q) ||
@@ -129,15 +173,37 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
         return (aAlt - bAlt) * sortDir
       }
 
-      let va = a[sortKey], vb = b[sortKey]
+      // computed columns
+      let va, vb
+      if (sortKey === 'phase') {
+        const aHist = trackHistory[a.icao]
+        const bHist = trackHistory[b.icao]
+        va = TAKEOFF_RANK[aHist?.length >= 2 ? detectPhase(aHist) : (a.grounded ? PHASE.GROUND : PHASE.UNKNOWN)] ?? 5
+        vb = TAKEOFF_RANK[bHist?.length >= 2 ? detectPhase(bHist) : (b.grounded ? PHASE.GROUND : PHASE.UNKNOWN)] ?? 5
+      } else if (sortKey === 'vrate') {
+        va = a.vertRate ?? null
+        vb = b.vertRate ?? null
+      } else if (sortKey === 'type') {
+        va = enrichCache[a.icao]?.adsbfi?.type || enrichCache[a.icao]?.aircraft?.icao_type || ''
+        vb = enrichCache[b.icao]?.adsbfi?.type || enrichCache[b.icao]?.aircraft?.icao_type || ''
+      } else if (sortKey === 'reg') {
+        va = enrichCache[a.icao]?.adsbfi?.reg || enrichCache[a.icao]?.aircraft?.registration || ''
+        vb = enrichCache[b.icao]?.adsbfi?.reg || enrichCache[b.icao]?.aircraft?.registration || ''
+      } else if (sortKey === 'country') {
+        va = a.country || ''
+        vb = b.country || ''
+      } else {
+        va = a[sortKey]; vb = b[sortKey]
+      }
       if (va == null) va = sortDir > 0 ? Infinity : -Infinity
       if (vb == null) vb = sortDir > 0 ? Infinity : -Infinity
       return va < vb ? -sortDir : va > vb ? sortDir : 0
     })
-  }, [filtered, sortKey, sortDir, anomalies, trackHistory, anomalyHighlight, squawkHighlight])
+  }, [filtered, sortKey, sortDir, anomalies, trackHistory, enrichCache, anomalyHighlight, squawkHighlight])
 
-  const limit = showAll ? sorted.length : 100
-  const displayed = sorted.slice(0, limit)
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages - 1)
+  const displayed = showAll ? sorted : sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
   const anomalyCount = Object.keys(anomalies).length
   const squawkCounts = useMemo(() => {
@@ -172,16 +238,32 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
         <span className="flex items-center gap-1 sm:gap-1.5 min-w-0 shrink-0">
           <span className="text-fg">{filtered.length}</span>
           <span>records</span>
-          {filtered.length > limit && (
-            <button
-              className="bg-transparent border-none text-acc text-[11px] cursor-pointer p-0 font-mono underline"
-              onClick={() => setShowAll(s => !s)}
-            >
-              {showAll ? `show 100` : `show all ${filtered.length}`}
-            </button>
+          {!showAll && totalPages > 1 && (
+            <>
+              <button
+                className="bg-transparent border border-border text-fg3 hover:text-fg2 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={safePage === 0}
+              >
+                ‹
+              </button>
+              <span className="text-fg3 text-[10px]">{safePage + 1}/{totalPages}</span>
+              <button
+                className="bg-transparent border border-border text-fg3 hover:text-fg2 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={safePage >= totalPages - 1}
+              >
+                ›
+              </button>
+            </>
           )}
-          {!showAll && filtered.length > limit && (
-            <span className="text-fg3">(showing {limit})</span>
+          {filtered.length > PAGE_SIZE && (
+            <button
+              className="bg-transparent border-none text-acc text-[10px] sm:text-[11px] cursor-pointer p-0 font-mono underline"
+              onClick={() => { setShowAll(s => !s); setPage(0) }}
+            >
+              {showAll ? `page (${PAGE_SIZE})` : `show all ${filtered.length}`}
+            </button>
           )}
           {newIcaos.size > 0 && <span className="text-grn ml-1">+{newIcaos.size} new</span>}
         </span>
@@ -293,12 +375,17 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
         <tbody>
           {displayed.map(f => {
             const isSel = f.icao === selectedIcao
-            const cached = !!enrichCache[f.icao]
+            const enrich = enrichCache[f.icao]
             const isNew = newIcaos.has(f.icao)
             const anomaly = anomalies[f.icao]
             const hlAnomaly = anomalyHighlight && anomaly
             const hlSquawk = squawkHighlight && f.squawk === squawkHighlight
             const dimmed = (anomalyHighlight || squawkHighlight) && !hlAnomaly && !hlSquawk
+            const hist = trackHistory[f.icao]
+            const phase = hist?.length >= 2 ? detectPhase(hist) : (f.grounded ? PHASE.GROUND : PHASE.UNKNOWN)
+            const acType = enrich?.adsbfi?.type || enrich?.aircraft?.icao_type || null
+            const acReg = enrich?.adsbfi?.reg || enrich?.aircraft?.registration || null
+            const vr = f.vertRate != null ? Math.round(f.vertRate * 196.85) : (enrich?.adsbfi?.baroRate ?? null) // m/s → ft/min
             return (
               <tr
                 key={f.icao + f.callsign}
@@ -332,22 +419,35 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                   {f.callsign}
                   {f.mil && <span className="text-red text-[10px]"> [mil]</span>}
                 </td>
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell">{f.country}</td>
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell">
+                  {acType || '—'}
+                </td>
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-ylw hidden sm:table-cell">
+                  {acReg || '—'}
+                </td>
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell" title={f.country}>
+                  {shortCountry(f.country)}
+                </td>
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell">
+                  {f.lat != null ? `${f.lat.toFixed(1)},${f.lon.toFixed(1)}` : '—'}
+                </td>
                 <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs', f.grounded ? 'text-ylw' : 'text-cyn')}>
                   {f.alt ?? '—'}
                 </td>
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg2 hidden sm:table-cell">{f.vel ?? '—'}</td>
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell">
-                  {f.hdg != null ? `${f.hdg}°` : '—'}
+                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell',
+                  vr == null ? 'text-fg3' : Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg3'
+                )}>
+                  {vr != null ? `${vr > 0 ? '+' : ''}${vr}` : '—'}
+                </td>
+                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs', PHASE_COLOR[phase])}>
+                  {PHASE_LABEL[phase]}
                 </td>
                 <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell', squawkColor(f.squawk))}>
                   {squawkLabel(f.squawk)}
                 </td>
-                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs', f.grounded ? 'text-ylw' : 'text-grn')}>
-                  {f.grounded ? 'ground' : 'air'}
-                </td>
-                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell', cached ? 'text-grn' : 'text-fg3')}>
-                  {cached ? '✓' : '·'}
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg2 hidden sm:table-cell">{f.vel ?? '—'}</td>
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell">
+                  {f.hdg != null ? `${f.hdg}°` : '—'}
                 </td>
               </tr>
             )

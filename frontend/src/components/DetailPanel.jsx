@@ -54,30 +54,18 @@ export default function DetailPanel({
   const [aeroError, setAeroError] = useState(null)
   const [mapFullscreen, setMapFullscreen] = useState(false)
 
-  if (!flight) {
-    return (
-      <div className="bg-bg1 border-l border-border flex flex-col min-h-0 overflow-y-auto">
-        {!mobile && (
-          <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center text-[11px] text-fg3 sticky top-0 z-1 shrink-0">
-            <span className="text-acc">aircraft intel</span>
-          </div>
-        )}
-        <div className="py-10 px-5 text-center text-fg3 text-[11px]">select a row to inspect</div>
-      </div>
-    )
-  }
-
   const { aircraft, flightroute, adsbfi, apl } = enrichData || {}
-  const aeroData = aeroCache[flight.icao]
-  const srcTag =
-    flight.src === 'apl'
+  const aeroData = flight ? aeroCache[flight.icao] : null
+  const srcTag = flight
+    ? flight.src === 'apl'
       ? { label: 'airplanes.live', colorClass: 'text-mag' }
       : flight.src === 'adsbx'
         ? { label: 'adsbx', colorClass: 'text-acc' }
         : { label: 'opensky', colorClass: 'text-grn' }
+    : null
 
   const handleAeroQuery = async () => {
-    if (aeroLoading || !flight.callsign || flight.callsign === '—') return
+    if (!flight || aeroLoading || !flight.callsign || flight.callsign === '—') return
     if (aeroSpend?.cap_reached) return
     setAeroLoading(true)
     setAeroError(null)
@@ -93,14 +81,20 @@ export default function DetailPanel({
 
   return (
     <div className={clsx('bg-bg1 flex flex-col min-h-0', !mobile && 'border-l border-border overflow-y-auto')}>
-      {/* sticky header — hidden in mobile sheet (sheet has its own) */}
+      {/* sticky header */}
       {!mobile && (
         <div className="bg-bg2 border-b border-border py-0.5 px-2.5 flex justify-between items-center text-[11px] text-fg3 sticky top-0 z-1 shrink-0">
           <span className="text-acc">aircraft intel</span>
-          <button className="bg-transparent border-none text-fg3 text-[11px] cursor-pointer py-0.5 px-1" onClick={onClose}>
-            ✕
-          </button>
+          {flight && (
+            <button className="bg-transparent border-none text-fg3 text-[11px] cursor-pointer py-0.5 px-1" onClick={onClose}>
+              ✕
+            </button>
+          )}
         </div>
+      )}
+
+      {!flight && (
+        <div className="py-1.5 px-2.5 text-[10px] text-fg3">select a row to inspect</div>
       )}
 
       {/* Photo */}
@@ -115,109 +109,49 @@ export default function DetailPanel({
 
       {/* Live vector */}
       <Section title="live vector" srcTag={srcTag} />
-      <DRow label="icao24" value={flight.icao} colorClass="text-acc" />
-      <DRow
-        label="callsign"
-        value={flight.callsign + (flight.mil ? ' · military' : '')}
-        colorClass="text-ylw"
-      />
-      <DRow
-        label="altitude"
-        value={flight.alt != null ? `${flight.alt} m` : null}
-        colorClass="text-cyn"
-      />
-      <DRow
-        label="speed"
-        value={flight.vel != null ? `${flight.vel} m/s` : null}
-      />
-      <DRow
-        label="heading"
-        value={flight.hdg != null ? `${flight.hdg}°` : null}
-        colorClass="text-fg3"
-      />
-      <DRow
-        label="position"
-        value={flight.lat != null ? `${flight.lat}, ${flight.lon}` : null}
-        colorClass="text-fg3"
-      />
-      <DRow
-        label="squawk"
-        value={squawkLabel(flight.squawk)}
-        colorClass={squawkColor(flight.squawk)}
-      />
-      <DRow
-        label="status"
-        value={flight.grounded ? 'ground' : 'airborne'}
-        colorClass={flight.grounded ? 'text-ylw' : 'text-grn'}
-      />
-      {flight.country && <DRow label="country" value={flight.country} colorClass="text-fg3" />}
-      {flight.mach != null && <DRow label="mach" value={`M${flight.mach}`} colorClass="text-acc" />}
-      {flight.ias != null && <DRow label="IAS" value={`${flight.ias} kt`} colorClass="text-fg3" />}
+      <DRow label="icao24" value={flight?.icao} colorClass="text-acc" />
+      <DRow label="callsign" value={flight ? flight.callsign + (flight.mil ? ' · military' : '') : null} colorClass="text-ylw" />
+      <DRow label="altitude" value={flight?.alt != null ? `${flight.alt} m` : null} colorClass="text-cyn" />
+      <DRow label="speed" value={flight?.vel != null ? `${flight.vel} m/s` : null} />
+      <DRow label="heading" value={flight?.hdg != null ? `${flight.hdg}°` : null} colorClass="text-fg3" />
+      <DRow label="position" value={flight?.lat != null ? `${flight.lat}, ${flight.lon}` : null} colorClass="text-fg3" />
+      <DRow label="squawk" value={flight ? squawkLabel(flight.squawk) : null} colorClass={flight ? squawkColor(flight.squawk) : 'text-fg3'} />
+      <DRow label="status" value={flight ? (flight.grounded ? 'ground' : 'airborne') : null} colorClass={flight?.grounded ? 'text-ylw' : 'text-grn'} />
+      <DRow label="country" value={flight?.country} colorClass="text-fg3" />
+      <DRow label="mach" value={flight?.mach != null ? `M${flight.mach}` : null} colorClass="text-acc" />
+      <DRow label="IAS" value={flight?.ias != null ? `${flight.ias} kt` : null} colorClass="text-fg3" />
 
-      {/* adsb.fi telemetry — extra fields not in OpenSky/ADSBx */}
+      {/* adsb.fi telemetry */}
       <Section title="adsb.fi telemetry" srcTag={{ label: 'adsb.fi', colorClass: 'text-cyn' }} />
-      {adsbfi === undefined ? (
-        <DRow label="status" value="loading..." colorClass="text-fg3" />
-      ) : adsbfi === null ? (
-        <DRow label="status" value="no data available" colorClass="text-fg3" />
-      ) : (
-        <>
-          {adsbfi.emergency && (
-            <DRow label="⚠ emergency" value={adsbfi.emergency} colorClass="text-red" />
-          )}
-          <DRow
-            label="vert rate"
-            value={adsbfi.baroRate != null ? `${adsbfi.baroRate > 0 ? '+' : ''}${adsbfi.baroRate} ft/min` : 'N/A'}
-            colorClass={adsbfi.baroRate != null && Math.abs(adsbfi.baroRate) > 2000 ? 'text-ylw' : adsbfi.baroRate != null ? 'text-fg' : 'text-fg3'}
-          />
-          <DRow
-            label="MCP alt"
-            value={adsbfi.navAlt != null ? `${adsbfi.navAlt} ft` : 'N/A'}
-            colorClass={adsbfi.navAlt != null ? 'text-cyn' : 'text-fg3'}
-          />
-          <DRow
-            label="MCP hdg"
-            value={adsbfi.navHdg != null ? `${adsbfi.navHdg}°` : 'N/A'}
-            colorClass="text-fg3"
-          />
-          <DRow label="reg" value={adsbfi.reg || 'N/A'} colorClass={adsbfi.reg ? 'text-ylw' : 'text-fg3'} />
-          <DRow
-            label="type"
-            value={adsbfi.type ? `${adsbfi.type}${adsbfi.typeDesc ? ` — ${adsbfi.typeDesc}` : ''}` : 'N/A'}
-            colorClass={adsbfi.type ? 'text-fg' : 'text-fg3'}
-          />
-          <DRow label="operator" value={adsbfi.operator || 'N/A'} colorClass={adsbfi.operator ? 'text-fg' : 'text-fg3'} />
-          {adsbfi.year && <DRow label="year" value={adsbfi.year} colorClass="text-fg3" />}
-          {adsbfi.mil && <DRow label="military" value="yes" colorClass="text-red" />}
-          {adsbfi.category && <DRow label="category" value={adsbfi.category} colorClass="text-fg3" />}
-        </>
-      )}
+      <DRow label="emergency" value={adsbfi?.emergency} colorClass="text-red" />
+      <DRow label="vert rate" value={adsbfi?.baroRate != null ? `${adsbfi.baroRate > 0 ? '+' : ''}${adsbfi.baroRate} ft/min` : null} colorClass={adsbfi?.baroRate != null && Math.abs(adsbfi.baroRate) > 2000 ? 'text-ylw' : 'text-fg'} />
+      <DRow label="MCP alt" value={adsbfi?.navAlt != null ? `${adsbfi.navAlt} ft` : null} colorClass="text-cyn" />
+      <DRow label="MCP hdg" value={adsbfi?.navHdg != null ? `${adsbfi.navHdg}°` : null} colorClass="text-fg3" />
+      <DRow label="reg" value={adsbfi?.reg} colorClass="text-ylw" />
+      <DRow label="type" value={adsbfi?.type ? `${adsbfi.type}${adsbfi.typeDesc ? ` — ${adsbfi.typeDesc}` : ''}` : null} />
+      <DRow label="operator" value={adsbfi?.operator} />
+      <DRow label="year" value={adsbfi?.year} colorClass="text-fg3" />
+      <DRow label="military" value={adsbfi?.mil ? 'yes' : null} colorClass="text-red" />
+      <DRow label="category" value={adsbfi?.category} colorClass="text-fg3" />
 
-      {/* Airplanes.live deep telemetry — IAS, TAS, wind, MCP, roll */}
-      {apl && (
-        <>
-          <Section title="deep telemetry" srcTag={{ label: 'airplanes.live', colorClass: 'text-mag' }} />
-          {apl.ias != null && <DRow label="IAS" value={`${apl.ias} kt`} colorClass="text-cyn" />}
-          {apl.tas != null && <DRow label="TAS" value={`${apl.tas} kt`} colorClass="text-cyn" />}
-          {apl.mach != null && <DRow label="mach" value={`M${apl.mach}`} colorClass="text-acc" />}
-          {apl.roll != null && <DRow label="roll" value={`${apl.roll > 0 ? '+' : ''}${apl.roll}°`} colorClass={Math.abs(apl.roll) > 25 ? 'text-ylw' : 'text-fg'} />}
-          {apl.trackRate != null && <DRow label="turn rate" value={`${apl.trackRate > 0 ? '+' : ''}${apl.trackRate}°/s`} colorClass="text-fg3" />}
-          {apl.navAltMcp != null && <DRow label="MCP alt" value={`${apl.navAltMcp} ft`} colorClass="text-cyn" />}
-          {apl.navAltFms != null && <DRow label="FMS alt" value={`${apl.navAltFms} ft`} colorClass="text-cyn" />}
-          {apl.navHeading != null && <DRow label="sel heading" value={`${apl.navHeading}°`} colorClass="text-fg3" />}
-          {apl.navModes && apl.navModes.length > 0 && <DRow label="nav modes" value={apl.navModes.join(', ')} colorClass="text-grn" />}
-          {(apl.windDir != null || apl.windSpeed != null) && (
-            <DRow label="wind" value={`${apl.windDir ?? '—'}° / ${apl.windSpeed ?? '—'} kt`} colorClass="text-mag" />
-          )}
-          {apl.oat != null && <DRow label="OAT" value={`${apl.oat}°C`} colorClass="text-fg3" />}
-          {apl.emergency && apl.emergency !== 'none' && <DRow label="⚠ emergency" value={apl.emergency} colorClass="text-red" />}
-        </>
-      )}
+      {/* Deep telemetry */}
+      <Section title="deep telemetry" srcTag={{ label: 'airplanes.live', colorClass: 'text-mag' }} />
+      <DRow label="IAS" value={apl?.ias != null ? `${apl.ias} kt` : null} colorClass="text-cyn" />
+      <DRow label="TAS" value={apl?.tas != null ? `${apl.tas} kt` : null} colorClass="text-cyn" />
+      <DRow label="mach" value={apl?.mach != null ? `M${apl.mach}` : null} colorClass="text-acc" />
+      <DRow label="roll" value={apl?.roll != null ? `${apl.roll > 0 ? '+' : ''}${apl.roll}°` : null} colorClass={apl?.roll != null && Math.abs(apl.roll) > 25 ? 'text-ylw' : 'text-fg'} />
+      <DRow label="turn rate" value={apl?.trackRate != null ? `${apl.trackRate > 0 ? '+' : ''}${apl.trackRate}°/s` : null} colorClass="text-fg3" />
+      <DRow label="MCP alt" value={apl?.navAltMcp != null ? `${apl.navAltMcp} ft` : null} colorClass="text-cyn" />
+      <DRow label="FMS alt" value={apl?.navAltFms != null ? `${apl.navAltFms} ft` : null} colorClass="text-cyn" />
+      <DRow label="sel heading" value={apl?.navHeading != null ? `${apl.navHeading}°` : null} colorClass="text-fg3" />
+      <DRow label="nav modes" value={apl?.navModes?.length > 0 ? apl.navModes.join(', ') : null} colorClass="text-grn" />
+      <DRow label="wind" value={apl?.windDir != null || apl?.windSpeed != null ? `${apl.windDir ?? '—'}° / ${apl.windSpeed ?? '—'} kt` : null} colorClass="text-mag" />
+      <DRow label="OAT" value={apl?.oat != null ? `${apl.oat}°C` : null} colorClass="text-fg3" />
 
       {/* Flight map */}
       <Section title="map" />
       <FlightMap
-        snapshots={trackHistory}
+        snapshots={flight ? trackHistory : []}
         flight={flight}
         flights={flights}
         fullscreen={mapFullscreen}
@@ -226,7 +160,7 @@ export default function DetailPanel({
 
       {/* Track history sparklines */}
       <Section title="track" />
-      <TrackChart snapshots={trackHistory} />
+      <TrackChart snapshots={flight ? trackHistory : []} />
 
       {/* Aircraft */}
       <Section title="aircraft" />
@@ -239,78 +173,53 @@ export default function DetailPanel({
           <DRow label="owner" value={aircraft.registered_owner} />
           <DRow label="country" value={aircraft.registered_owner_country_name} colorClass="text-fg3" />
         </>
-      ) : adsbfi && (adsbfi.reg || adsbfi.type || adsbfi.operator) ? (
-        <>
-          {adsbfi.type && <DRow label="type" value={`${adsbfi.type}${adsbfi.typeDesc ? ` — ${adsbfi.typeDesc}` : ''}`} />}
-          {adsbfi.reg && <DRow label="registration" value={adsbfi.reg} colorClass="text-ylw" />}
-          {adsbfi.operator && <DRow label="owner" value={adsbfi.operator} />}
-          {adsbfi.year && <DRow label="year" value={adsbfi.year} colorClass="text-fg3" />}
-          <DRow label="source" value="adsb.fi" colorClass="text-cyn" />
-        </>
-      ) : enrichData ? (
-        <DRow label="status" value="not in adsbdb" colorClass="text-fg3" />
       ) : (
-        <DRow label="status" value="loading..." colorClass="text-fg3" />
+        <>
+          <DRow label="type" />
+          <DRow label="icao type" />
+          <DRow label="manufacturer" />
+          <DRow label="registration" />
+          <DRow label="owner" />
+          <DRow label="country" />
+        </>
       )}
 
       {/* Route */}
       <Section title="route" />
       {flightroute ? (
         <>
-          {flightroute.airline?.name && (
-            <DRow label="airline" value={flightroute.airline.name} />
-          )}
-          {flightroute.origin && (
-            <>
-              <DRow
-                label="origin"
-                value={`${flightroute.origin.icao_code} ${flightroute.origin.name}`}
-                colorClass="text-acc"
-              />
-              <DRow
-                label=""
-                value={`${flightroute.origin.municipality}, ${flightroute.origin.country_name}`}
-                colorClass="text-fg3"
-              />
-            </>
-          )}
-          {flightroute.midpoint && (
-            <DRow
-              label="via"
-              value={`${flightroute.midpoint.icao_code} ${flightroute.midpoint.name}`}
-              colorClass="text-acc"
-            />
-          )}
-          {flightroute.destination && (
-            <>
-              <DRow
-                label="dest"
-                value={`${flightroute.destination.icao_code} ${flightroute.destination.name}`}
-                colorClass="text-acc"
-              />
-              <DRow
-                label=""
-                value={`${flightroute.destination.municipality}, ${flightroute.destination.country_name}`}
-                colorClass="text-fg3"
-              />
-            </>
-          )}
+          <DRow label="airline" value={flightroute.airline?.name} />
+          <DRow label="origin" value={flightroute.origin ? `${flightroute.origin.icao_code} ${flightroute.origin.name}` : null} colorClass="text-acc" />
+          {flightroute.origin && <DRow label="" value={`${flightroute.origin.municipality}, ${flightroute.origin.country_name}`} colorClass="text-fg3" />}
+          {flightroute.midpoint && <DRow label="via" value={`${flightroute.midpoint.icao_code} ${flightroute.midpoint.name}`} colorClass="text-acc" />}
+          <DRow label="dest" value={flightroute.destination ? `${flightroute.destination.icao_code} ${flightroute.destination.name}` : null} colorClass="text-acc" />
+          {flightroute.destination && <DRow label="" value={`${flightroute.destination.municipality}, ${flightroute.destination.country_name}`} colorClass="text-fg3" />}
         </>
-      ) : enrichData ? (
-        <DRow label="status" value="unknown" colorClass="text-fg3" />
       ) : (
-        <DRow label="status" value="loading..." colorClass="text-fg3" />
+        <>
+          <DRow label="airline" />
+          <DRow label="origin" />
+          <DRow label="dest" />
+        </>
       )}
 
       {/* AeroAPI */}
       <Section title="flightaware aeroapi" />
-      {!backendOk ? (
+      {!flight ? (
+        <>
+          <DRow label="ident" />
+          <DRow label="operator" />
+          <DRow label="aircraft" />
+          <DRow label="origin" />
+          <DRow label="dest" />
+          <DRow label="status" />
+        </>
+      ) : !backendOk ? (
         <DRow label="status" value="backend offline" colorClass="text-red" />
       ) : aeroSpend?.cap_reached && !aeroData ? (
         <DRow label="status" value={`cap reached ($${aeroSpend.total_spend.toFixed(2)} / $${aeroSpend.cap.toFixed(2)})`} colorClass="text-red" />
       ) : aeroData ? (
         <>
-          {/* Route banner: ORIGIN → DESTINATION */}
           <div className="bg-bg2 py-1.5 px-2.5 flex items-center justify-between border-b border-border">
             <div className="flex items-center gap-1.5 text-[12px]">
               <span className="text-acc font-bold">{aeroData.origin?.code_icao || aeroData.origin?.code || '???'}</span>
@@ -326,8 +235,6 @@ export default function DetailPanel({
               {aeroData.status || 'unknown'}
             </span>
           </div>
-
-          {/* Progress bar */}
           {aeroData.progress_percent != null && (
             <div className="px-2.5 py-1.5 border-b border-white/3">
               <div className="flex justify-between text-[10px] mb-1">
@@ -335,56 +242,22 @@ export default function DetailPanel({
                 <span className="text-acc">{aeroData.progress_percent}%</span>
               </div>
               <div className="h-1 bg-bg rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-acc rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(100, aeroData.progress_percent)}%` }}
-                />
+                <div className="h-full bg-acc rounded-full transition-all duration-500" style={{ width: `${Math.min(100, aeroData.progress_percent)}%` }} />
               </div>
             </div>
           )}
-
           <DRow label="ident" value={aeroData.ident} colorClass="text-ylw" />
-          <DRow label="operator" value={aeroData.operator} colorClass="text-fg" />
+          <DRow label="operator" value={aeroData.operator} />
           <DRow label="aircraft" value={aeroData.aircraft_type} />
-
-          {/* Departure group */}
           <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg/50 border-t border-white/3 mt-0.5 tracking-wider">DEPARTURE</div>
-          <DRow
-            label="scheduled"
-            value={fmtTime(aeroData.scheduled_out || aeroData.scheduled_off)}
-            colorClass="text-fg3"
-          />
-          <DRow
-            label="actual"
-            value={fmtTime(aeroData.actual_out || aeroData.actual_off)}
-            colorClass={aeroData.actual_out || aeroData.actual_off ? 'text-grn' : 'text-fg3'}
-          />
-
-          {/* Arrival group */}
+          <DRow label="scheduled" value={fmtTime(aeroData.scheduled_out || aeroData.scheduled_off)} colorClass="text-fg3" />
+          <DRow label="actual" value={fmtTime(aeroData.actual_out || aeroData.actual_off)} colorClass={aeroData.actual_out || aeroData.actual_off ? 'text-grn' : 'text-fg3'} />
           <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg/50 border-t border-white/3 mt-0.5 tracking-wider">ARRIVAL</div>
-          <DRow
-            label="estimated"
-            value={fmtTime(aeroData.estimated_in || aeroData.estimated_on)}
-            colorClass="text-fg3"
-          />
-          <DRow
-            label="actual"
-            value={fmtTime(aeroData.actual_in || aeroData.actual_on)}
-            colorClass={aeroData.actual_in || aeroData.actual_on ? 'text-grn' : 'text-fg3'}
-          />
-
-          {/* Filed plan */}
+          <DRow label="estimated" value={fmtTime(aeroData.estimated_in || aeroData.estimated_on)} colorClass="text-fg3" />
+          <DRow label="actual" value={fmtTime(aeroData.actual_in || aeroData.actual_on)} colorClass={aeroData.actual_in || aeroData.actual_on ? 'text-grn' : 'text-fg3'} />
           <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg/50 border-t border-white/3 mt-0.5 tracking-wider">FILED</div>
-          <DRow
-            label="altitude"
-            value={aeroData.filed_altitude ? `${aeroData.filed_altitude * 100} ft` : null}
-            colorClass="text-cyn"
-          />
-          <DRow
-            label="speed"
-            value={aeroData.filed_speed ? `${aeroData.filed_speed} kt` : null}
-            colorClass="text-fg"
-          />
+          <DRow label="altitude" value={aeroData.filed_altitude ? `${aeroData.filed_altitude * 100} ft` : null} colorClass="text-cyn" />
+          <DRow label="speed" value={aeroData.filed_speed ? `${aeroData.filed_speed} kt` : null} />
         </>
       ) : aeroError ? (
         <DRow label="error" value={aeroError} colorClass="text-red" />

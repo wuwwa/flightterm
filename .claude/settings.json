@@ -13,7 +13,11 @@
       "Bash(node -e \"const d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(0,''''utf8''''\\)\\); const airborne=d.ac.filter\\(a=>a.alt_baro!=''''ground''''&&a.lat\\); if\\(airborne[0]\\) console.log\\(JSON.stringify\\(airborne[0],null,2\\)\\); console.log\\(''''Total:'''',d.total\\);\")",
       "Bash(node -e \"var d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(0,''''utf8''''\\)\\); var a=d.ac.filter\\(function\\(x\\){return x.alt_baro>0 && x.lat;}\\); if\\(a[0]\\) console.log\\(JSON.stringify\\(a[0],null,2\\)\\); console.log\\(''''Total:'''',d.total\\);\")",
       "Bash(node -c \"c:\\\\Users\\\\wilso\\\\Documents\\\\Flight\\\\flightterm\\\\backend\\\\index.js\")",
-      "Bash(xargs echo:*)"
+      "Bash(xargs echo:*)",
+      "Read(//c/Users/wilso/.claude/projects/c--Users-wilso-Documents-Flight-flightterm/memory/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\wilso\\.claude\\projects\\c--Users-wilso-Documents-Flight-flightterm\\memory"
     ]
   }
 }

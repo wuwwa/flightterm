@@ -62,8 +62,12 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
     })
   }, [anomaly?.icao])
 
+  // Safe accessors — all resolve to {} when no anomaly selected
   const a = anomaly ? (apl || {}) : {}
   const fi = anomaly ? (adsbfi || {}) : {}
+  const wx = anomaly?.weather_context || {}
+  const sigmets = wx.sigmets || {}
+  const pireps = wx.pireps || {}
 
   const severityColor = anomaly?.severity === 'CRITICAL' ? 'text-red'
     : anomaly?.severity === 'HIGH' ? 'text-ylw' : 'text-fg3'
@@ -90,19 +94,20 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
         {anomaly && <button onClick={onClose} className="text-fg3 hover:text-fg1 text-[11px] px-1">✕</button>}
       </div>
 
+      {/* Always-visible 3-column grid — shows placeholders when no anomaly selected */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border">
         {/* Column 1: detection + aircraft identity */}
         <div className="bg-bg1 py-1">
           <Group title="detection" color="text-red">
-            <Row label="score" value={anomaly.score} color="text-red" />
-            <Row label="severity" value={anomaly.severity} color={severityColor} />
-            <Row label="category" value={anomaly.category} color="text-mag" />
-            <Row label="confirmed" value={anomaly.confirmed ? 'YES' : 'no'} color={anomaly.confirmed ? 'text-grn' : 'text-fg3'} />
-            <Row label="phase" value={anomaly.phase} />
-            <Row label="squawk" value={anomaly.squawk} color={anomaly.squawk === '7700' || anomaly.squawk === '7600' || anomaly.squawk === '7500' ? 'text-red' : 'text-fg'} />
+            <Row label="score" value={anomaly?.score} color="text-red" />
+            <Row label="severity" value={anomaly?.severity} color={severityColor} />
+            <Row label="category" value={anomaly?.category} color="text-mag" />
+            <Row label="confirmed" value={anomaly ? (anomaly.confirmed ? 'YES' : 'no') : null} color={anomaly?.confirmed ? 'text-grn' : 'text-fg3'} />
+            <Row label="phase" value={anomaly?.phase} />
+            <Row label="squawk" value={anomaly?.squawk} color={anomaly?.squawk === '7700' || anomaly?.squawk === '7600' || anomaly?.squawk === '7500' ? 'text-red' : 'text-fg'} />
           </Group>
           <Group title="reasons" color="text-ylw">
-            {anomaly.reasons?.length > 0
+            {anomaly?.reasons?.length > 0
               ? anomaly.reasons.map((r, i) => (
                   <div key={i} className="text-[10px] text-fg2 px-2 py-px">{r}</div>
                 ))
@@ -111,7 +116,7 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
           </Group>
           <Group title="all categories" color="text-mag">
             <div className="flex flex-wrap gap-1 px-2 py-0.5">
-              {anomaly.categories?.length > 0
+              {anomaly?.categories?.length > 0
                 ? anomaly.categories.map(c => (
                     <span key={c} className="text-[9px] text-mag border border-mag/30 px-1 rounded">{c}</span>
                   ))
@@ -147,11 +152,11 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
         {/* Column 2: position + signal */}
         <div className="bg-bg1 py-1">
           <Group title="position" color="text-cyn">
-            <Row label="lat" value={anomaly.lat?.toFixed(4)} color="text-cyn" />
-            <Row label="lon" value={anomaly.lon?.toFixed(4)} color="text-cyn" />
-            <Row label="alt" value={fmt(anomaly.alt, ' m')} color="text-cyn" />
-            <Row label="vel" value={fmt(anomaly.vel, ' m/s')} />
-            <Row label="hdg" value={fmt(anomaly.hdg, '°')} />
+            <Row label="lat" value={anomaly?.lat?.toFixed(4)} color="text-cyn" />
+            <Row label="lon" value={anomaly?.lon?.toFixed(4)} color="text-cyn" />
+            <Row label="alt" value={fmt(anomaly?.alt, ' m')} color="text-cyn" />
+            <Row label="vel" value={fmt(anomaly?.vel, ' m/s')} />
+            <Row label="hdg" value={fmt(anomaly?.hdg, '°')} />
           </Group>
           <Group title="airspeed" color="text-cyn">
             <Row label="IAS" value={fmt(a.ias, ' kt')} color="text-cyn" />
@@ -195,27 +200,13 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
             <Row label="SPI" value={a.spi ? 'ACTIVE' : a.spi === false ? 'no' : null} color={a.spi ? 'text-red' : 'text-fg3'} />
           </Group>
           <Group title="weather context" color="text-cyn">
-            {anomaly.weather_context ? (
-              <>
-                {anomaly.weather_context.sigmets && (
-                  <>
-                    <Row label="convective" value={anomaly.weather_context.sigmets.convective || 0} color={anomaly.weather_context.sigmets.convective > 0 ? 'text-red' : 'text-fg3'} />
-                    <Row label="turbulence" value={anomaly.weather_context.sigmets.turbulence || 0} color={anomaly.weather_context.sigmets.turbulence > 0 ? 'text-ylw' : 'text-fg3'} />
-                    <Row label="icing" value={anomaly.weather_context.sigmets.icing || 0} color={anomaly.weather_context.sigmets.icing > 0 ? 'text-cyn' : 'text-fg3'} />
-                  </>
-                )}
-                {anomaly.weather_context.pireps && (
-                  <>
-                    <Row label="PIREPs" value={anomaly.weather_context.pireps.count || 0} />
-                    <Row label="severe" value={anomaly.weather_context.pireps.severe ? 'YES' : 'no'} color={anomaly.weather_context.pireps.severe ? 'text-red' : 'text-fg3'} />
-                    <Row label="max turb" value={anomaly.weather_context.pireps.maxTurbulence} color="text-ylw" />
-                    <Row label="max ice" value={anomaly.weather_context.pireps.maxIcing} color="text-cyn" />
-                  </>
-                )}
-              </>
-            ) : (
-              <div className="text-[10px] text-fg3/40 px-2 py-px">—</div>
-            )}
+            <Row label="convective" value={anomaly?.weather_context ? (sigmets.convective || 0) : null} color={sigmets.convective > 0 ? 'text-red' : 'text-fg3'} />
+            <Row label="turbulence" value={anomaly?.weather_context ? (sigmets.turbulence || 0) : null} color={sigmets.turbulence > 0 ? 'text-ylw' : 'text-fg3'} />
+            <Row label="icing" value={anomaly?.weather_context ? (sigmets.icing || 0) : null} color={sigmets.icing > 0 ? 'text-cyn' : 'text-fg3'} />
+            <Row label="PIREPs" value={anomaly?.weather_context ? (pireps.count || 0) : null} />
+            <Row label="severe" value={anomaly?.weather_context ? (pireps.severe ? 'YES' : 'no') : null} color={pireps.severe ? 'text-red' : 'text-fg3'} />
+            <Row label="max turb" value={pireps.maxTurbulence} color="text-ylw" />
+            <Row label="max ice" value={pireps.maxIcing} color="text-cyn" />
           </Group>
         </div>
       </div>
