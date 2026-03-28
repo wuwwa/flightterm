@@ -40,6 +40,11 @@ export async function fetchArchiveHealth() {
   return res.data
 }
 
+export async function fetchDbMetrics() {
+  const res = await axios.get('/api/db/metrics')
+  return res.data
+}
+
 export async function fetchAnomaliesByIcao(icao, limit = 20) {
   const res = await axios.get(`/api/anomalies/aircraft/${icao}`, { params: { limit } })
   return res.data

@@ -3,13 +3,13 @@ const express = require('express')
 const axios = require('axios')
 const cors = require('cors')
 const {
+  db: rawDb,
   recordSightings, getAircraftHistory, getAircraftTrack, getUniqueSeen,
   getStats, getTopAircraft, getTopCountries,
   getHourlyActivity, getRecentFetches, getDbSize,
   calcOpenSkyCredits, recordApiCall,
   getUsageSummary, getTodayCredits, getDailyUsage, getRecentCalls,
   getAeroSpendTotal, getAeroSpendMonth,
-  recordAnomalies, resolveAnomalies,
   getRecentAnomalies, getActiveAnomalies, getAnomaliesByIcao, getAnomalyStats,
   getTrafficHeatmap,
   runDeferredMaintenance,
@@ -18,6 +18,7 @@ const {
   getRouteCount,
 } = require('./db')
 const { getStatus: getS3Status, isEnabled: s3IsEnabled } = require('./s3archive')
+const rateLimit = require('express-rate-limit')
 
 const path = require('path')
 const poller = require('./poller')
@@ -29,10 +30,27 @@ const OS_BASE   = 'https://opensky-network.org/api'
 const OS_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
 const FAA_NOTAM_BASE = 'https://external-api.faa.gov/notamapi/v1/notams'
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-}))
+const corsOrigin = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+  : '*'
+app.use(cors({ origin: corsOrigin }))
 app.use(express.json({ limit: '10mb' }))
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+// Configurable via .env — defaults are sane for single-user / small-team use
+const RATE_WINDOW_MS = Number(process.env.RATE_WINDOW_MS) || 60_000       // 1 minute
+const RATE_MAX       = Number(process.env.RATE_MAX)       || 100          // requests per window
+const SSE_MAX_PER_IP = Number(process.env.SSE_MAX_PER_IP) || 5            // concurrent SSE connections
+const SSE_TIMEOUT_MS = Number(process.env.SSE_TIMEOUT_MS) || 5 * 60_000   // 5 minutes
+const POST_MAX_ITEMS = Number(process.env.POST_MAX_ITEMS) || 2000         // max array items per POST
+
+app.use('/api/', rateLimit({
+  windowMs: RATE_WINDOW_MS,
+  max: RATE_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'rate limit exceeded — try again shortly' },
+}))
 
 // ── OpenSky OAuth2 token cache ────────────────────────────────────────────────
 // Separate caches for server (.env) and user-provided credentials
@@ -469,6 +487,9 @@ app.post('/api/sightings', (req, res) => {
   if (!flights || !Array.isArray(flights)) {
     return res.status(400).json({ error: 'flights array required' })
   }
+  if (flights.length > POST_MAX_ITEMS) {
+    return res.status(400).json({ error: `max ${POST_MAX_ITEMS} items per request` })
+  }
   try {
     const count = recordSightings(flights, source || 'unknown', region || 'global')
     res.json({ recorded: count })
@@ -562,6 +583,9 @@ app.post('/api/routes/save', (req, res) => {
   const { routes } = req.body
   if (!routes || !Array.isArray(routes)) {
     return res.status(400).json({ error: 'routes array required' })
+  }
+  if (routes.length > POST_MAX_ITEMS) {
+    return res.status(400).json({ error: `max ${POST_MAX_ITEMS} items per request` })
   }
   try {
     upsertRoutesBatch(routes)
@@ -732,14 +756,22 @@ app.get('/api/poller/status', (_req, res) => {
   res.json(poller.getStatus())
 })
 
-// POST /api/poller/start — start the polling service
-app.post('/api/poller/start', (_req, res) => {
+// Admin auth middleware — requires ADMIN_SECRET env var
+function requireAdmin(req, res, next) {
+  const secret = process.env.ADMIN_SECRET
+  if (!secret) return res.status(403).json({ error: 'admin access not configured' })
+  if (req.headers['x-admin-secret'] !== secret) return res.status(401).json({ error: 'unauthorized' })
+  next()
+}
+
+// POST /api/poller/start — start the polling service (admin only)
+app.post('/api/poller/start', requireAdmin, (_req, res) => {
   poller.start()
   res.json(poller.getStatus())
 })
 
-// POST /api/poller/stop — stop the polling service
-app.post('/api/poller/stop', (_req, res) => {
+// POST /api/poller/stop — stop the polling service (admin only)
+app.post('/api/poller/stop', requireAdmin, (_req, res) => {
   poller.stop()
   res.json(poller.getStatus())
 })
@@ -754,7 +786,15 @@ app.get('/api/flights', (_req, res) => {
 })
 
 // GET /api/anomalies/stream — SSE endpoint for real-time anomaly events
+const _sseConns = new Map() // ip → count
 app.get('/api/anomalies/stream', (req, res) => {
+  const ip = req.ip
+  const current = _sseConns.get(ip) || 0
+  if (current >= SSE_MAX_PER_IP) {
+    return res.status(429).json({ error: 'too many SSE connections' })
+  }
+  _sseConns.set(ip, current + 1)
+
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -780,46 +820,28 @@ app.get('/api/anomalies/stream', (req, res) => {
     res.write(': heartbeat\n\n')
   }, 30000)
 
-  req.on('close', () => {
+  // Auto-close after timeout
+  const timeout = setTimeout(() => {
+    res.end()
+  }, SSE_TIMEOUT_MS)
+
+  function cleanup() {
     clearInterval(heartbeat)
+    clearTimeout(timeout)
+    _sseConns.set(ip, (_sseConns.get(ip) || 1) - 1)
+    if (_sseConns.get(ip) <= 0) _sseConns.delete(ip)
     poller.anomalyEvents.off('anomaly:new', onNew)
     poller.anomalyEvents.off('anomaly:critical', onCritical)
     poller.anomalyEvents.off('anomaly:resolved', onResolved)
-  })
+  }
+
+  req.on('close', cleanup)
 })
 
 // ── Anomaly routes ──────────────────────────────────────────────────────────
 
-// Record a batch of anomalies (called by frontend after each fetch)
-// POST /api/anomalies  { anomalies: [...], region: 'usa' }
-app.post('/api/anomalies', (req, res) => {
-  const { anomalies, region } = req.body
-  if (!anomalies || !Array.isArray(anomalies)) {
-    return res.status(400).json({ error: 'anomalies array required' })
-  }
-  try {
-    const recorded = recordAnomalies(anomalies, region)
-    res.json({ recorded })
-  } catch (err) {
-    console.error('anomaly insert error:', err.message)
-    res.status(500).json({ error: err.message })
-  }
-})
-
-// Resolve anomalies for aircraft no longer flagged
-// POST /api/anomalies/resolve  { icaos: ['abc123', ...] }
-app.post('/api/anomalies/resolve', (req, res) => {
-  const { icaos } = req.body
-  if (!icaos || !Array.isArray(icaos)) {
-    return res.status(400).json({ error: 'icaos array required' })
-  }
-  try {
-    const resolved = resolveAnomalies(icaos)
-    res.json({ resolved })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
+// POST /api/anomalies and POST /api/anomalies/resolve removed —
+// anomaly creation and resolution are now handled by the backend poller.
 
 // Recent anomalies
 // GET /api/anomalies?limit=50
@@ -845,6 +867,19 @@ app.get('/api/anomalies/aircraft/:icao', (req, res) => {
 // GET /api/anomalies/stats
 app.get('/api/anomalies/stats', (_req, res) => {
   res.json(getAnomalyStats())
+})
+
+// Database metrics
+// GET /api/db/metrics
+app.get('/api/db/metrics', (_req, res) => {
+  const sightings = rawDb.prepare('SELECT COUNT(*) as c FROM sightings').get().c
+  const daily = rawDb.prepare('SELECT COUNT(*) as c FROM sightings_daily').get().c
+  const anomalies = rawDb.prepare('SELECT COUNT(*) as c FROM anomalies WHERE resolved = 0').get().c
+  const anomaliesTotal = rawDb.prepare('SELECT COUNT(*) as c FROM anomalies').get().c
+  const routes = getRouteCount()
+  const fetches = rawDb.prepare('SELECT COUNT(*) as c FROM fetches').get().c
+  const sizeMb = +(getDbSize() / 1048576).toFixed(2)
+  res.json({ sightings, daily, anomalies_active: anomalies, anomalies_total: anomaliesTotal, routes, fetches, size_mb: sizeMb })
 })
 
 // ── API usage tracking routes ───────────────────────────────────────────────

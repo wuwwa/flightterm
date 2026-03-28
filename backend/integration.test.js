@@ -20,6 +20,7 @@ db.resolveAnomalies = spyResolveAnomalies
 db.getRoutesBulk = vi.fn(() => ({}))
 
 const request = require('supertest')
+process.env.ADMIN_SECRET = 'test-secret'
 const { app } = require('./index')
 const poller = require('./poller')
 const { _internals } = poller
@@ -169,17 +170,22 @@ describe('poller API routes', () => {
     expect(res.body).toHaveProperty('activeAnomalies', 0)
   })
 
+  it('POST /api/poller/start rejects without admin secret', async () => {
+    const res = await request(app).post('/api/poller/start')
+    expect(res.status).toBe(401)
+  })
+
   it('POST /api/poller/start starts the poller', async () => {
     mockFlights([]) // empty so first poll does nothing
-    const res = await request(app).post('/api/poller/start')
+    const res = await request(app).post('/api/poller/start').set('x-admin-secret', 'test-secret')
     expect(res.status).toBe(200)
     expect(res.body.running).toBe(true)
   })
 
   it('POST /api/poller/stop stops the poller', async () => {
     mockFlights([])
-    await request(app).post('/api/poller/start')
-    const res = await request(app).post('/api/poller/stop')
+    await request(app).post('/api/poller/start').set('x-admin-secret', 'test-secret')
+    const res = await request(app).post('/api/poller/stop').set('x-admin-secret', 'test-secret')
     expect(res.status).toBe(200)
     expect(res.body.running).toBe(false)
   })

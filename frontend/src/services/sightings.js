@@ -15,16 +15,6 @@ export async function fetchOpenSkyUsageToday() {
   return res.data
 }
 
-export async function recordAnomalies(anomalies, region) {
-  const res = await axios.post('/api/anomalies', { anomalies, region })
-  return res.data
-}
-
-export async function resolveAnomalies(icaos) {
-  const res = await axios.post('/api/anomalies/resolve', { icaos })
-  return res.data
-}
-
 // ── Route cache ──────────────────────────────────────────────────────────────
 
 // Bulk lookup: returns { routes: { callsign: routeObj }, unknown: ['CS1', ...] }

@@ -10,6 +10,7 @@ import {
   fetchAnomalyFeed,
   fetchAnomalyStats,
   fetchSightingStats,
+  fetchDbMetrics,
 } from '../services/dashboard'
 
 const POLL_INTERVAL = 30_000
@@ -18,20 +19,23 @@ export default function DashboardPanel({ backendOk, activeSource, region: appReg
   const [anomalies, setAnomalies] = useState([])
   const [anomalyStats, setAnomalyStats] = useState(null)
   const [sightingStats, setSightingStats] = useState(null)
+  const [dbMetrics, setDbMetrics] = useState(null)
   const [showDocs, setShowDocs] = useState(false)
   const [selectedAnomaly, setSelectedAnomaly] = useState(null)
 
   const refresh = useCallback(async () => {
     if (!backendOk) return
     try {
-      const [a, as2, ss] = await Promise.all([
+      const [a, as2, ss, dbm] = await Promise.all([
         fetchAnomalyFeed(50),
         fetchAnomalyStats(),
         fetchSightingStats(),
+        fetchDbMetrics(),
       ])
       setAnomalies(a)
       setAnomalyStats(as2)
       setSightingStats(ss)
+      setDbMetrics(dbm)
     } catch {}
   }, [backendOk])
 
@@ -82,7 +86,7 @@ export default function DashboardPanel({ backendOk, activeSource, region: appReg
         {/* Right: investigation panel + stats — drives row height */}
         <div className="bg-bg1">
           <AnomalyDrilldown anomaly={selectedAnomaly} onClose={() => setSelectedAnomaly(null)} />
-          <StatsCards stats={sightingStats} anomalyStats={anomalyStats} />
+          <StatsCards stats={sightingStats} anomalyStats={anomalyStats} dbMetrics={dbMetrics} />
         </div>
       </div>
 
