@@ -20,6 +20,7 @@ const {
 const { getStatus: getS3Status, isEnabled: s3IsEnabled } = require('./s3archive')
 
 const path = require('path')
+const poller = require('./poller')
 const app = express()
 const PORT = process.env.PORT || 3001
 const AERO_BASE = 'https://aeroapi.flightaware.com/aeroapi'
@@ -724,6 +725,69 @@ app.get('/api/weather/sigmet', async (req, res) => {
   }
 })
 
+// ── Poller status & SSE stream ───────────────────────────────────────────────
+
+// GET /api/poller/status — current poller state
+app.get('/api/poller/status', (_req, res) => {
+  res.json(poller.getStatus())
+})
+
+// POST /api/poller/start — start the polling service
+app.post('/api/poller/start', (_req, res) => {
+  poller.start()
+  res.json(poller.getStatus())
+})
+
+// POST /api/poller/stop — stop the polling service
+app.post('/api/poller/stop', (_req, res) => {
+  poller.stop()
+  res.json(poller.getStatus())
+})
+
+// GET /api/flights — latest flight states from poller (no external API call)
+app.get('/api/flights', (_req, res) => {
+  const data = poller.getFlights()
+  if (!data.flights.length) {
+    return res.json({ flights: [], fetchedAt: null, region: data.region, count: 0 })
+  }
+  res.json(data)
+})
+
+// GET /api/anomalies/stream — SSE endpoint for real-time anomaly events
+app.get('/api/anomalies/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  })
+
+  const onNew = (anomaly) => {
+    res.write(`event: anomaly\ndata: ${JSON.stringify(anomaly)}\n\n`)
+  }
+  const onCritical = (anomaly) => {
+    res.write(`event: critical\ndata: ${JSON.stringify(anomaly)}\n\n`)
+  }
+  const onResolved = (icaos) => {
+    res.write(`event: resolved\ndata: ${JSON.stringify(icaos)}\n\n`)
+  }
+
+  poller.anomalyEvents.on('anomaly:new', onNew)
+  poller.anomalyEvents.on('anomaly:critical', onCritical)
+  poller.anomalyEvents.on('anomaly:resolved', onResolved)
+
+  // Send heartbeat every 30s to keep connection alive
+  const heartbeat = setInterval(() => {
+    res.write(': heartbeat\n\n')
+  }, 30000)
+
+  req.on('close', () => {
+    clearInterval(heartbeat)
+    poller.anomalyEvents.off('anomaly:new', onNew)
+    poller.anomalyEvents.off('anomaly:critical', onCritical)
+    poller.anomalyEvents.off('anomaly:resolved', onResolved)
+  })
+})
+
 // ── Anomaly routes ──────────────────────────────────────────────────────────
 
 // Record a batch of anomalies (called by frontend after each fetch)
@@ -900,7 +964,8 @@ if (require('fs').existsSync(STATIC_DIR)) {
 
 // ── start ─────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
+// Skip listening when imported by vitest (tests use supertest directly)
+if (!process.env.VITEST) app.listen(PORT, () => {
   console.log(`flightterm backend running on http://localhost:${PORT}`)
   if (!process.env.AEROAPI_KEY) {
     console.warn('  ⚠  AEROAPI_KEY not set — add it to backend/.env')
@@ -915,4 +980,13 @@ app.listen(PORT, () => {
 
   // Heavy maintenance (dedup, vacuum, purge) — runs after server is listening
   runDeferredMaintenance()
+
+  // Start anomaly poller if enabled via env
+  if (process.env.POLLER_ENABLED === 'true') {
+    poller.start()
+  } else {
+    console.log('  ℹ  Anomaly poller disabled — set POLLER_ENABLED=true to enable')
+  }
 })
+
+module.exports = { app }

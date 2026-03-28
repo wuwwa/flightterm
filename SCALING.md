@@ -127,17 +127,22 @@ Loops over `icaos` array and runs one `UPDATE` per ICAO instead of a single batc
 
 The goal: anomaly data → API endpoint → event-driven actions that fire based on detection.
 
-## Current Flow (what exists)
-```
-Frontend polls data sources → Frontend detects anomalies → POST /api/anomalies → SQLite → (nothing)
+## Current Flow (implemented)
+
+```text
+Backend poller (90s) → fetches OpenSky → scores anomalies → writes to DB
+                                                           → emits EventEmitter events
+                                                           → pushes to SSE stream
+                                                           → frontend displays via EventSource
 ```
 
-## Target Flow
-```
-Backend polls data sources → Backend detects anomalies → writes to DB
-                                                       → emits event
-                                                       → notifies subscribers (webhook, SSE, WebSocket)
-                                                       → external consumers react
+## Future Flow
+
+```text
+Same as above, plus:
+→ webhook delivery to external consumers
+→ Redis pub/sub for multi-instance
+→ versioned external API
 ```
 
 ## Step 1: Move Detection Server-Side
@@ -207,83 +212,66 @@ POST /api/v1/anomalies/subscribe      — register webhook
 
 # Migration Plan: Anomaly Detection to Backend
 
-## Current State
-- `frontend/src/utils/anomaly.js` (~705 lines) — pure scoring logic, zero React dependencies
-- `App.jsx` fetch cycle — polls data sources, calls `scoreAnomaly()` per aircraft, POSTs results
-- Track history, enrichment cache, weather context — all in-memory in browser tab
-- **No tests exist anywhere in the project** — no framework, no specs, no coverage
+## Status: COMPLETE ✓
 
-## The Problem
-No browser tab open = no anomaly detection. The system only works when a human is watching.
+All five phases completed. Anomaly detection now runs server-side. 127 backend tests passing.
 
-## Migration Strategy: Test → Move → Verify
+## What Changed
 
-### Phase 0: Add a Test Framework
-- Install `vitest` (already compatible with the Vite frontend, works standalone for backend too)
-- Add `npm test` scripts to both `frontend/package.json` and `backend/package.json`
+### Backend (new)
 
-### Phase 1: Write Characterization Tests (BEFORE moving code)
-Test `scoreAnomaly()` in-place in the frontend. These tests capture what the code *actually does* — so after migration, if they still pass, behavior is preserved.
+- **`backend/anomaly.js`** — scoring logic copied from frontend, unchanged
+- **`backend/anomaly.test.js`** — 95 characterization tests covering all scoring paths
+- **`backend/poller.js`** — polling service (90s interval, configurable region)
+  - Fetches from OpenSky, maintains track history, scores per aircraft
+  - Records anomalies to SQLite, resolves after 3 consecutive clear cycles
+  - Emits events via EventEmitter (`anomaly:new`, `anomaly:critical`, `anomaly:resolved`)
+  - Fetches weather context (PIREPs, SIGMETs) for scoring
+  - Caches latest flight data for `/api/flights` endpoint
+- **`backend/poller.test.js`** — 22 unit tests for poller internals
+- **`backend/integration.test.js`** — 10 end-to-end tests (poller → event → SSE → API → DB)
+- **`backend/index.js`** — new endpoints:
+  - `GET /api/flights` — serves poller's cached flight data
+  - `GET /api/anomalies/stream` — SSE endpoint for real-time anomaly events
+  - `POST /api/poller/start` / `POST /api/poller/stop` / `GET /api/poller/status`
 
-**Critical test groups:**
+### Frontend (stripped)
 
-| Test Group | What to Assert | Priority |
-|---|---|---|
-| Squawk detection | 7700 → CRITICAL/80+, 7500 → score 100, 7600 → adds 20 | P0 (safety) |
-| Phase detection | Altitude deltas map to correct CLIMB/CRUISE/DESCENT/APPROACH | P0 |
-| Altitude anomaly | Vertical rate outside phase norms → correct score | P0 |
-| Severity tiers | Score thresholds → correct LOW/MEDIUM/HIGH/CRITICAL | P0 |
-| Confirmation logic | Two consecutive large descents → confirmed flag, 1.3x boost | P1 |
-| Tolerance multipliers | Light aircraft → 2-3x leniency, heavy → 0.9x | P1 |
-| Weather dampening | Convective SIGMET → 0.3x, turbulence → 0.5x, never suppresses emergency | P1 |
-| Spatial context | Group maneuvering → 0.4x dampen, lone deviant → 1.3x boost | P1 |
-| Airport proximity | Descent within 50km of major airport → 0.25x | P2 |
-| Noise recovery | 500m spike then recovery → 0.3x dampen | P2 |
-| Edge cases | Null enrichment, empty snapshots, missing fields, <2 snapshots → no crash | P2 |
+- **Removed from `App.jsx`:**
+  - `scoreAnomaly()` / `ANOMALY_THRESHOLD` imports and all scoring logic (~110 lines)
+  - `fetchPireps`, `fetchSigmets`, `summarizePireps`, `summarizeSigmets` weather calls
+  - `recordAnomalies`, `resolveAnomalies` database calls
+  - `weatherRef`, `anomalyMissRef` refs and grace-period resolution loop
+  - Per-aircraft anomaly scoring loop inside `fetchFlights`
+- **Added to `App.jsx`:**
+  - SSE listener (`EventSource` on `/api/anomalies/stream`) for real-time anomaly/critical/resolved events
+  - Flight data from `/api/flights` (poller cache) instead of direct OpenSky calls
+  - Region fallback: if poller region ≠ user-selected region, falls back to direct OpenSky proxy
+- **Preserved:**
+  - AeroAPI enrichment remains click-only (no change)
+  - ADSBx/adsb.fi/airplanes.live fallback sources untouched
+  - Route rate limiting, sightings dedup, all display components intact
+  - `frontend/src/utils/anomaly.js` still exists (used by frontend display components for constants)
 
-**Test fixture approach:**
-- Build reusable factory functions for flight objects, snapshot arrays, weather context
-- Each test group gets its own describe block with deterministic inputs
-- Snapshot the exact scores so regressions are caught immediately
+### API Call Reduction
 
-### Phase 2: Copy `anomaly.js` to Backend
-- Copy `frontend/src/utils/anomaly.js` → `backend/anomaly.js`
-- Copy the test file alongside it
-- Run the same tests — they must all pass with zero changes
+- Before: frontend polled OpenSky every 90s per browser tab (~960 calls/day/tab, doubled with multiple tabs)
+- After: single backend poller makes ~960 calls/day total, regardless of connected clients
+- Frontend reads cached data from `/api/flights` — zero direct OpenSky calls when region matches
 
-### Phase 3: Build the Backend Polling Service
-New file: `backend/poller.js`
-- `setInterval` or cron-based timer (every 30-90s)
-- Calls OpenSky/adsb.fi/airplanes.live directly (not through Express proxy routes)
-- Maintains in-memory track history Map (keyed by ICAO)
-- Runs `scoreAnomaly()` per aircraft after each fetch
-- Calls `recordAnomalies()` for anything above threshold
-- Emits events via EventEmitter for downstream consumers
-
-### Phase 4: Integration Tests
-- Test the full loop: mock API response → poller processes → anomaly recorded in SQLite → event emitted
-- Test recovery: poller handles API failures, timeouts, malformed responses gracefully
-- Test state: track history accumulates correctly, old entries evicted
-
-### Phase 5: Remove Frontend Detection
-- Remove `scoreAnomaly()` calls from `App.jsx` fetch cycle
-- Frontend reads from `GET /api/anomalies/active` and `GET /api/anomalies/stream` (SSE)
-- Delete `frontend/src/utils/anomaly.js` (backend is now the source of truth)
-- Keep display components (AnomalyFeed, AnomalyDrilldown) — they just read from API now
-
-## What Stays Where After Migration
+## Architecture After Migration
 
 | Component | Location | Notes |
 |---|---|---|
-| `scoreAnomaly()`, `detectPhase()` | `backend/anomaly.js` | Unchanged logic, tested |
-| Polling service | `backend/poller.js` | New — fetches + scores on timer |
-| Track history | In-memory Map + SQLite `track_snapshots` | Hybrid: Map for speed, SQLite for persistence across restarts |
-| Enrichment cache | In-memory Map with TTL | Same pattern as existing `_notamCache` |
-| Route cache | SQLite `routes` table | Already exists |
-| Weather context | Re-fetched each cycle | Cheap, no need to persist |
-| Event emission | `backend/anomalyEvents.js` | New — EventEmitter, then Redis pub/sub |
-| AnomalyFeed, Drilldown | `frontend/src/components/` | Display only, reads from API |
-| App.jsx fetch cycle | `frontend/src/App.jsx` | Stripped of anomaly logic, just displays flights |
+| `scoreAnomaly()`, `detectPhase()` | `backend/anomaly.js` | Unchanged logic, 95 tests |
+| Polling service | `backend/poller.js` | Fetches + scores on 90s timer |
+| Track history | In-memory Map in poller | Per-aircraft, capped at 30 snapshots |
+| Route cache | SQLite `routes` table + in-memory | DB-backed, poller reads via `getRoutesBulk()` |
+| Weather context | Re-fetched each cycle | PIREPs + SIGMETs for scoring context |
+| Event emission | `poller.anomalyEvents` | Node EventEmitter (upgrade to Redis pub/sub for multi-instance) |
+| SSE stream | `GET /api/anomalies/stream` | Real-time push to connected frontends |
+| AnomalyFeed, Drilldown | `frontend/src/components/` | Display only, reads from SSE + API |
+| App.jsx fetch cycle | `frontend/src/App.jsx` | Reads flights from poller, anomalies from SSE |
 
 ---
 

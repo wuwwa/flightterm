@@ -10,6 +10,7 @@ import UsagePanel from './components/UsagePanel'
 import NotamPanel from './components/NotamPanel'
 import DashboardPanel from './components/DashboardPanel'
 
+import axios from 'axios'
 import { fetchStates } from './services/opensky'
 import { fetchAdsbx } from './services/adsbx'
 import { fetchAplByHex } from './services/airplaneslive'
@@ -17,9 +18,7 @@ import { enrichFlight, fetchRouteOnly } from './services/adsbdb'
 import { enrichByHex } from './services/adsbfi'
 import { checkHealth, fetchAeroSpend } from './services/aeroapi'
 
-import { recordSightings, fetchOpenSkyUsageToday, fetchAircraftTrack, recordAnomalies, resolveAnomalies, lookupRoutes, saveRoutes } from './services/sightings'
-import { scoreAnomaly, ANOMALY_THRESHOLD } from './utils/anomaly'
-import { fetchPireps, fetchSigmets, summarizePireps, summarizeSigmets } from './services/weather'
+import { recordSightings, fetchOpenSkyUsageToday, fetchAircraftTrack, lookupRoutes, saveRoutes } from './services/sightings'
 
 // ── default settings ──────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -109,9 +108,6 @@ export default function App() {
   // ── anomalies: icaos with sudden alt/vel changes ──────────────────────────
   const [anomalies, setAnomalies] = useState({}) // { icao: { score, phase, reasons[], confirmed, label } }
 
-  // ── weather context from previous fetch cycle (available for scoring) ──────
-  const weatherRef = useRef(null) // { sigmets: {...}, pireps: {...} }
-
   // ── route cache: callsign → { destination_lat, destination_lon, destination_icao, ... }
   const routeCacheRef = useRef({})    // in-memory mirror of backend cache
   const enrichQueueRef = useRef([])   // callsigns waiting for route enrichment
@@ -171,7 +167,6 @@ export default function App() {
   const openskyUsageRef = useRef(null)
   openskyUsageRef.current = openskyUsage
 
-  const anomalyMissRef = useRef({})      // icao → consecutive miss count (grace period before resolve)
 
   // ── logging ──────────────────────────────────────────────────────────────────
   const log = useCallback((msg, type = '') => {
@@ -283,12 +278,6 @@ export default function App() {
 
     const src = resolveSource()
 
-    // ── credit guard (opensky only) ──────────────────────────────────────────
-    if (src === 'opensky' && openskyUsageRef.current?.remaining <= 0) {
-      log('opensky: daily credit limit reached — fetch blocked', 'err')
-      return
-    }
-
     setFetching(true)
     setStatusText('fetching')
     const t0 = performance.now()
@@ -313,21 +302,41 @@ export default function App() {
       }
     }
 
-    // ── OpenSky (primary, free, bounding box) ────────────────────────────────
+    // ── OpenSky via backend poller (shared fetch, no extra API call) ──────────
+    // Use poller's cached data when regions match; fall back to direct proxy otherwise
     if ((src === 'opensky' || usedSource === 'opensky') && result === null) {
       try {
-        log(`opensky: GET states/all · region=${region}`, 'info')
-        const resp = await fetchStates(region, {
-          osClientId: settings.userOsClientId,
-          osClientSecret: settings.userOsClientSecret,
-        })
-        result = resp.flights
-        setActiveSource('opensky')
-        const ms = Math.round(performance.now() - t0)
-        log(`opensky: ${result.length} state vectors received (${ms}ms)`, 'ok')
-        refreshOpenskyUsage()
+        const resp = await axios.get('/api/flights')
+        const pollerRegion = resp.data?.region
+        const pollerHasData = resp.data?.flights?.length > 0
+
+        if (pollerHasData && pollerRegion === region) {
+          // Region matches — use poller's cached data (no API call)
+          result = resp.data.flights
+          for (const f of result) {
+            if (!f.callsign) f.callsign = '—'
+          }
+          setActiveSource('opensky')
+          const ms = Math.round(performance.now() - t0)
+          const age = resp.data.fetchedAt ? Math.round((Date.now() - resp.data.fetchedAt) / 1000) : '?'
+          log(`flights: ${result.length} aircraft from poller (${ms}ms, ${age}s old)`, 'ok')
+        } else if (pollerHasData && pollerRegion !== region) {
+          // Region mismatch — fall back to direct OpenSky proxy
+          log(`flights: poller region is ${pollerRegion}, need ${region} — fetching direct`, 'info')
+          const direct = await fetchStates(region, {
+            osClientId: settings.userOsClientId,
+            osClientSecret: settings.userOsClientSecret,
+          })
+          result = direct.flights
+          setActiveSource('opensky')
+          const ms = Math.round(performance.now() - t0)
+          log(`opensky: ${result.length} state vectors received (${ms}ms)`, 'ok')
+        } else {
+          log('flights: poller has no data yet — is it running?', 'warn')
+          result = []
+        }
       } catch (err) {
-        log(`opensky error: ${err.message}`, 'err')
+        log(`flights: backend error (${err.message})`, 'err')
         result = []
       }
     }
@@ -381,120 +390,9 @@ export default function App() {
         }
       }
 
-      // ── score anomalies using phase-aware engine ─────────────────────────
-      // Pass enrichment data (route + adsb.fi + cached routes) for richer scoring
-      const prevTrack = trackHistoryRef.current
-      const newAnomalies = {}
-      for (const f of result) {
-        const hist = prevTrack[f.icao]
-        if (!hist || hist.length < 2) continue
-        // Build enrichment: merge click-enrichment with cached route data
-        let enrich = enrichCache[f.icao] || null
-        const cachedRoute = routeCacheRef.current[f.callsign]
-        if (cachedRoute && !enrich?.flightroute) {
-          // Inject cached route as flightroute for diversion detection
-          enrich = {
-            ...(enrich || {}),
-            flightroute: {
-              destination: { latitude: cachedRoute.destination_lat, longitude: cachedRoute.destination_lon, icao_code: cachedRoute.destination_icao },
-              origin: { latitude: cachedRoute.origin_lat, longitude: cachedRoute.origin_lon, icao_code: cachedRoute.origin_icao },
-            },
-          }
-        }
-        const { score, phase, reasons, confirmed, category, severity, categories } = scoreAnomaly(hist, f, enrich, weatherRef.current, result)
-        if (score >= ANOMALY_THRESHOLD) {
-          newAnomalies[f.icao] = { score, phase, reasons, confirmed, category, severity, categories, label: reasons[0] || 'anomaly' }
-        }
-      }
-
-      // Merge: keep grace-period anomalies (fading) alongside fresh ones
-      const merged = { ...newAnomalies }
-      for (const icao of Object.keys(anomalies)) {
-        if (!merged[icao] && anomalyMissRef.current[icao]) {
-          merged[icao] = { ...anomalies[icao], fading: true }
-        }
-      }
-      setAnomalies(merged)
-      if (Object.keys(newAnomalies).length > 0) {
-        const confirmed = Object.values(newAnomalies).filter(a => a.confirmed).length
-        log(`anomalies: ${Object.keys(newAnomalies).length} scored above threshold${confirmed ? ` (${confirmed} confirmed)` : ''}`, 'warn')
-
-        // Persist anomalies to backend with weather context
-        const anomalyPayload = Object.entries(newAnomalies).map(([icao, a]) => {
-          const f = result.find(fl => fl.icao === icao)
-          return {
-            icao, callsign: f?.callsign, score: a.score, phase: a.phase,
-            reasons: a.reasons, confirmed: a.confirmed,
-            category: a.category, severity: a.severity, categories: a.categories,
-            lat: f?.lat, lon: f?.lon, alt: f?.alt, vel: f?.vel, hdg: f?.hdg, squawk: f?.squawk,
-          }
-        })
-
-        // Fetch weather context for anomaly area (non-blocking)
-        const anomalyLats = anomalyPayload.filter(a => a.lat != null).map(a => a.lat)
-        const anomalyLons = anomalyPayload.filter(a => a.lon != null).map(a => a.lon)
-        if (anomalyLats.length > 0) {
-          const pad = 2 // degrees padding around anomaly cluster
-          const bbox = [
-            Math.min(...anomalyLats) - pad,
-            Math.min(...anomalyLons) - pad,
-            Math.max(...anomalyLats) + pad,
-            Math.max(...anomalyLons) + pad,
-          ]
-          Promise.all([
-            fetchPireps(bbox[0], bbox[1], bbox[2], bbox[3], { age: 2, inten: 'mod' }).catch(() => []),
-            fetchSigmets().catch(() => []),
-          ]).then(([pireps, sigmets]) => {
-            const pirepSummary = summarizePireps(pireps)
-            const sigmetSummary = summarizeSigmets(sigmets)
-            // Store weather for next scoring cycle
-            weatherRef.current = { sigmets: sigmetSummary, pireps: pirepSummary }
-            if (pirepSummary.count > 0 || sigmetSummary.count > 0) {
-              const wxContext = { pireps: pirepSummary, sigmets: sigmetSummary }
-              // Attach weather to each anomaly and re-persist
-              const enrichedPayload = anomalyPayload.map(a => ({ ...a, weather_context: wxContext }))
-              recordAnomalies(enrichedPayload, region).catch(() => {})
-              if (pirepSummary.severe) log(`weather: severe PIREPs near anomaly area (${pirepSummary.maxTurbulence || pirepSummary.maxIcing})`, 'warn')
-              if (sigmetSummary.convective > 0) log(`weather: ${sigmetSummary.convective} convective SIGMET(s) active`, 'warn')
-            } else {
-              weatherRef.current = null
-              recordAnomalies(anomalyPayload, region).catch(() => {})
-            }
-          }).catch(() => {
-            recordAnomalies(anomalyPayload, region).catch(() => {})
-          })
-        } else {
-          recordAnomalies(anomalyPayload, region).catch(() => {})
-        }
-
-        // Anomaly enrichment runs in background — doesn't block table render.
-        // Background enrichment (adsb.fi) handles these via the useEffect below.
-      }
-
-      // Resolve anomalies — require 3 consecutive misses before resolving.
-      // OpenSky often drops aircraft between calls (coverage gaps, timing).
-      // A single miss shouldn't instantly resolve a real anomaly.
-      const RESOLVE_AFTER = 3  // consecutive cycles without scoring
-      const prevAnomalyIcaos = Object.keys(anomalies)
-      const misses = anomalyMissRef.current
-      const resolvedIcaos = []
-      for (const icao of prevAnomalyIcaos) {
-        if (newAnomalies[icao]) {
-          delete misses[icao]  // still anomalous — reset
-        } else {
-          misses[icao] = (misses[icao] || 0) + 1
-          if (misses[icao] >= RESOLVE_AFTER) {
-            resolvedIcaos.push(icao)
-            delete misses[icao]
-          }
-        }
-      }
-      if (resolvedIcaos.length > 0) {
-        resolveAnomalies(resolvedIcaos).catch(() => {})
-        log(`anomalies: ${resolvedIcaos.length} resolved after ${RESOLVE_AFTER} clear cycles`, 'info')
-      }
-
       // ── summary stats ─────────────────────────────────────────────────────
+      // Anomaly scoring is now handled by the backend poller service.
+      // The frontend receives anomalies via SSE stream (see useEffect below).
       const airborne = result.filter((f) => !f.grounded)
       const grounded = result.length - airborne.length
       log(`  airborne: ${airborne.length} · grounded: ${grounded}`, 'info')
@@ -517,6 +415,52 @@ export default function App() {
   useEffect(() => {
     fetchFlightsRef.current = fetchFlights
   }, [fetchFlights])
+
+  // ── SSE: receive anomalies from backend poller ──────────────────────────────
+  useEffect(() => {
+    const baseUrl = import.meta.env.VITE_API_URL || ''
+    const es = new EventSource(`${baseUrl}/api/anomalies/stream`)
+
+    es.addEventListener('anomaly', (e) => {
+      try {
+        const a = JSON.parse(e.data)
+        setAnomalies((prev) => ({
+          ...prev,
+          [a.icao]: {
+            score: a.score, phase: a.phase, reasons: a.reasons,
+            confirmed: a.confirmed, category: a.category,
+            severity: a.severity, categories: a.categories,
+            label: a.reasons?.[0] || 'anomaly',
+          },
+        }))
+      } catch {}
+    })
+
+    es.addEventListener('critical', (e) => {
+      try {
+        const a = JSON.parse(e.data)
+        log(`anomaly: CRITICAL ${a.icao} ${a.callsign || ''} — ${a.reasons?.[0] || 'emergency'}`, 'warn')
+      } catch {}
+    })
+
+    es.addEventListener('resolved', (e) => {
+      try {
+        const icaos = JSON.parse(e.data)
+        setAnomalies((prev) => {
+          const next = { ...prev }
+          for (const icao of icaos) delete next[icao]
+          return next
+        })
+        log(`anomalies: ${icaos.length} resolved by backend poller`, 'info')
+      } catch {}
+    })
+
+    es.onerror = () => {
+      // SSE will auto-reconnect; no action needed
+    }
+
+    return () => es.close()
+  }, [log])
 
   // ── auto-refresh with ramp-up ────────────────────────────────────────────────
   // Fixed sequence: 10s → 15s → 20s → 30s → 50s → 90s (steady state)
