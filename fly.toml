@@ -11,6 +11,14 @@ primary_region = 'iad'
 [env]
   DB_DIR = '/data'
   PORT = '3001'
+  POLLER_ENABLED = 'true'
+  CORS_ORIGIN = 'https://flightterm.fly.dev'
+  # Rate limiting defaults — override here if needed
+  # RATE_WINDOW_MS = '60000'
+  # RATE_MAX = '100'
+  # SSE_MAX_PER_IP = '5'
+  # SSE_TIMEOUT_MS = '300000'
+  # POST_MAX_ITEMS = '2000'
 
 [[mounts]]
   source = 'flightterm_data'
