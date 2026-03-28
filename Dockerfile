@@ -7,7 +7,7 @@ COPY package.json ./
 
 # Install frontend deps and build
 COPY frontend/ frontend/
-RUN cd frontend && npm ci && npm run build
+RUN cd frontend && npm install --omit=dev && npm run build
 
 # ── stage 2: production runtime ─────────────────────────────────────────────
 FROM node:20-slim

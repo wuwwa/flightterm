@@ -252,10 +252,9 @@ async function pollCycle() {
   latestFlights = flights
   lastFetchAt = Date.now()
 
-  // 2. Update track history
-  updateTrackHistory(flights)
-
-  // 3. Score each aircraft
+  // 2. Score each aircraft BEFORE updating history.
+  //    scoreAnomaly compares current flight against the last snapshot (prev).
+  //    If we update history first, prev === current and all deltas are 0.
   const newAnomalies = {}
   const anomalyFlights = []
 
@@ -287,6 +286,9 @@ async function pollCycle() {
       anomalyFlights.push(f)
     }
   }
+
+  // 3. Update track history (after scoring, so prev ≠ current)
+  updateTrackHistory(flights)
 
   // 4. Anomaly lifecycle — grace period & resolution
   const resolvedIcaos = []

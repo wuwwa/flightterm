@@ -693,7 +693,7 @@ describe('airport proximity dampening', () => {
     const cur = flight({
       lat: 40.65, lon: -73.78, // ~1km from JFK
       alt: 8000,
-      vertRate: -25, // steep descent
+      vertRate: -35, // steep descent (must exceed widened descent norms)
     })
 
     const nearAirport = scoreAnomaly(snaps, cur)
@@ -702,7 +702,7 @@ describe('airport proximity dampening', () => {
     const curFar = flight({
       lat: 42.0, lon: -78.0, // middle of nowhere
       alt: 8000,
-      vertRate: -25,
+      vertRate: -35,
     })
     const farFromAirport = scoreAnomaly(snaps, curFar)
 
@@ -1119,7 +1119,8 @@ describe('phase transition anomaly', () => {
       snap({ ts: NOW - 90000, alt: 9500, vel: 230 }),
     ]
     // Current: steep descent with transponder rate, triggers altitude anomaly (score > 10)
-    const cur = flight({ alt: 8500, vertRate: -25 })
+    // Must exceed widened descent norms ([-20, -3] × 1.25 = [-25, -3.75])
+    const cur = flight({ alt: 8500, vertRate: -35 })
     const result = scoreAnomaly(snaps, cur)
 
     // Phase detection on full snapshots (last 5: indices 1-5) sees descent
@@ -1149,6 +1150,7 @@ describe('phase transition anomaly', () => {
 // ═════════════════════════════════════════════════════════════════════════════
 // Constants & exports
 // ═════════════════════════════════════════════════════════════════════════════
+
 
 describe('constants and exports', () => {
   it('ANOMALY_THRESHOLD is 35', () => {

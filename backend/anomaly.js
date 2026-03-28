@@ -441,18 +441,21 @@ function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlig
   if (prev.alt != null && current.alt != null && prev.ts) {
     const dtSec = Math.max(1, (Date.now() - prev.ts) / 1000)
 
-    // Use transponder vertRate if available (m/s), else compute from deltas
-    let altRate
+    // Use transponder vertRate if available (m/s), else compute from deltas.
+    // Transponder vertRate is instantaneous — peaks higher than snapshot averages
+    // for the same maneuver, so we widen norms by 1.5x to compensate.
+    let altRate, vertRateWidener = 1.0
     if (current.vertRate != null) {
       altRate = current.vertRate  // direct from transponder — real-time
+      vertRateWidener = 1.25
     } else {
-      altRate = (current.alt - prev.alt) / dtSec  // computed — noisy with sparse samples
+      altRate = (current.alt - prev.alt) / dtSec  // computed — averaged over sample interval
     }
 
     const norms = PHASE_NORMS[phase] || PHASE_NORMS[PHASE.UNKNOWN]
-    // Apply aircraft class multiplier to widen/tighten thresholds
-    const normLow = norms.altRate[0] * classMult
-    const normHigh = norms.altRate[1] * classMult
+    // Apply aircraft class multiplier and vertRate source adjustment
+    const normLow = norms.altRate[0] * classMult * vertRateWidener
+    const normHigh = norms.altRate[1] * classMult * vertRateWidener
 
     let altDeviation = 0
     if (altRate < normLow) altDeviation = Math.abs(altRate - normLow)
@@ -469,10 +472,11 @@ function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlig
   // ── 2. Speed anomaly ──────────────────────────────────────────────────
   if (prev.vel != null && current.vel != null && prev.ts) {
     const dtSec = Math.max(1, (Date.now() - prev.ts) / 1000)
-    const velRate = Math.abs(current.vel - prev.vel) / dtSec
+    const velDelta = Math.abs(current.vel - prev.vel)
     const norms = PHASE_NORMS[phase] || PHASE_NORMS[PHASE.UNKNOWN]
-    const velThreshold = norms.velChange * classMult
-    const velDeviation = Math.max(0, velRate * dtSec - velThreshold)
+    // Scale threshold to actual sample interval (norms calibrated for ~90s gaps)
+    const velThreshold = norms.velChange * classMult * (dtSec / 90)
+    const velDeviation = Math.max(0, velDelta - velThreshold)
 
     if (velDeviation > 10) {
       const velScore = Math.min(40, velDeviation * 1.5)
@@ -482,12 +486,27 @@ function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlig
 
   // ── 3. Heading discontinuity (only meaningful in cruise) ──────────────
   if (phase === PHASE.CRUISE && prev.hdg != null && current.hdg != null) {
-    const hdgThreshold = 45 * classMult
-    let hdgDelta = headingDelta(current.hdg, prev.hdg)
+    // Detect holding pattern / orbit: if cumulative heading change over recent
+    // snapshots exceeds 270°, the aircraft is likely in a hold — suppress.
+    // Standard rate hold = 360° in 2 min; at 90s intervals this accumulates fast.
+    let cumulativeHdg = 0
+    const recentSnaps = snapshots.slice(-4)
+    for (let i = 1; i < recentSnaps.length; i++) {
+      if (recentSnaps[i].hdg != null && recentSnaps[i - 1].hdg != null) {
+        cumulativeHdg += headingDelta(recentSnaps[i].hdg, recentSnaps[i - 1].hdg)
+      }
+    }
+    cumulativeHdg += headingDelta(current.hdg, prev.hdg)
+    const inHold = cumulativeHdg > 270
 
-    if (hdgDelta > hdgThreshold) {
-      const hdgScore = Math.min(25, (hdgDelta - hdgThreshold) * 0.5)
-      addScore(CATEGORY.HEADING, hdgScore, `heading change ${hdgDelta}° during cruise`)
+    if (!inHold) {
+      const hdgThreshold = 45 * classMult
+      const hdgDelta = headingDelta(current.hdg, prev.hdg)
+
+      if (hdgDelta > hdgThreshold) {
+        const hdgScore = Math.min(25, (hdgDelta - hdgThreshold) * 0.5)
+        addScore(CATEGORY.HEADING, hdgScore, `heading change ${hdgDelta}° during cruise`)
+      }
     }
   }
 
