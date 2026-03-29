@@ -34,7 +34,9 @@
       "Bash(node -e \"const db = require\\(''better-sqlite3''\\)\\(''flightterm.db''\\); console.log\\(db.prepare\\(\"\"PRAGMA table_info\\(''sightings''\\)\"\"\\).all\\(\\).map\\(c=>c.name\\).join\\('', ''\\)\\)\")",
       "Bash(grep -r \"min-h-screen\\\\|max-h-\\\\|overflow\" /Users/wilsonwu/flightterm/frontend/src/components/dashboard/*.jsx)",
       "Bash(git config:*)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "Bash(curl -s http://localhost:3001/api/poller/status)",
+      "Bash(curl -s http://localhost:3001/api/anomalies?limit=5)"
     ]
   }
 }

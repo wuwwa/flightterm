@@ -10,7 +10,7 @@ const {
   calcOpenSkyCredits, recordApiCall,
   getUsageSummary, getTodayCredits, getDailyUsage, getRecentCalls,
   getAeroSpendTotal, getAeroSpendMonth,
-  getRecentAnomalies, getActiveAnomalies, getAnomaliesByIcao, getAnomalyStats,
+  getRecentAnomalies, getActiveAnomalies, getAnomaliesByIcao, getAnomalyStats, getAnomalyHotspots, getAnomaliesByZone,
   getTrafficHeatmap,
   runDeferredMaintenance,
   getRoutesBulk,
@@ -869,6 +869,27 @@ app.get('/api/anomalies/stats', (_req, res) => {
   res.json(getAnomalyStats())
 })
 
+// Anomaly hotspots — geographic clusters where anomalies recur
+// GET /api/anomalies/hotspots?hours=168&min=2
+app.get('/api/anomalies/hotspots', (req, res) => {
+  const hours = Math.min(Number(req.query.hours) || 168, 720) // default 7 days, max 30
+  const min = Math.max(Number(req.query.min) || 2, 2) // minimum 2 events per cluster
+  res.json(getAnomalyHotspots(hours, min))
+})
+
+// Anomalies in a specific zone (grid cell) for zone drilldown
+// GET /api/anomalies/zone?lat=40.5&lon=-74.0&hours=168&limit=30
+app.get('/api/anomalies/zone', (req, res) => {
+  const lat = Number(req.query.lat)
+  const lon = Number(req.query.lon)
+  if (isNaN(lat) || isNaN(lon)) return res.status(400).json({ error: 'lat and lon required' })
+  const cellLat = Math.round(lat * 2) / 2
+  const cellLon = Math.round(lon * 2) / 2
+  const hours = Math.min(Number(req.query.hours) || 168, 720)
+  const limit = Math.min(Number(req.query.limit) || 30, 100)
+  res.json(getAnomaliesByZone(cellLat, cellLon, hours, limit))
+})
+
 // Database metrics
 // GET /api/db/metrics
 app.get('/api/db/metrics', (_req, res) => {
@@ -894,24 +915,31 @@ app.get('/api/usage/today', (req, res) => {
     // get the most recent rate_remaining header value from our log
     const lastCall = getRecentCalls('opensky', 1)
     const headerRemaining = lastCall[0]?.rate_remaining ?? null
-    const daily_limit = 4000
+    const keyCount = poller.getActiveKeyCount() // 1 or 2 keys configured
+    const daily_limit = 4000 * keyCount
     const db_remaining = daily_limit - db.credits_used
 
     // prefer the more conservative (lower) value when header is available
-    // if header and DB agree within 5%, use header (real-time)
-    // if header reports fewer remaining, use header (safer)
-    // otherwise use DB
+    // header reflects a single key's remaining credits — combine with DB for total
     let remaining = db_remaining
     if (headerRemaining != null) {
-      const drift = Math.abs(headerRemaining - db_remaining) / daily_limit
-      if (drift < 0.05 || headerRemaining < db_remaining) {
-        remaining = headerRemaining
+      // header is for the currently active key only
+      // estimate total: header remaining + unused keys' full allotment
+      // but DB tracks all calls regardless of key, so use DB as primary
+      const drift = Math.abs(headerRemaining - (4000 - db.credits_used)) / 4000
+      if (drift < 0.05 || headerRemaining < (4000 - db.credits_used)) {
+        // single-key: use header. dual-key: header + second key's full 4000
+        remaining = headerRemaining + (keyCount > 1 && headerRemaining < 100 ? 0 : (keyCount - 1) * 4000)
       }
     }
+
+    // clamp to [0, daily_limit]
+    remaining = Math.max(0, Math.min(daily_limit, remaining))
 
     res.json({
       ...db,
       daily_limit,
+      key_count: keyCount,
       db_remaining,
       header_remaining: headerRemaining,
       remaining,

@@ -12,20 +12,15 @@ import DashboardPanel from './components/DashboardPanel'
 
 import axios from 'axios'
 import { fetchStates } from './services/opensky'
-import { fetchAdsbx } from './services/adsbx'
 import { fetchAplByHex } from './services/airplaneslive'
 import { enrichFlight, fetchRouteOnly } from './services/adsbdb'
 import { enrichByHex } from './services/adsbfi'
 import { checkHealth, fetchAeroSpend } from './services/aeroapi'
 
-import { recordSightings, fetchOpenSkyUsageToday, fetchAircraftTrack, lookupRoutes, saveRoutes } from './services/sightings'
+import { fetchOpenSkyUsageToday, fetchAircraftTrack, lookupRoutes, saveRoutes } from './services/sightings'
 
 // ── default settings ──────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
-  sourcePref: 'auto',
-  adsbxKey: '',
-  adsbxRadius: 100,
-  interval: 90,
   userAeroKey: '',
   userOsClientId: '',
   userOsClientSecret: '',
@@ -66,8 +61,6 @@ export default function App() {
   const [region, setRegion] = useState('usa')
   const [filter, setFilter] = useState('')
   const [fetching, setFetching] = useState(false)
-  const [autoOn, setAutoOn] = useState(false)
-  const [activeSource, setActiveSource] = useState('opensky')
   const [backendOk, setBackendOk] = useState(false)
   const [statusText, setStatusText] = useState('idle')
   const [lastFetchAt, setLastFetchAt] = useState(null)
@@ -161,8 +154,6 @@ export default function App() {
     processQueue()
   }, [])
 
-  // ── auto-refresh ref ────────────────────────────────────────────────────────
-  const autoRef = useRef(null)
   const fetchFlightsRef = useRef(null)
   const openskyUsageRef = useRef(null)
   openskyUsageRef.current = openskyUsage
@@ -242,15 +233,15 @@ export default function App() {
         log('usage data loaded', 'ok')
       }
 
-      if (isProd && health) {
+      if (health) {
         log('fetching initial flight data…', 'info')
         setBootMsg('fetching flights…')
         console.log('[boot] initial fetch')
         await fetchFlightsRef.current?.()
         if (cancelled) return
-        log(`auto-refresh enabled (10s → 15 → 20 → 30 → 50 → ${settings.interval}s)`, 'ok')
-        console.log('[boot] enabling auto-refresh')
-        setAutoOn(true)
+        const intervalSec = pollInterval ? Math.round(pollInterval / 1000) : '?'
+        log(`live sync enabled (${intervalSec}s)`, 'ok')
+        console.log('[boot] live sync enabled')
       }
 
       setBooting(false)
@@ -263,154 +254,119 @@ export default function App() {
     return () => { cancelled = true }
   }, [])
 
-  // ── resolve which source to actually use ─────────────────────────────────────
-  // OpenSky is primary for fleet scanning (one bbox call, instant).
-  // ADSBx if user has a key. Airplanes.live is used to enrich anomalies only.
-  function resolveSource() {
-    if (settings.sourcePref === 'adsbx') return 'adsbx'
-    if (settings.sourcePref === 'opensky') return 'opensky'
-    return settings.adsbxKey ? 'adsbx' : 'opensky'
-  }
-
   // ── fetch flights ─────────────────────────────────────────────────────────────
+  // Primary path: read from backend poller cache (GET /api/flights).
+  // All users see the same data. Backend records sightings + scores anomalies.
+  // Fallback: direct OpenSky fetch if poller region doesn't match.
+  const lastServerFetchRef = useRef(null) // tracks when poller last fetched (to detect new cycles)
+  const fetchingRef = useRef(false)
+  const [pollInterval, setPollInterval] = useState(null) // poll interval from backend (ms)
+
   const fetchFlights = useCallback(async () => {
-    if (fetching) return
+    if (fetchingRef.current) return
 
-    const src = resolveSource()
-
+    fetchingRef.current = true
     setFetching(true)
-    setStatusText('fetching')
     const t0 = performance.now()
 
     let result = null
-    let usedSource = src
+    let serverFetchedAt = null
 
-    // ── ADSBx (paid, unfiltered) ─────────────────────────────────────────────
-    if (src === 'adsbx') {
-      try {
-        log(`adsbx: querying lat/lon radius ${settings.adsbxRadius}nm · region=${region}`, 'info')
-        const { flights: f, remaining } = await fetchAdsbx(region, settings.adsbxKey, settings.adsbxRadius)
-        result = f
-        setActiveSource('adsbx')
-        const ms = Math.round(performance.now() - t0)
-        log(`adsbx: ${f.length} aircraft (${ms}ms)${remaining ? ` · quota remaining: ${remaining}` : ''}`, 'ok')
-        const mil = f.filter(x => x.mil).length
-        if (mil > 0) log(`adsbx: ${mil} military aircraft in feed`, 'warn')
-      } catch (err) {
-        log(`adsbx failed (${err.message}) — falling back to opensky`, 'warn')
-        usedSource = 'opensky'
-      }
-    }
+    try {
+      const resp = await axios.get('/api/flights')
+      const pollerRegion = resp.data?.region
+      const pollerHasData = resp.data?.flights?.length > 0
+      serverFetchedAt = resp.data?.fetchedAt || null
+      if (resp.data?.pollInterval && resp.data.pollInterval !== pollInterval) setPollInterval(resp.data.pollInterval)
 
-    // ── OpenSky via backend poller (shared fetch, no extra API call) ──────────
-    // Use poller's cached data when regions match; fall back to direct proxy otherwise
-    if ((src === 'opensky' || usedSource === 'opensky') && result === null) {
-      try {
-        const resp = await axios.get('/api/flights')
-        const pollerRegion = resp.data?.region
-        const pollerHasData = resp.data?.flights?.length > 0
-
-        if (pollerHasData && pollerRegion === region) {
-          // Region matches — use poller's cached data (no API call)
-          result = resp.data.flights
-          for (const f of result) {
-            if (!f.callsign) f.callsign = '—'
-          }
-          setActiveSource('opensky')
-          const ms = Math.round(performance.now() - t0)
-          const age = resp.data.fetchedAt ? Math.round((Date.now() - resp.data.fetchedAt) / 1000) : '?'
-          log(`flights: ${result.length} aircraft from poller (${ms}ms, ${age}s old)`, 'ok')
-        } else if (pollerHasData && pollerRegion !== region) {
-          // Region mismatch — fall back to direct OpenSky proxy
-          log(`flights: poller region is ${pollerRegion}, need ${region} — fetching direct`, 'info')
-          const direct = await fetchStates(region, {
-            osClientId: settings.userOsClientId,
-            osClientSecret: settings.userOsClientSecret,
-          })
-          result = direct.flights
-          setActiveSource('opensky')
-          const ms = Math.round(performance.now() - t0)
-          log(`opensky: ${result.length} state vectors received (${ms}ms)`, 'ok')
-        } else {
-          log('flights: poller has no data yet — is it running?', 'warn')
-          result = []
+      if (pollerHasData && pollerRegion === region) {
+        result = resp.data.flights
+        for (const f of result) {
+          if (!f.callsign) f.callsign = '—'
         }
-      } catch (err) {
-        log(`flights: backend error (${err.message})`, 'err')
+      } else if (pollerHasData && pollerRegion !== region) {
+        log(`flights: poller region is ${pollerRegion}, need ${region} — fetching direct`, 'info')
+        const direct = await fetchStates(region, {
+          osClientId: settings.userOsClientId,
+          osClientSecret: settings.userOsClientSecret,
+        })
+        result = direct.flights
+        serverFetchedAt = Date.now()
+        const ms = Math.round(performance.now() - t0)
+        log(`opensky: ${result.length} state vectors received (${ms}ms)`, 'ok')
+      } else {
         result = []
       }
+    } catch (err) {
+      log(`flights: backend error (${err.message})`, 'err')
+      result = []
     }
 
     if (result && result.length > 0) {
       setFlights(result)
-      setLastFetchAt(Date.now())
+      setLastFetchAt(serverFetchedAt || Date.now())
 
-      // ── track history snapshots per aircraft ────────────────────────────
-      const MAX_SNAPSHOTS = 30
-      const now = Date.now()
-      setTrackHistory((prev) => {
-        const next = { ...prev }
-        for (const f of result) {
-          if (f.alt == null && f.vel == null) continue
-          const arr = next[f.icao] ? [...next[f.icao]] : []
-          arr.push({ ts: now, lat: f.lat, lon: f.lon, alt: f.alt, vel: f.vel, hdg: f.hdg, grounded: f.grounded, vertRate: f.vertRate, geoAlt: f.geoAlt, posSrc: f.posSrc, ndb: f.ndb })
-          if (arr.length > MAX_SNAPSHOTS) arr.shift()
-          next[f.icao] = arr
+      // Detect new poller cycle (fetchedAt changed) vs enrichment refresh
+      const isNewCycle = serverFetchedAt !== lastServerFetchRef.current
+      lastServerFetchRef.current = serverFetchedAt
+
+      if (isNewCycle) {
+        setStatusText('fetching')
+        const ms = Math.round(performance.now() - t0)
+        const age = serverFetchedAt ? Math.round((Date.now() - serverFetchedAt) / 1000) : '?'
+        log(`flights: ${result.length} aircraft from poller (${ms}ms, ${age}s old)`, 'ok')
+
+        // ── track history snapshots per aircraft ──────────────────────────
+        const MAX_SNAPSHOTS = 30
+        const now = Date.now()
+        setTrackHistory((prev) => {
+          const next = { ...prev }
+          for (const f of result) {
+            if (f.alt == null && f.vel == null) continue
+            const arr = next[f.icao] ? [...next[f.icao]] : []
+            arr.push({ ts: now, lat: f.lat, lon: f.lon, alt: f.alt, vel: f.vel, hdg: f.hdg, grounded: f.grounded, vertRate: f.vertRate, geoAlt: f.geoAlt, posSrc: f.posSrc, ndb: f.ndb })
+            if (arr.length > MAX_SNAPSHOTS) arr.shift()
+            next[f.icao] = arr
+          }
+          return next
+        })
+
+        // ── route lookup for diversion detection ──────────────────────────
+        const allCallsigns = [...new Set(result.map(f => f.callsign).filter(cs => cs && cs !== '—'))]
+        const uncached = allCallsigns.filter(cs => !routeCacheRef.current[cs])
+
+        if (uncached.length > 0) {
+          try {
+            const { routes, unknown } = await lookupRoutes(uncached)
+            for (const [cs, route] of Object.entries(routes)) {
+              routeCacheRef.current[cs] = route
+            }
+            if (unknown.length > 0) {
+              const queued = new Set(enrichQueueRef.current)
+              const toAdd = unknown.filter(cs => !queued.has(cs)).slice(0, 50)
+              enrichQueueRef.current.push(...toAdd)
+              startEnrichQueue()
+            }
+            if (Object.keys(routes).length > 0 || unknown.length > 0) {
+              const cached = Object.keys(routeCacheRef.current).length
+              log(`routes: ${Object.keys(routes).length} new from cache, ${unknown.length} queued · ${cached} total`, 'info')
+            }
+          } catch {}
         }
-        return next
-      })
 
-      // ── route lookup for diversion detection ──────────────────────────────
-      // Only query the backend for callsigns NOT already in the local cache.
-      // This keeps the HTTP + SQL cost proportional to new aircraft, not total.
-      const allCallsigns = [...new Set(result.map(f => f.callsign).filter(cs => cs && cs !== '—'))]
-      const uncached = allCallsigns.filter(cs => !routeCacheRef.current[cs])
-
-      if (uncached.length > 0) {
-        try {
-          const { routes, unknown } = await lookupRoutes(uncached)
-          // Merge backend hits into local cache
-          for (const [cs, route] of Object.entries(routes)) {
-            routeCacheRef.current[cs] = route
-          }
-          // Queue unknowns for slow background route enrichment (1 req / 15s)
-          if (unknown.length > 0) {
-            const queued = new Set(enrichQueueRef.current)
-            const toAdd = unknown.filter(cs => !queued.has(cs))
-            enrichQueueRef.current.push(...toAdd)
-            startEnrichQueue()
-          }
-          // Only log when there's something new to report
-          if (Object.keys(routes).length > 0 || unknown.length > 0) {
-            const cached = Object.keys(routeCacheRef.current).length
-            log(`routes: ${Object.keys(routes).length} new from cache, ${unknown.length} queued · ${cached} total`, 'info')
-          }
-        } catch {
-          // Backend offline — continue without route data
-        }
+        const airborne = result.filter((f) => !f.grounded)
+        const grounded = result.length - airborne.length
+        log(`  airborne: ${airborne.length} · grounded: ${grounded}`, 'info')
       }
-
-      // ── summary stats ─────────────────────────────────────────────────────
-      // Anomaly scoring is now handled by the backend poller service.
-      // The frontend receives anomalies via SSE stream (see useEffect below).
-      const airborne = result.filter((f) => !f.grounded)
-      const grounded = result.length - airborne.length
-      log(`  airborne: ${airborne.length} · grounded: ${grounded}`, 'info')
-
-      // ── persist to SQLite ────────────────────────────────────────────────
-      recordSightings(result, usedSource, region)
-        .then((d) => log(`db: ${d.recorded} sightings recorded`, 'info'))
-        .catch(() => {}) // silent — backend may be offline
-    } else if (result !== null) {
-      log(
-        'no aircraft data returned — possibly rate limited, wait ~60s',
-        'warn'
-      )
+      // else: silent refresh — just updates flight data (picks up new enrichment)
+    } else if (result !== null && !lastServerFetchRef.current) {
+      log('flights: no data yet — poller may still be starting', 'warn')
     }
 
+    fetchingRef.current = false
     setFetching(false)
     setStatusText('idle')
-  }, [fetching, settings, region, log])
+  }, [settings, region, log, pollInterval])
 
   useEffect(() => {
     fetchFlightsRef.current = fetchFlights
@@ -462,37 +418,18 @@ export default function App() {
     return () => es.close()
   }, [log])
 
-  // ── auto-refresh with ramp-up ────────────────────────────────────────────────
-  // Fixed sequence: 10s → 15s → 20s → 30s → 50s → 90s (steady state)
-  const RAMP_STEPS = [10, 15, 20, 30, 50, 90]
-  const rampIdx = useRef(0)
-  const [currentInterval, setCurrentInterval] = useState(RAMP_STEPS[0])
+  // ── auto-refresh ──────────────────────────────────────────────────────────────
+  // Polls backend cache at half the poller interval (floor 5s). This is cheap
+  // (memory + SQLite read, no external API calls). Picks up enrichment (type/reg)
+  // as it trickles in between poller cycles, and new flight positions as soon as
+  // the poller fetches.
   useEffect(() => {
-    if (!autoOn) return
-    function scheduleNext() {
-      const delay = RAMP_STEPS[rampIdx.current] || settings.interval
-      setCurrentInterval(delay)
-      autoRef.current = setTimeout(() => {
-        fetchFlightsRef.current?.()
-        if (rampIdx.current < RAMP_STEPS.length - 1) rampIdx.current++
-        scheduleNext()
-      }, delay * 1000)
-    }
-    scheduleNext()
-    return () => clearTimeout(autoRef.current)
-  }, [autoOn, settings.interval])
-
-  const toggleAuto = () => {
-    if (autoOn) {
-      clearTimeout(autoRef.current)
-      setAutoOn(false)
-      log('auto-refresh disabled', 'info')
-    } else {
-      rampIdx.current = 0  // restart ramp from 10s
-      setAutoOn(true)
-      log('auto-refresh enabled (10s → ' + settings.interval + 's)', 'info')
-    }
-  }
+    const interval = Math.max(5000, Math.round((pollInterval || 45000) / 2))
+    const id = setInterval(() => {
+      fetchFlightsRef.current?.()
+    }, interval)
+    return () => clearInterval(id)
+  }, [pollInterval])
 
   // ── region change ─────────────────────────────────────────────────────────────
   const handleRegionChange = (r) => {
@@ -562,9 +499,6 @@ export default function App() {
     [enrichCache, log]
   )
 
-  // ── no background enrichment — type/reg populate on click only ───────────────
-  // All enrichment (adsbdb, adsb.fi, airplanes.live) is deferred to row click
-  // to avoid rate-limiting. Table columns that need enrichment show '—' until clicked.
 
   // ── arrived / departed aircraft log ──────────────────────────────────────────
   const handleArrived = useCallback(
@@ -604,12 +538,7 @@ export default function App() {
   const handleSaveSettings = (newSettings) => {
     setSettings(newSettings)
     saveSettings(newSettings)
-    log(
-      `settings saved · source=${newSettings.sourcePref} interval=${newSettings.interval}s`,
-      'ok'
-    )
-    // Reset ramp to steady state (already ramped up by now)
-    rampIdx.current = RAMP_STEPS.length - 1
+    log('settings saved', 'ok')
     setShowSettings(false)
   }
 
@@ -625,10 +554,7 @@ export default function App() {
       : null,
   }
 
-  const botSrc =
-    activeSource === 'adsbx'
-      ? 'adsbexchange.com (rapidapi) + api.adsbdb.com'
-      : 'opensky-network.org + api.adsbdb.com'
+  const botSrc = 'opensky-network.org + api.adsbdb.com'
 
   // ── render ────────────────────────────────────────────────────────────────────
   return (
@@ -655,9 +581,7 @@ export default function App() {
         <div className="col-span-full row-start-1">
           <TopBar
             stats={stats}
-            source={activeSource}
             backendOk={backendOk}
-            autoOn={autoOn}
             lastFetchAt={lastFetchAt}
           />
         </div>
@@ -667,19 +591,14 @@ export default function App() {
           <ControlBar
             filter={filter}
             onFilterChange={setFilter}
-            onFetch={fetchFlights}
-            fetching={fetching}
-            hasFetched={lastFetchAt !== null}
-            autoOn={autoOn}
-            onToggleAuto={toggleAuto}
             onClearLog={clearLog}
             onOpenSettings={() => setShowSettings(true)}
             onOpenUsage={() => setShowUsage(true)}
             onOpenNotams={() => setShowNotams(true)}
             region={region}
             onRegionChange={handleRegionChange}
-            interval={currentInterval}
             lastFetchAt={lastFetchAt}
+            pollInterval={pollInterval}
           />
         </div>
 
@@ -756,7 +675,7 @@ export default function App() {
       </div>
 
       {/* Page 2: dashboard — always visible, scroll down to see */}
-      <DashboardPanel backendOk={backendOk} activeSource={activeSource} region={region} lastFetchAt={lastFetchAt} />
+      <DashboardPanel backendOk={backendOk} region={region} lastFetchAt={lastFetchAt} />
 
       {/* Sticky status bar — always at bottom of viewport */}
       <div className="sticky bottom-0 z-40 bg-acc py-0.5 px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg">

@@ -1,14 +1,7 @@
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
-import { testAdsbxKey } from '../services/adsbx'
 import { testAdsbfi } from '../services/adsbfi'
 import { fetchKeyStatus } from '../services/aeroapi'
-
-const SOURCE_OPTIONS = [
-  { key: 'auto',    name: 'auto',    desc: 'opensky default\nadsbx if key set' },
-  { key: 'opensky', name: 'opensky', desc: 'free · global bbox\n4K credits/day' },
-  { key: 'adsbx',   name: 'adsbx',   desc: 'requires key\nunfiltered · ~$10/mo' },
-]
 
 function StatusDot({ ok, label }) {
   return (
@@ -21,8 +14,6 @@ function StatusDot({ ok, label }) {
 
 export default function SettingsModal({ settings, onSave, onClose }) {
   const [local, setLocal] = useState({ ...settings })
-  const [testResult, setTestResult] = useState(null)
-  const [testing, setTesting] = useState(false)
   const [adsbfiResult, setAdsbfiResult] = useState(null)
   const [testingAdsbfi, setTestingAdsbfi] = useState(false)
   const [serverKeys, setServerKeys] = useState(null)
@@ -32,19 +23,6 @@ export default function SettingsModal({ settings, onSave, onClose }) {
   }, [])
 
   const set = (key, val) => setLocal(prev => ({ ...prev, [key]: val }))
-
-  const handleTest = async () => {
-    if (!local.adsbxKey) { setTestResult({ ok: false, msg: 'no key entered' }); return }
-    setTesting(true); setTestResult(null)
-    try {
-      await testAdsbxKey(local.adsbxKey)
-      setTestResult({ ok: true, msg: '✓ connection ok' })
-    } catch {
-      setTestResult({ ok: false, msg: '✗ connection failed' })
-    } finally {
-      setTesting(false)
-    }
-  }
 
   const handleTestAdsbfi = async () => {
     setTestingAdsbfi(true); setAdsbfiResult(null)
@@ -68,26 +46,6 @@ export default function SettingsModal({ settings, onSave, onClose }) {
 
         <div className="p-4 overflow-y-auto flex-1">
 
-          {/* Source selector */}
-          <div className="mb-4">
-            <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">live data source</div>
-            <div className="flex gap-1.5">
-              {SOURCE_OPTIONS.map(opt => (
-                <button
-                  key={opt.key}
-                  className={clsx(
-                    'flex-1 border py-2 px-2 cursor-pointer text-[11px] text-center bg-transparent font-mono',
-                    local.sourcePref === opt.key ? 'border-acc text-acc' : 'border-border2 text-fg2'
-                  )}
-                  onClick={() => set('sourcePref', opt.key)}
-                >
-                  <div className="text-xs mb-0.5">{opt.name}</div>
-                  <div className="text-[10px] text-fg3 leading-snug">{opt.desc}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* API health status */}
           {serverKeys && (
             <div className="mb-4">
@@ -98,7 +56,6 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 <StatusDot ok={serverKeys.aeroapi} label="aeroapi (server)" />
                 <StatusDot ok={!!local.userAeroKey} label="aeroapi (yours)" />
                 <StatusDot ok={true} label="airplanes.live (free)" />
-                <StatusDot ok={!!local.adsbxKey} label="adsbx (yours)" />
                 <StatusDot ok={serverKeys.faa_notam} label="faa notam (server)" />
                 <StatusDot ok={serverKeys.s3_archive?.enabled} label={
                   serverKeys.s3_archive?.enabled
@@ -175,59 +132,6 @@ export default function SettingsModal({ settings, onSave, onClose }) {
             </div>
           </div>
 
-          {/* ADS-B Exchange */}
-          <div className="mb-4">
-            <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">ads-b exchange — rapidapi</div>
-            <div className="flex flex-col gap-1 mb-2.5">
-              <label className="text-fg3 text-[11px]">x-rapidapi-key</label>
-              <input
-                type="password"
-                className="bg-bg border border-border2 text-fg text-xs py-1.5 px-2 outline-none w-full font-mono"
-                value={local.adsbxKey}
-                onChange={e => set('adsbxKey', e.target.value)}
-                placeholder="paste key here"
-              />
-            </div>
-            <div className="flex flex-col gap-1 mb-2.5">
-              <label className="text-fg3 text-[11px]">search radius (nm, 1–100)</label>
-              <input
-                type="number"
-                className="bg-bg border border-border2 text-fg text-xs py-1.5 px-2 outline-none w-full font-mono"
-                min={1} max={100}
-                value={local.adsbxRadius}
-                onChange={e => set('adsbxRadius', Math.min(100, Math.max(1, Number(e.target.value))))}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                className="bg-transparent border border-border2 text-fg2 text-[11px] py-0.5 px-2 cursor-pointer font-mono"
-                onClick={handleTest}
-                disabled={testing}
-              >
-                {testing ? 'testing...' : 'test connection'}
-              </button>
-              {testResult && (
-                <span className={clsx('text-[11px]', testResult.ok ? 'text-grn' : 'text-red')}>
-                  {testResult.msg}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Behaviour */}
-          <div className="mb-4">
-            <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">behaviour</div>
-            <div className="flex flex-col gap-1 mb-2.5">
-              <label className="text-fg3 text-[11px]">auto-refresh interval (seconds, min 15)</label>
-              <input
-                type="number"
-                className="bg-bg border border-border2 text-fg text-xs py-1.5 px-2 outline-none w-full font-mono"
-                min={15} max={300}
-                value={local.interval}
-                onChange={e => set('interval', Math.max(15, Number(e.target.value)))}
-              />
-            </div>
-          </div>
 
         </div>
 

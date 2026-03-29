@@ -184,11 +184,11 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
         va = a.vertRate ?? null
         vb = b.vertRate ?? null
       } else if (sortKey === 'type') {
-        va = enrichCache[a.icao]?.adsbfi?.type || enrichCache[a.icao]?.aircraft?.icao_type || ''
-        vb = enrichCache[b.icao]?.adsbfi?.type || enrichCache[b.icao]?.aircraft?.icao_type || ''
+        va = enrichCache[a.icao]?.adsbfi?.type || enrichCache[a.icao]?.aircraft?.icao_type || a.acType || ''
+        vb = enrichCache[b.icao]?.adsbfi?.type || enrichCache[b.icao]?.aircraft?.icao_type || b.acType || ''
       } else if (sortKey === 'reg') {
-        va = enrichCache[a.icao]?.adsbfi?.reg || enrichCache[a.icao]?.aircraft?.registration || ''
-        vb = enrichCache[b.icao]?.adsbfi?.reg || enrichCache[b.icao]?.aircraft?.registration || ''
+        va = enrichCache[a.icao]?.adsbfi?.reg || enrichCache[a.icao]?.aircraft?.registration || a.acReg || ''
+        vb = enrichCache[b.icao]?.adsbfi?.reg || enrichCache[b.icao]?.aircraft?.registration || b.acReg || ''
       } else if (sortKey === 'country') {
         va = a.country || ''
         vb = b.country || ''
@@ -389,8 +389,8 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
             const dimmed = (anomalyHighlight || squawkHighlight) && !hlAnomaly && !hlSquawk
             const hist = trackHistory[f.icao]
             const phase = hist?.length >= 2 ? detectPhase(hist) : (f.grounded ? PHASE.GROUND : PHASE.UNKNOWN)
-            const acType = enrich?.adsbfi?.type || enrich?.aircraft?.icao_type || null
-            const acReg = enrich?.adsbfi?.reg || enrich?.aircraft?.registration || null
+            const acType = enrich?.adsbfi?.type || enrich?.aircraft?.icao_type || f.acType || null
+            const acReg = enrich?.adsbfi?.reg || enrich?.aircraft?.registration || f.acReg || null
             const vr = f.vertRate != null ? Math.round(f.vertRate * 196.85) : (enrich?.adsbfi?.baroRate ?? null) // m/s → ft/min
             return (
               <tr

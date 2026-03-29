@@ -292,6 +292,41 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_routes_updated ON callsign_routes(updated_at);
 `)
 
+// ── Aircraft enrichment cache (type, reg, operator by ICAO hex) ─────────────
+// Populated by poller's background enrichment. Survives restarts.
+// 30-day staleness — aircraft rarely change type/reg.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS aircraft_cache (
+    icao        TEXT PRIMARY KEY,
+    type        TEXT,
+    reg         TEXT,
+    desc        TEXT,
+    operator    TEXT,
+    source      TEXT DEFAULT 'adsbdb',
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`)
+
+// ── Zone baseline tracking (daily anomaly counts per grid cell) ─────────────
+// Rolled up daily from the anomalies table. Builds a per-zone baseline so we
+// can detect when a zone is unusually active vs its historical norm.
+// Grid cells match the hotspot query: ROUND(lat*2)/2, ROUND(lon*2)/2 (~0.5°)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS zone_daily (
+    date        TEXT NOT NULL,
+    cell_lat    REAL NOT NULL,
+    cell_lon    REAL NOT NULL,
+    count       INTEGER NOT NULL DEFAULT 0,
+    critical    INTEGER NOT NULL DEFAULT 0,
+    high        INTEGER NOT NULL DEFAULT 0,
+    medium      INTEGER NOT NULL DEFAULT 0,
+    unique_aircraft INTEGER NOT NULL DEFAULT 0,
+    categories  TEXT,
+    PRIMARY KEY (date, cell_lat, cell_lon)
+  );
+  CREATE INDEX IF NOT EXISTS idx_zone_daily_date ON zone_daily(date);
+`)
+
 // ── prepared statements (pre-compiled once) ─────────────────────────────────
 
 const _stmts = {
@@ -460,6 +495,16 @@ const _stmts = {
     SELECT * FROM anomalies WHERE icao = ? ORDER BY detected_at DESC LIMIT ?
   `),
 
+  // Anomalies in a specific grid cell (for zone drilldown)
+  anomaliesByZone: db.prepare(`
+    SELECT * FROM anomalies
+    WHERE lat IS NOT NULL AND lon IS NOT NULL
+      AND ROUND(lat * 2) / 2 = ? AND ROUND(lon * 2) / 2 = ?
+      AND detected_at > datetime('now', ?)
+    ORDER BY detected_at DESC
+    LIMIT ?
+  `),
+
   // Heatmap: recent sighting positions (1 per aircraft, most recent only)
   trafficHeatmap: db.prepare(`
     SELECT s.lat, s.lon FROM sightings s
@@ -553,6 +598,23 @@ const _stmts = {
     LIMIT 50
   `),
 
+  // ── Aircraft cache statements ─────────────────────────────────────────────
+  aircraftCacheBulk: db.prepare(`
+    SELECT * FROM aircraft_cache WHERE icao IN (SELECT value FROM json_each(?))
+  `),
+
+  aircraftCacheUpsert: db.prepare(`
+    INSERT INTO aircraft_cache (icao, type, reg, desc, operator, source, updated_at)
+    VALUES (@icao, @type, @reg, @desc, @operator, @source, datetime('now'))
+    ON CONFLICT(icao) DO UPDATE SET
+      type = excluded.type,
+      reg = excluded.reg,
+      desc = excluded.desc,
+      operator = excluded.operator,
+      source = excluded.source,
+      updated_at = datetime('now')
+  `),
+
   anomalyHourly: db.prepare(`
     SELECT
       CAST(strftime('%H', detected_at) AS INTEGER) AS hour,
@@ -562,6 +624,71 @@ const _stmts = {
     WHERE detected_at > datetime('now', '-24 hours')
     GROUP BY hour
     ORDER BY hour
+  `),
+
+  // Anomaly hotspots: grid-cell clustering over configurable time window
+  // Groups anomalies into ~0.5° grid cells (~55km), returns cells with 2+ events
+  anomalyHotspots: db.prepare(`
+    SELECT
+      ROUND(lat * 2) / 2 AS cell_lat,
+      ROUND(lon * 2) / 2 AS cell_lon,
+      COUNT(*) AS count,
+      AVG(lat) AS avg_lat,
+      AVG(lon) AS avg_lon,
+      MAX(score) AS max_score,
+      AVG(score) AS avg_score,
+      SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) AS critical,
+      SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END) AS high,
+      SUM(CASE WHEN severity = 'MEDIUM' THEN 1 ELSE 0 END) AS medium,
+      GROUP_CONCAT(DISTINCT category) AS categories,
+      COUNT(DISTINCT icao) AS unique_aircraft,
+      MIN(detected_at) AS first_seen,
+      MAX(detected_at) AS last_seen
+    FROM anomalies
+    WHERE lat IS NOT NULL AND lon IS NOT NULL
+      AND detected_at > datetime('now', ?)
+    GROUP BY cell_lat, cell_lon
+    HAVING count >= ?
+    ORDER BY count DESC
+    LIMIT 50
+  `),
+
+  // Zone daily rollup: aggregate yesterday's anomalies into zone_daily
+  zoneDailyRollup: db.prepare(`
+    INSERT OR REPLACE INTO zone_daily (date, cell_lat, cell_lon, count, critical, high, medium, unique_aircraft, categories)
+    SELECT
+      DATE(detected_at) AS date,
+      ROUND(lat * 2) / 2 AS cell_lat,
+      ROUND(lon * 2) / 2 AS cell_lon,
+      COUNT(*) AS count,
+      SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END),
+      SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END),
+      SUM(CASE WHEN severity = 'MEDIUM' THEN 1 ELSE 0 END),
+      COUNT(DISTINCT icao),
+      GROUP_CONCAT(DISTINCT category)
+    FROM anomalies
+    WHERE lat IS NOT NULL AND lon IS NOT NULL
+      AND DATE(detected_at) = ?
+    GROUP BY date, cell_lat, cell_lon
+  `),
+
+  // Zone baseline: rolling average per cell over N days
+  zoneBaseline: db.prepare(`
+    SELECT
+      cell_lat, cell_lon,
+      AVG(count) AS avg_daily,
+      MAX(count) AS max_daily,
+      SUM(count) AS total,
+      COUNT(*) AS days_active
+    FROM zone_daily
+    WHERE date >= DATE('now', ?)
+      AND date < DATE('now')
+    GROUP BY cell_lat, cell_lon
+  `),
+
+  // Purge old zone_daily rows (keep 90 days)
+  zoneDailyPurge: db.prepare(`
+    DELETE FROM zone_daily WHERE date < DATE('now', '-90 days')
   `),
 }
 
@@ -744,6 +871,8 @@ function resolveAnomalies(icaos) {
 }
 
 function parseAnomaly(r) {
+  const { nearestAirport } = require('./anomaly')
+  const near = nearestAirport(r.lat, r.lon)
   return {
     ...r,
     reasons: JSON.parse(r.reasons || '[]'),
@@ -751,6 +880,10 @@ function parseAnomaly(r) {
     weather_context: r.weather_context ? JSON.parse(r.weather_context) : null,
     confirmed: !!r.confirmed,
     resolved: !!r.resolved,
+    nearest_airport: near?.icao || null,
+    airport_city: near?.city || null,
+    airport_state: near?.state || null,
+    airport_dist_km: near?.dist_km ?? null,
   }
 }
 
@@ -764,6 +897,10 @@ function getActiveAnomalies() {
 
 function getAnomaliesByIcao(icao, limit = 20) {
   return _stmts.anomaliesByIcao.all(icao, limit).map(parseAnomaly)
+}
+
+function getAnomaliesByZone(cellLat, cellLon, hours = 168, limit = 30) {
+  return _stmts.anomaliesByZone.all(cellLat, cellLon, `-${hours} hours`, limit).map(parseAnomaly)
 }
 
 function getTrafficHeatmap() {
@@ -781,6 +918,92 @@ function getAnomalyStats() {
     repeaters,
     hourly,
   }
+}
+
+// ── Anomaly hotspot clustering ───────────────────────────────────────────────
+
+function getAnomalyHotspots(hours = 168, minCount = 2) {
+  const { nearestAirport } = require('./anomaly')
+  const timeOffset = `-${hours} hours`
+  const rows = _stmts.anomalyHotspots.all(timeOffset, minCount)
+
+  // Load baseline averages (last 30 days, excluding today)
+  const baselineRows = _stmts.zoneBaseline.all('-30 days')
+  const baselineMap = {}
+  for (const b of baselineRows) {
+    baselineMap[`${b.cell_lat},${b.cell_lon}`] = b
+  }
+
+  return rows.map(r => {
+    const near = nearestAirport(r.avg_lat, r.avg_lon)
+    const cellKey = `${ROUND2(r.avg_lat)},${ROUND2(r.avg_lon)}`
+    const baseline = baselineMap[cellKey]
+
+    // Current rate: events per day in the query window
+    const days = Math.max(1, hours / 24)
+    const currentDaily = r.count / days
+
+    // Deviation: how many times above baseline (null if no baseline yet)
+    let deviation = null
+    if (baseline && baseline.avg_daily > 0) {
+      deviation = Math.round((currentDaily / baseline.avg_daily) * 10) / 10
+    }
+
+    return {
+      lat: r.avg_lat,
+      lon: r.avg_lon,
+      count: r.count,
+      max_score: r.max_score,
+      avg_score: Math.round(r.avg_score),
+      critical: r.critical,
+      high: r.high,
+      medium: r.medium,
+      categories: r.categories ? r.categories.split(',') : [],
+      unique_aircraft: r.unique_aircraft,
+      first_seen: r.first_seen,
+      last_seen: r.last_seen,
+      nearest_airport: near?.icao || null,
+      airport_city: near?.city || null,
+      airport_state: near?.state || null,
+      airport_dist_km: near?.dist_km ?? null,
+      // Baseline context
+      baseline_avg: baseline ? Math.round(baseline.avg_daily * 10) / 10 : null,
+      baseline_max: baseline?.max_daily ?? null,
+      baseline_days: baseline?.days_active ?? 0,
+      deviation, // e.g. 3.2 = 3.2x above baseline, null = no baseline yet
+    }
+  })
+}
+
+// Round to 0.5° grid cell (matches SQL: ROUND(lat*2)/2)
+function ROUND2(v) { return Math.round(v * 2) / 2 }
+
+// ── Zone baseline rollup ─────────────────────────────────────────────────────
+
+// Roll up a specific day's anomalies into zone_daily
+function rollupZoneDaily(dateStr) {
+  return _stmts.zoneDailyRollup.run(dateStr).changes
+}
+
+// Roll up yesterday (called from maintenance cycle)
+function rollupYesterday() {
+  const yesterday = new Date(Date.now() - 86400000).toISOString().substring(0, 10)
+  return rollupZoneDaily(yesterday)
+}
+
+// Purge old zone_daily data (>90 days)
+function purgeZoneDaily() {
+  return _stmts.zoneDailyPurge.run().changes
+}
+
+// Backfill zone_daily from historical anomalies (run once to bootstrap baseline)
+function backfillZoneDaily(days = 30) {
+  let total = 0
+  for (let i = 1; i <= days; i++) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().substring(0, 10)
+    total += rollupZoneDaily(d)
+  }
+  return total
 }
 
 // ── Route cache functions ────────────────────────────────────────────────────
@@ -833,6 +1056,41 @@ function getRouteCount() {
 // Callsigns not seen/updated in 30+ days — candidates for re-enrichment
 function getStaleRoutes() {
   return _stmts.routeStale.all().map(r => r.callsign)
+}
+
+// ── Aircraft enrichment cache ────────────────────────────────────────────────
+
+function getAircraftCacheBulk(icaos) {
+  if (!icaos.length) return {}
+  const rows = _stmts.aircraftCacheBulk.all(JSON.stringify(icaos))
+  const map = {}
+  for (const r of rows) map[r.icao] = r
+  return map
+}
+
+function getAircraftCacheIcaos() {
+  return new Set(db.prepare('SELECT icao FROM aircraft_cache').all().map(r => r.icao))
+}
+
+// ICAOs cached as 'unknown' (no data from primary source) — eligible for fallback retry
+function getUnknownAircraftIcaos() {
+  return new Set(db.prepare("SELECT icao FROM aircraft_cache WHERE source = 'unknown'").all().map(r => r.icao))
+}
+
+function upsertAircraftCache(entries) {
+  const tx = db.transaction(() => {
+    for (const e of entries) {
+      _stmts.aircraftCacheUpsert.run({
+        icao: e.icao,
+        type: e.type || null,
+        reg: e.reg || null,
+        desc: e.desc || null,
+        operator: e.operator || null,
+        source: e.source || 'adsbdb',
+      })
+    }
+  })
+  tx()
 }
 
 // ── API usage tracking ──────────────────────────────────────────────────────
@@ -964,6 +1222,13 @@ async function runPurgeCycle() {
   purgeOldAnomalies(cutoff)
   purgeOldDailySummaries()
   purgeStaleRoutes()
+
+  // Zone baseline rollup: aggregate yesterday's anomalies into daily zone data
+  const zoneRows = rollupYesterday()
+  if (zoneRows > 0) console.log(`  zone: rolled up ${zoneRows} zone-day records`)
+  const zonePurged = purgeZoneDaily()
+  if (zonePurged > 0) console.log(`  zone: purged ${zonePurged} zone records (>90d)`)
+
   vacuumDb()
 }
 
@@ -1043,6 +1308,15 @@ function runDeferredMaintenance() {
       deduplicateExisting()
       vacuumDb()
       await runPurgeCycle()
+
+      // Bootstrap zone baseline from historical anomalies if zone_daily is empty
+      const zoneCount = db.prepare('SELECT COUNT(*) as c FROM zone_daily').get().c
+      if (zoneCount === 0) {
+        console.log('db: backfilling zone baseline (30 days)...')
+        const filled = backfillZoneDaily(30)
+        console.log(`db: backfilled ${filled} zone-day records`)
+      }
+
       console.log('db: deferred maintenance complete')
     } catch (err) {
       console.error('deferred maintenance error:', err.message)
@@ -1106,7 +1380,12 @@ module.exports = {
   getActiveAnomalies,
   getAnomaliesByIcao,
   getAnomalyStats,
+  getAnomalyHotspots,
+  getAnomaliesByZone,
   getTrafficHeatmap,
+  rollupYesterday,
+  purgeZoneDaily,
+  backfillZoneDaily,
   forcePurge,
   getRoute,
   getRoutesBulk,
@@ -1115,4 +1394,8 @@ module.exports = {
   touchRoutes,
   getRouteCount,
   getStaleRoutes,
+  getAircraftCacheBulk,
+  getAircraftCacheIcaos,
+  getUnknownAircraftIcaos,
+  upsertAircraftCache,
 }

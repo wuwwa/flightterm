@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, Marker, Polygon, Circle, Rectangle, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Circle, Polygon, Rectangle, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { fetchAnomalyFeed } from '../../services/dashboard'
+import { fetchAnomalyFeed, fetchAnomalyHotspots } from '../../services/dashboard'
 import { fetchSigmets, fetchPireps } from '../../services/weather'
 import { REGIONS } from '../../services/opensky'
 
@@ -82,7 +82,7 @@ function AutoBounds({ points }) {
 
 // ── Search boundary overlay ─────────────────────────────────────────────────
 // Shows where data is being fetched from. Pulses briefly on each refresh.
-function SearchBoundary({ activeSource, region, lastFetchAt }) {
+function SearchBoundary({ region, lastFetchAt }) {
   const [opacity, setOpacity] = useState(0.25)
 
   // Pulse on refresh: flash bright then fade
@@ -94,55 +94,34 @@ function SearchBoundary({ activeSource, region, lastFetchAt }) {
     return () => { clearTimeout(t1); clearTimeout(t2) }
   }, [lastFetchAt])
 
-  // OpenSky — show bounding box rectangle
-  if ((activeSource === 'opensky' || activeSource === 'fallback') && REGIONS[region]?.bbox) {
-    const b = REGIONS[region].bbox
-    return (
-      <Rectangle
-        bounds={[[b.lamin, b.lomin], [b.lamax, b.lomax]]}
-        pathOptions={{
-          color: '#33ff66',
-          fillColor: 'transparent',
-          fillOpacity: 0,
-          weight: 1,
-          opacity: opacity,
-          dashArray: '8 4',
-        }}
-      />
-    )
-  }
+  if (!REGIONS[region]?.bbox) return null
 
-  // ADSBx — show single circle from region center
-  if (activeSource === 'adsbx') {
-    const center = REGION_CENTERS[region]
-    if (center) {
-      return (
-        <Circle
-          center={center}
-          radius={100 * 1852} // default 100nm radius
-          pathOptions={{
-            color: '#44ccff',
-            fillColor: '#44ccff',
-            fillOpacity: opacity * 0.2,
-            weight: 1,
-            opacity: opacity,
-            dashArray: '6 4',
-          }}
-        />
-      )
-    }
-  }
-
-  return null
+  const b = REGIONS[region].bbox
+  return (
+    <Rectangle
+      bounds={[[b.lamin, b.lomin], [b.lamax, b.lomax]]}
+      pathOptions={{
+        color: '#33ff66',
+        fillColor: 'transparent',
+        fillOpacity: 0,
+        weight: 1,
+        opacity: opacity,
+        dashArray: '8 4',
+      }}
+    />
+  )
 }
 
-export default function HeatMap({ backendOk, region = 'usa', activeSource, lastFetchAt, onSelect }) {
+export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSelect }) {
   const [anomalies, setAnomalies] = useState([])
+  const [hotspots, setHotspots] = useState([])
   const [sigmets, setSigmets] = useState([])
   const [pireps, setPireps] = useState([])
   const [loading, setLoading] = useState(false)
-  const [showWx, setShowWx] = useState(true)
+  const [showWx, setShowWx] = useState(false)
   const [showBounds, setShowBounds] = useState(true)
+  const [showHotspots, setShowHotspots] = useState(false)
+  const [sevFilter, setSevFilter] = useState({ CRITICAL: true, HIGH: true, MEDIUM: true })
 
   const refresh = () => {
     if (!backendOk) return
@@ -150,10 +129,12 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
     const bbox = REGION_BBOX[region] || REGION_BBOX.usa
     Promise.all([
       fetchAnomalyFeed(50).catch(() => []),
+      fetchAnomalyHotspots(168, 2).catch(() => []),
       fetchSigmets().catch(() => []),
       fetchPireps(bbox[0], bbox[1], bbox[2], bbox[3], { age: 2, inten: 'mod' }).catch(() => []),
-    ]).then(([a, s, p]) => {
+    ]).then(([a, h, s, p]) => {
       setAnomalies(a)
+      setHotspots(h)
       setSigmets(s)
       setPireps(p)
     }).finally(() => setLoading(false))
@@ -162,11 +143,12 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
   useEffect(() => {
     if (!backendOk) return
     refresh()
-    const id = setInterval(refresh, 60_000) // 1 min — keep map in sync with anomaly state
+    const id = setInterval(refresh, 60_000)
     return () => clearInterval(id)
   }, [backendOk, region])
 
-  const points = anomalies.filter(a => a.lat != null && a.lon != null)
+  const allPoints = anomalies.filter(a => a.lat != null && a.lon != null)
+  const points = allPoints.filter(a => sevFilter[a.severity] !== false)
   const center = REGION_CENTERS[region] || REGION_CENTERS.usa
 
   // SIGMET polygons with valid coords
@@ -188,11 +170,9 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
   }))
 
   const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0 }
-  for (const p of points) counts[p.severity] = (counts[p.severity] || 0) + 1
+  for (const p of allPoints) counts[p.severity] = (counts[p.severity] || 0) + 1
 
-  const sourceLabel = activeSource === 'adsbx' ? 'adsbx'
-    : activeSource === 'opensky' ? 'opensky'
-    : activeSource || '—'
+  const sourceLabel = 'opensky'
 
   return (
     <div className="bg-bg1">
@@ -206,6 +186,12 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
             {showBounds ? sourceLabel : 'SCAN'}
           </button>
           <button
+            onClick={() => setShowHotspots(h => !h)}
+            className={`px-1.5 py-px border rounded transition-colors ${showHotspots ? 'border-mag/50 text-mag' : 'border-border text-fg3'}`}
+          >
+            hotspots {hotspots.length > 0 ? `(${hotspots.length})` : ''}
+          </button>
+          <button
             onClick={() => setShowWx(w => !w)}
             className={`px-1.5 py-px border rounded transition-colors ${showWx ? 'border-acc/50 text-acc' : 'border-border text-fg3'}`}
           >
@@ -217,6 +203,22 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
           {showWx && pirepPoints.length > 0 && (
             <span><span className="text-ylw">{pirepPoints.length}</span> PIREP{pirepPoints.length !== 1 ? 's' : ''}</span>
           )}
+          <span className="flex gap-0 border border-border rounded overflow-hidden">
+            {[
+              { key: 'CRITICAL', label: 'crit', on: 'bg-red/20 text-red', color: 'text-red' },
+              { key: 'HIGH', label: 'high', on: 'bg-ylw/20 text-ylw', color: 'text-ylw' },
+              { key: 'MEDIUM', label: 'med', on: 'bg-fg3/20 text-fg3', color: 'text-fg3' },
+            ].map(s => (
+              <button
+                key={s.key}
+                onClick={() => setSevFilter(prev => ({ ...prev, [s.key]: !prev[s.key] }))}
+                className={`px-1 py-px text-[9px] border-none cursor-pointer ${sevFilter[s.key] ? s.on : 'bg-transparent text-fg3/30'}`}
+                title={`${sevFilter[s.key] ? 'Hide' : 'Show'} ${s.key} anomalies`}
+              >
+                {s.label} {counts[s.key] > 0 ? counts[s.key] : ''}
+              </button>
+            ))}
+          </span>
           {points.length > 0 ? (
             <span>{points.length} anomal{points.length !== 1 ? 'ies' : 'y'}</span>
           ) : (
@@ -243,11 +245,62 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
           {/* Search boundaries — rendered first (behind everything) */}
           {showBounds && (
             <SearchBoundary
-              activeSource={activeSource}
               region={region}
               lastFetchAt={lastFetchAt}
             />
           )}
+
+          {/* Anomaly hotspots — circles colored by deviation from baseline */}
+          {showHotspots && hotspots.map((h, i) => {
+            // If baseline exists, color by deviation (how unusual vs history)
+            // If no baseline yet, fall back to relative frequency
+            let color, intensity
+            if (h.deviation != null) {
+              // deviation: 1.0 = normal, 2.0 = 2x above baseline, etc.
+              intensity = Math.min(1, (h.deviation - 1) / 4) // 1x→0, 5x+→1
+              color = h.deviation >= 3 ? '#ff3333' : h.deviation >= 1.5 ? '#ff8800' : '#cc66ff'
+            } else {
+              // No baseline — use relative frequency
+              const maxCount = Math.max(...hotspots.map(x => x.count), 1)
+              intensity = h.count / maxCount
+              color = intensity > 0.6 ? '#ff3333' : intensity > 0.3 ? '#ff8800' : '#cc66ff'
+            }
+            const fillOpacity = 0.05 + intensity * 0.1
+            const radius = Math.min(80000, 25000 + h.count * 5000)
+            return (
+              <Circle
+                key={`hs-${i}`}
+                center={[h.lat, h.lon]}
+                radius={radius}
+                pathOptions={{
+                  color,
+                  fillColor: color,
+                  fillOpacity,
+                  weight: 1.5,
+                  opacity: 0.4 + intensity * 0.4,
+                  dashArray: '6 3',
+                }}
+              >
+                <Tooltip direction="top" sticky>
+                  <div style={{ fontSize: '10px', lineHeight: '1.4', fontFamily: 'monospace' }}>
+                    <div><strong>HOTSPOT</strong> — {h.count} events (7d)</div>
+                    {h.airport_city && <div><strong>{h.airport_city}, {h.airport_state}</strong> · {h.nearest_airport} ({h.airport_dist_km}km)</div>}
+                    {!h.airport_city && h.nearest_airport && <div>near <strong>{h.nearest_airport}</strong> ({h.airport_dist_km}km)</div>}
+                    <div>{h.unique_aircraft} unique aircraft</div>
+                    {h.deviation != null ? (
+                      <div style={{ color: h.deviation >= 3 ? '#ff3333' : h.deviation >= 1.5 ? '#ff8800' : '#aaa' }}>
+                        {h.deviation}x vs baseline ({h.baseline_avg}/day avg)
+                      </div>
+                    ) : (
+                      <div style={{ opacity: 0.5 }}>building baseline... ({h.baseline_days}d data)</div>
+                    )}
+                    <div style={{ opacity: 0.7 }}>{h.categories.join(', ')}</div>
+                    <div style={{ opacity: 0.5 }}>last: {new Date(h.last_seen).toLocaleString()}</div>
+                  </div>
+                </Tooltip>
+              </Circle>
+            )
+          })}
 
           {/* SIGMET polygons */}
           {showWx && sigmetPolys.map((s, i) => {
@@ -308,6 +361,8 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
                 <div style={{ fontSize: '10px', lineHeight: '1.3', fontFamily: 'monospace' }}>
                   <div><strong>{a.icao}</strong> {a.callsign || ''}</div>
                   <div>{a.severity} · score {a.score}</div>
+                  {a.airport_city && <div>{a.airport_city}, {a.airport_state} · {a.nearest_airport} ({a.airport_dist_km}km)</div>}
+                  {!a.airport_city && a.nearest_airport && <div>near {a.nearest_airport} ({a.airport_dist_km}km)</div>}
                   {a.category && <div>{a.category}</div>}
                   {a.reasons?.[0] && <div style={{ opacity: 0.7 }}>{a.reasons[0]}</div>}
                 </div>
@@ -333,6 +388,22 @@ export default function HeatMap({ backendOk, region = 'usa', activeSource, lastF
             <svg width="10" height="10" viewBox="0 0 20 20"><path d={PLANE_PATH} fill="#555555" stroke="#0d0d0d" strokeWidth="0.8" opacity="0.4"/></svg>
             <span className="text-fg3/50">resolved</span>
           </div>
+          {showHotspots && hotspots.length > 0 && (
+            <div className="mt-0.5 border-t border-white/5 pt-0.5">
+              <div className="flex items-center gap-1.5">
+                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="none" stroke="#cc66ff" strokeWidth="1" strokeDasharray="2 1" opacity="0.7"/></svg>
+                <span className="text-mag">normal</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="none" stroke="#ff8800" strokeWidth="1" strokeDasharray="2 1" opacity="0.7"/></svg>
+                <span style={{ color: '#ff8800' }}>1.5x+ baseline</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="none" stroke="#ff3333" strokeWidth="1" strokeDasharray="2 1" opacity="0.7"/></svg>
+                <span className="text-red">3x+ baseline</span>
+              </div>
+            </div>
+          )}
           {showWx && <>
             <div className="flex items-center gap-1.5 mt-0.5 border-t border-white/5 pt-0.5">
               <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="5,1 9,5 5,9 1,5" fill="#ffcc00" stroke="#0d0d0d" strokeWidth="0.6"/></svg>

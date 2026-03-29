@@ -1,9 +1,6 @@
 import axios from 'axios'
 
-export async function recordSightings(flights, source, region) {
-  const res = await axios.post('/api/sightings', { flights, source, region })
-  return res.data
-}
+// recordSightings removed — backend poller records sightings directly
 
 export async function fetchAircraftTrack(icao, limit = 60) {
   const res = await axios.get(`/api/sightings/track/${icao}`, { params: { limit } })

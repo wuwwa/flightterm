@@ -31,7 +31,7 @@ const CAT_LABELS = {
   INTENT: 'intent',
 }
 
-export default function StatsCards({ stats, anomalyStats, dbMetrics }) {
+export default function StatsCards({ stats, anomalyStats, dbMetrics, onSelectIcao }) {
   const as = anomalyStats || {}
 
   // anomaly rate: anomalies per 100 aircraft tracked
@@ -111,7 +111,11 @@ export default function StatsCards({ stats, anomalyStats, dbMetrics }) {
           </div>
           <div className="bg-bg1 max-h-[100px] overflow-y-auto">
             {as.repeaters.map((r) => (
-              <div key={r.icao} className="flex gap-2 py-0.5 px-2.5 text-[10px] border-b border-white/3">
+              <div
+                key={r.icao}
+                className="flex gap-2 py-0.5 px-2.5 text-[10px] border-b border-white/3 cursor-pointer hover:bg-bg2 transition-colors"
+                onClick={() => onSelectIcao?.(r.icao, r.callsign)}
+              >
                 <span className="text-acc">{r.icao}</span>
                 <span className="text-ylw">{r.callsign || '—'}</span>
                 <span className="text-fg3">{r.count}x</span>

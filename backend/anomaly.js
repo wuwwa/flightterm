@@ -75,58 +75,58 @@ function detectPhase(snapshots) {
   return PHASE.UNKNOWN
 }
 
-// ── Major US airports (top 50) for proximity suppression ────────────────────
+// ── Major US airports (top 50) for proximity suppression + location labeling ─
 const AIRPORTS = [
-  { icao: 'KATL', lat: 33.637, lon: -84.428 },
-  { icao: 'KLAX', lat: 33.943, lon: -118.408 },
-  { icao: 'KDFW', lat: 32.897, lon: -97.038 },
-  { icao: 'KDEN', lat: 39.852, lon: -104.673 },
-  { icao: 'KORD', lat: 41.974, lon: -87.907 },
-  { icao: 'KJFK', lat: 40.641, lon: -73.778 },
-  { icao: 'KMCO', lat: 28.429, lon: -81.309 },
-  { icao: 'KLAS', lat: 36.084, lon: -115.152 },
-  { icao: 'KCLT', lat: 35.214, lon: -80.943 },
-  { icao: 'KMIA', lat: 25.796, lon: -80.287 },
-  { icao: 'KSEA', lat: 47.449, lon: -122.309 },
-  { icao: 'KEWR', lat: 40.693, lon: -74.169 },
-  { icao: 'KSFO', lat: 37.619, lon: -122.379 },
-  { icao: 'KPHX', lat: 33.434, lon: -112.012 },
-  { icao: 'KIAH', lat: 29.984, lon: -95.341 },
-  { icao: 'KBOS', lat: 42.366, lon: -71.010 },
-  { icao: 'KFLL', lat: 26.073, lon: -80.153 },
-  { icao: 'KMSP', lat: 44.882, lon: -93.222 },
-  { icao: 'KLGA', lat: 40.777, lon: -73.873 },
-  { icao: 'KDTW', lat: 42.212, lon: -83.353 },
-  { icao: 'KBWI', lat: 39.176, lon: -76.669 },
-  { icao: 'KDCA', lat: 38.852, lon: -77.038 },
-  { icao: 'KIAD', lat: 38.945, lon: -77.456 },
-  { icao: 'KPHL', lat: 39.872, lon: -75.241 },
-  { icao: 'KSLC', lat: 40.788, lon: -111.978 },
-  { icao: 'KSAN', lat: 32.734, lon: -117.190 },
-  { icao: 'KBNA', lat: 36.124, lon: -86.678 },
-  { icao: 'KAUS', lat: 30.195, lon: -97.670 },
-  { icao: 'KRDU', lat: 35.880, lon: -78.788 },
-  { icao: 'KTPA', lat: 27.975, lon: -82.533 },
-  { icao: 'KSTL', lat: 38.748, lon: -90.370 },
-  { icao: 'KPIT', lat: 40.492, lon: -80.233 },
-  { icao: 'KPDX', lat: 45.589, lon: -122.597 },
-  { icao: 'KMSY', lat: 29.993, lon: -90.258 },
-  { icao: 'KMCI', lat: 39.298, lon: -94.714 },
-  { icao: 'KCLE', lat: 41.412, lon: -81.850 },
-  { icao: 'KSAT', lat: 29.534, lon: -98.470 },
-  { icao: 'KIND', lat: 39.717, lon: -86.294 },
-  { icao: 'KSDF', lat: 38.174, lon: -85.736 },
-  { icao: 'KCVG', lat: 39.049, lon: -84.668 },
-  { icao: 'KOAK', lat: 37.721, lon: -122.221 },
-  { icao: 'KSJC', lat: 37.362, lon: -121.929 },
-  { icao: 'KSMF', lat: 38.695, lon: -121.591 },
-  { icao: 'KHNL', lat: 21.319, lon: -157.922 },
-  { icao: 'KHOU', lat: 29.645, lon: -95.279 },
-  { icao: 'KMDW', lat: 41.786, lon: -87.752 },
-  { icao: 'KDAL', lat: 32.847, lon: -96.852 },
-  { icao: 'KRSW', lat: 26.536, lon: -81.755 },
-  { icao: 'KPBI', lat: 26.683, lon: -80.096 },
-  { icao: 'KABQ', lat: 35.040, lon: -106.609 },
+  { icao: 'KATL', lat: 33.637, lon: -84.428, city: 'Atlanta', state: 'GA' },
+  { icao: 'KLAX', lat: 33.943, lon: -118.408, city: 'Los Angeles', state: 'CA' },
+  { icao: 'KDFW', lat: 32.897, lon: -97.038, city: 'Dallas-Fort Worth', state: 'TX' },
+  { icao: 'KDEN', lat: 39.852, lon: -104.673, city: 'Denver', state: 'CO' },
+  { icao: 'KORD', lat: 41.974, lon: -87.907, city: 'Chicago O\'Hare', state: 'IL' },
+  { icao: 'KJFK', lat: 40.641, lon: -73.778, city: 'New York JFK', state: 'NY' },
+  { icao: 'KMCO', lat: 28.429, lon: -81.309, city: 'Orlando', state: 'FL' },
+  { icao: 'KLAS', lat: 36.084, lon: -115.152, city: 'Las Vegas', state: 'NV' },
+  { icao: 'KCLT', lat: 35.214, lon: -80.943, city: 'Charlotte', state: 'NC' },
+  { icao: 'KMIA', lat: 25.796, lon: -80.287, city: 'Miami', state: 'FL' },
+  { icao: 'KSEA', lat: 47.449, lon: -122.309, city: 'Seattle', state: 'WA' },
+  { icao: 'KEWR', lat: 40.693, lon: -74.169, city: 'Newark', state: 'NJ' },
+  { icao: 'KSFO', lat: 37.619, lon: -122.379, city: 'San Francisco', state: 'CA' },
+  { icao: 'KPHX', lat: 33.434, lon: -112.012, city: 'Phoenix', state: 'AZ' },
+  { icao: 'KIAH', lat: 29.984, lon: -95.341, city: 'Houston IAH', state: 'TX' },
+  { icao: 'KBOS', lat: 42.366, lon: -71.010, city: 'Boston', state: 'MA' },
+  { icao: 'KFLL', lat: 26.073, lon: -80.153, city: 'Fort Lauderdale', state: 'FL' },
+  { icao: 'KMSP', lat: 44.882, lon: -93.222, city: 'Minneapolis', state: 'MN' },
+  { icao: 'KLGA', lat: 40.777, lon: -73.873, city: 'New York LGA', state: 'NY' },
+  { icao: 'KDTW', lat: 42.212, lon: -83.353, city: 'Detroit', state: 'MI' },
+  { icao: 'KBWI', lat: 39.176, lon: -76.669, city: 'Baltimore', state: 'MD' },
+  { icao: 'KDCA', lat: 38.852, lon: -77.038, city: 'Washington DCA', state: 'VA' },
+  { icao: 'KIAD', lat: 38.945, lon: -77.456, city: 'Washington IAD', state: 'VA' },
+  { icao: 'KPHL', lat: 39.872, lon: -75.241, city: 'Philadelphia', state: 'PA' },
+  { icao: 'KSLC', lat: 40.788, lon: -111.978, city: 'Salt Lake City', state: 'UT' },
+  { icao: 'KSAN', lat: 32.734, lon: -117.190, city: 'San Diego', state: 'CA' },
+  { icao: 'KBNA', lat: 36.124, lon: -86.678, city: 'Nashville', state: 'TN' },
+  { icao: 'KAUS', lat: 30.195, lon: -97.670, city: 'Austin', state: 'TX' },
+  { icao: 'KRDU', lat: 35.880, lon: -78.788, city: 'Raleigh-Durham', state: 'NC' },
+  { icao: 'KTPA', lat: 27.975, lon: -82.533, city: 'Tampa', state: 'FL' },
+  { icao: 'KSTL', lat: 38.748, lon: -90.370, city: 'St. Louis', state: 'MO' },
+  { icao: 'KPIT', lat: 40.492, lon: -80.233, city: 'Pittsburgh', state: 'PA' },
+  { icao: 'KPDX', lat: 45.589, lon: -122.597, city: 'Portland', state: 'OR' },
+  { icao: 'KMSY', lat: 29.993, lon: -90.258, city: 'New Orleans', state: 'LA' },
+  { icao: 'KMCI', lat: 39.298, lon: -94.714, city: 'Kansas City', state: 'MO' },
+  { icao: 'KCLE', lat: 41.412, lon: -81.850, city: 'Cleveland', state: 'OH' },
+  { icao: 'KSAT', lat: 29.534, lon: -98.470, city: 'San Antonio', state: 'TX' },
+  { icao: 'KIND', lat: 39.717, lon: -86.294, city: 'Indianapolis', state: 'IN' },
+  { icao: 'KSDF', lat: 38.174, lon: -85.736, city: 'Louisville', state: 'KY' },
+  { icao: 'KCVG', lat: 39.049, lon: -84.668, city: 'Cincinnati', state: 'OH' },
+  { icao: 'KOAK', lat: 37.721, lon: -122.221, city: 'Oakland', state: 'CA' },
+  { icao: 'KSJC', lat: 37.362, lon: -121.929, city: 'San Jose', state: 'CA' },
+  { icao: 'KSMF', lat: 38.695, lon: -121.591, city: 'Sacramento', state: 'CA' },
+  { icao: 'KHNL', lat: 21.319, lon: -157.922, city: 'Honolulu', state: 'HI' },
+  { icao: 'KHOU', lat: 29.645, lon: -95.279, city: 'Houston Hobby', state: 'TX' },
+  { icao: 'KMDW', lat: 41.786, lon: -87.752, city: 'Chicago Midway', state: 'IL' },
+  { icao: 'KDAL', lat: 32.847, lon: -96.852, city: 'Dallas Love', state: 'TX' },
+  { icao: 'KRSW', lat: 26.536, lon: -81.755, city: 'Fort Myers', state: 'FL' },
+  { icao: 'KPBI', lat: 26.683, lon: -80.096, city: 'West Palm Beach', state: 'FL' },
+  { icao: 'KABQ', lat: 35.040, lon: -106.609, city: 'Albuquerque', state: 'NM' },
 ]
 
 const AIRPORT_PROXIMITY_KM = 50 // suppress descent anomalies within this radius
@@ -146,6 +146,22 @@ function nearAirport(lat, lon) {
     if (distKm(lat, lon, ap.lat, ap.lon) < AIRPORT_PROXIMITY_KM) return true
   }
   return false
+}
+
+// Returns nearest airport { icao, city, state, dist_km } or null if none within maxKm
+function nearestAirport(lat, lon, maxKm = 150) {
+  if (lat == null || lon == null) return null
+  let best = null
+  let bestAp = null
+  for (const ap of AIRPORTS) {
+    const d = distKm(lat, lon, ap.lat, ap.lon)
+    if (d < maxKm && (!best || d < best)) {
+      best = d
+      bestAp = ap
+    }
+  }
+  if (!bestAp) return null
+  return { icao: bestAp.icao, city: bestAp.city, state: bestAp.state, dist_km: Math.round(best) }
 }
 
 /**
@@ -727,7 +743,9 @@ module.exports = {
   SEVERITY,
   PHASE,
   ANOMALY_THRESHOLD,
+  AIRPORTS,
   deriveSeverity,
   detectPhase,
   scoreAnomaly,
+  nearestAirport,
 }

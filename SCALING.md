@@ -130,7 +130,7 @@ The goal: anomaly data → API endpoint → event-driven actions that fire based
 ## Current Flow (implemented)
 
 ```text
-Backend poller (90s) → fetches OpenSky → scores anomalies → writes to DB
+Backend poller (POLL_INTERVAL) → fetches OpenSky → scores anomalies → writes to DB
                                                            → emits EventEmitter events
                                                            → pushes to SSE stream
                                                            → frontend displays via EventSource
@@ -222,7 +222,7 @@ All five phases completed. Anomaly detection now runs server-side. 127 backend t
 
 - **`backend/anomaly.js`** — scoring logic copied from frontend, unchanged
 - **`backend/anomaly.test.js`** — 95 characterization tests covering all scoring paths
-- **`backend/poller.js`** — polling service (90s interval, configurable region)
+- **`backend/poller.js`** — polling service (POLL_INTERVAL, default 45s, configurable region)
   - Fetches from OpenSky, maintains track history, scores per aircraft
   - Records anomalies to SQLite, resolves after 3 consecutive clear cycles
   - Emits events via EventEmitter (`anomaly:new`, `anomaly:critical`, `anomaly:resolved`)
@@ -256,7 +256,7 @@ All five phases completed. Anomaly detection now runs server-side. 127 backend t
 ### API Call Reduction
 
 - Before: frontend polled OpenSky every 90s per browser tab (~960 calls/day/tab, doubled with multiple tabs)
-- After: single backend poller makes ~960 calls/day total, regardless of connected clients
+- After: single backend poller makes ~1920 calls/day total, regardless of connected clients (dual-key: 8000 credits/day)
 - Frontend reads cached data from `/api/flights` — zero direct OpenSky calls when region matches
 
 ## Architecture After Migration
@@ -264,7 +264,7 @@ All five phases completed. Anomaly detection now runs server-side. 127 backend t
 | Component | Location | Notes |
 |---|---|---|
 | `scoreAnomaly()`, `detectPhase()` | `backend/anomaly.js` | Unchanged logic, 95 tests |
-| Polling service | `backend/poller.js` | Fetches + scores on 90s timer |
+| Polling service | `backend/poller.js` | Fetches + scores on POLL_INTERVAL timer |
 | Track history | In-memory Map in poller | Per-aircraft, capped at 30 snapshots |
 | Route cache | SQLite `routes` table + in-memory | DB-backed, poller reads via `getRoutesBulk()` |
 | Weather context | Re-fetched each cycle | PIREPs + SIGMETs for scoring context |
