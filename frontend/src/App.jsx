@@ -204,7 +204,11 @@ export default function App() {
           if (cancelled) return null
           setBackendOk(true)
           log(`backend ok · opensky: ${d.opensky_configured ? '✓' : '✗'} · aeroapi: ${d.aeroapi_configured ? '✓' : '✗'} · notam: ${d.faa_notam_configured ? '✓' : '✗'}`, 'ok')
-          console.log('[boot] backend ready')
+          console.log('[boot] backend ready:', {
+            opensky: d.opensky_configured, aeroapi: d.aeroapi_configured, notam: d.faa_notam_configured,
+            poller: d.poller_running ? `running (${d.poller_region}, ${d.poller_aircraft} aircraft)` : 'disabled',
+            db: d.db_size,
+          })
           return d
         } catch {
           if (cancelled) return null
@@ -277,6 +281,7 @@ export default function App() {
       const pollerRegion = resp.data?.region
       const pollerHasData = resp.data?.flights?.length > 0
       serverFetchedAt = resp.data?.fetchedAt || null
+      console.log('[fetch] /api/flights →', { pollerRegion, pollerHasData, flightCount: resp.data?.flights?.length, serverFetchedAt, clientRegion: region })
       if (resp.data?.pollInterval && resp.data.pollInterval !== pollInterval) setPollInterval(resp.data.pollInterval)
 
       if (pollerHasData && pollerRegion === region) {
@@ -298,10 +303,12 @@ export default function App() {
         result = []
       }
     } catch (err) {
+      console.error('[fetch] backend error:', err.message)
       log(`flights: backend error (${err.message})`, 'err')
       result = []
     }
 
+    console.log('[fetch] result:', result?.length ?? 0, 'flights')
     if (result && result.length > 0) {
       setFlights(result)
       setLastFetchAt(serverFetchedAt || Date.now())

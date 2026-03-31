@@ -163,11 +163,15 @@ if (require('fs').existsSync(STATIC_DIR)) {
 
 // Health check
 app.get('/api/health', (_req, res) => {
+  const ps = poller.getStatus()
   res.json({
     status: 'ok',
     aeroapi_configured: !!process.env.AEROAPI_KEY,
     opensky_configured: !!(process.env.OS_CLIENT_ID && process.env.OS_CLIENT_SECRET),
     faa_notam_configured: !!(process.env.FAA_CLIENT_ID && process.env.FAA_CLIENT_SECRET),
+    poller_running: ps.running,
+    poller_region: ps.region,
+    poller_aircraft: ps.trackedAircraft,
     s3_archive: getS3Status(),
     db_size: getDbSize(),
     timestamp: new Date().toISOString()
@@ -1029,17 +1033,31 @@ if (require('fs').existsSync(STATIC_DIR)) {
 
 // Skip listening when imported by vitest (tests use supertest directly)
 if (!process.env.VITEST) app.listen(PORT, () => {
-  console.log(`flightterm backend running on http://localhost:${PORT}`)
-  if (!process.env.AEROAPI_KEY) {
-    console.warn('  ⚠  AEROAPI_KEY not set — add it to backend/.env')
-  } else {
-    console.log('  ✓  AEROAPI_KEY loaded')
-  }
-  if (!process.env.FAA_CLIENT_ID || !process.env.FAA_CLIENT_SECRET) {
-    console.warn('  ⚠  FAA_CLIENT_ID / FAA_CLIENT_SECRET not set — NOTAMs disabled')
-  } else {
-    console.log('  ✓  FAA NOTAM credentials loaded')
-  }
+  console.log(`\n═══ flightterm backend ═══════════════════════════════════════`)
+  console.log(`  port:           ${PORT}`)
+  console.log(`  node:           ${process.version}`)
+  console.log(`  env:            ${process.env.NODE_ENV || 'development'}`)
+  console.log(``)
+  console.log(`  ── data sources ──`)
+  console.log(`  AEROAPI_KEY:    ${process.env.AEROAPI_KEY ? '✓ set' : '✗ not set'}`)
+  console.log(`  OS_CLIENT_ID:   ${process.env.OS_CLIENT_ID ? '✓ set' : '✗ not set'}`)
+  console.log(`  OS_CLIENT_ID_2: ${process.env.OS_CLIENT_ID_2 ? '✓ set' : '✗ not set'}`)
+  console.log(`  FAA_CLIENT_ID:  ${process.env.FAA_CLIENT_ID ? '✓ set' : '✗ not set'}`)
+  console.log(``)
+  console.log(`  ── s3 archive ──`)
+  console.log(`  S3_BUCKET:      ${process.env.S3_BUCKET || '✗ not set'}`)
+  console.log(`  AWS_ACCESS_KEY: ${process.env.AWS_ACCESS_KEY_ID ? '✓ set' : '✗ not set'}`)
+  console.log(``)
+  console.log(`  ── poller ──`)
+  console.log(`  POLLER_ENABLED: ${process.env.POLLER_ENABLED || 'false'}`)
+  console.log(`  POLL_INTERVAL:  ${process.env.POLL_INTERVAL || '45000'}ms`)
+  console.log(`  POLL_REGION:    ${process.env.POLL_REGION || 'usa'}`)
+  console.log(``)
+  console.log(`  ── security ──`)
+  console.log(`  ADMIN_SECRET:   ${process.env.ADMIN_SECRET ? '✓ set' : '✗ not set'}`)
+  console.log(`  CORS_ORIGIN:    ${process.env.CORS_ORIGIN || '*'}`)
+  console.log(`  RATE_LIMIT:     ${RATE_MAX} req/${RATE_WINDOW_MS / 1000}s`)
+  console.log(`═════════════════════════════════════════════════════════════\n`)
 
   // Heavy maintenance (dedup, vacuum, purge) — runs after server is listening
   runDeferredMaintenance()
