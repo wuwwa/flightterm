@@ -31,7 +31,7 @@ const CAT_LABELS = {
   INTENT: 'intent',
 }
 
-export default function StatsCards({ stats, anomalyStats, dbMetrics, onSelectIcao }) {
+export default function StatsCards({ stats, anomalyStats, onSelectIcao }) {
   const as = anomalyStats || {}
 
   // anomaly rate: anomalies per 100 aircraft tracked
@@ -87,21 +87,6 @@ export default function StatsCards({ stats, anomalyStats, dbMetrics, onSelectIca
           small
         />
       </div>
-
-      {/* Database */}
-      {dbMetrics && (
-        <>
-          <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-t border-b border-border">
-            database
-          </div>
-          <div className="grid grid-cols-4 gap-px">
-            <Card value={`${dbMetrics.size_mb} MB`} label="size" colorClass={dbMetrics.size_mb > 50 ? 'text-ylw' : 'text-grn'} small />
-            <Card value={fmt(dbMetrics.sightings)} label="sightings" colorClass="text-cyn" small />
-            <Card value={fmt(dbMetrics.anomalies_active)} label="anomalies" colorClass="text-red" small />
-            <Card value={fmt(dbMetrics.routes)} label="routes" colorClass="text-mag" small />
-          </div>
-        </>
-      )}
 
       {/* Repeat offenders */}
       {as.repeaters?.length > 0 && (

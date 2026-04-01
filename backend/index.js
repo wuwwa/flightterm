@@ -1057,6 +1057,16 @@ if (!process.env.VITEST) app.listen(PORT, () => {
   console.log(`  ADMIN_SECRET:   ${process.env.ADMIN_SECRET ? '✓ set' : '✗ not set'}`)
   console.log(`  CORS_ORIGIN:    ${process.env.CORS_ORIGIN || '*'}`)
   console.log(`  RATE_LIMIT:     ${RATE_MAX} req/${RATE_WINDOW_MS / 1000}s`)
+  console.log(``)
+  console.log(`  ── database ──`)
+  const _sightings = rawDb.prepare('SELECT COUNT(*) as c FROM sightings').get().c
+  const _anomalies = rawDb.prepare('SELECT COUNT(*) as c FROM anomalies').get().c
+  const _routes = getRouteCount()
+  const _sizeMb = (getDbSize() / 1048576).toFixed(1)
+  console.log(`  sightings:      ${_sightings.toLocaleString()}`)
+  console.log(`  anomalies:      ${_anomalies.toLocaleString()}`)
+  console.log(`  routes:         ${_routes.toLocaleString()}`)
+  console.log(`  size:           ${_sizeMb} MB`)
   console.log(`═════════════════════════════════════════════════════════════\n`)
 
   // Heavy maintenance (dedup, vacuum, purge) — runs after server is listening

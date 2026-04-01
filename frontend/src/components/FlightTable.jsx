@@ -379,6 +379,15 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
           </tr>
         </thead>
         <tbody>
+          {displayed.length === 0 && (
+            <tr>
+              <td colSpan={COLS.length} className="text-center py-8 text-fg3 text-[11px]">
+                {flights.length === 0
+                  ? 'waiting for poller — first data arrives in ~45s'
+                  : 'no flights match current filters'}
+              </td>
+            </tr>
+          )}
           {displayed.map(f => {
             const isSel = f.icao === selectedIcao
             const enrich = enrichCache[f.icao]

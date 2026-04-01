@@ -13,7 +13,6 @@ import {
   fetchAnomalyStats,
   fetchAnomalyHotspots,
   fetchSightingStats,
-  fetchDbMetrics,
 } from '../services/dashboard'
 
 const POLL_INTERVAL = 30_000
@@ -22,7 +21,6 @@ export default function DashboardPanel({ backendOk, region: appRegion, lastFetch
   const [anomalies, setAnomalies] = useState([])
   const [anomalyStats, setAnomalyStats] = useState(null)
   const [sightingStats, setSightingStats] = useState(null)
-  const [dbMetrics, setDbMetrics] = useState(null)
   const [hotspots, setHotspots] = useState([])
   const [showDocs, setShowDocs] = useState(false)
   const [selectedAnomaly, setSelectedAnomaly] = useState(null)
@@ -31,17 +29,15 @@ export default function DashboardPanel({ backendOk, region: appRegion, lastFetch
   const refresh = useCallback(async () => {
     if (!backendOk) return
     try {
-      const [a, as2, ss, dbm, hs] = await Promise.all([
+      const [a, as2, ss, hs] = await Promise.all([
         fetchAnomalyFeed(50),
         fetchAnomalyStats(),
         fetchSightingStats(),
-        fetchDbMetrics(),
         fetchAnomalyHotspots(168, 2),
       ])
       setAnomalies(a)
       setAnomalyStats(as2)
       setSightingStats(ss)
-      setDbMetrics(dbm)
       setHotspots(hs)
     } catch {}
   }, [backendOk])
@@ -89,6 +85,14 @@ export default function DashboardPanel({ backendOk, region: appRegion, lastFetch
         </button>
       </div>
 
+      {/* Warming up notice */}
+      {!anomalies.length && !sightingStats && (
+        <div className="bg-bg1 border-b border-border py-3 px-3 text-center">
+          <div className="text-fg3 text-[11px]">waiting for poller data — anomalies and stats will appear after the first few poll cycles</div>
+          <div className="text-fg3/50 text-[10px] mt-0.5">weather and service health are available immediately</div>
+        </div>
+      )}
+
       {/* Status bars — weather + service health side by side */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-border">
         <WeatherStatus region={appRegion || 'usa'} backendOk={backendOk} />
@@ -107,17 +111,16 @@ export default function DashboardPanel({ backendOk, region: appRegion, lastFetch
           </div>
         </div>
 
-        {/* Right: investigation panel + stats — drives row height */}
+        {/* Right: stats — drives row height */}
         <div className="bg-bg1">
-          <AnomalyDrilldown anomaly={selectedAnomaly} onClose={() => setSelectedAnomaly(null)} />
           <ZoneMetrics hotspots={hotspots} onSelectZone={handleSelectZone} selectedZone={selectedZone} />
-          {selectedZone && (
-            <ZoneDrilldown zone={selectedZone} onSelectAnomaly={handleAnomalyClick} onClose={() => setSelectedZone(null)} />
-          )}
-          <StatsCards stats={sightingStats} anomalyStats={anomalyStats} dbMetrics={dbMetrics} onSelectIcao={handleSelectIcao} />
+          <StatsCards stats={sightingStats} anomalyStats={anomalyStats} onSelectIcao={handleSelectIcao} />
         </div>
       </div>
 
+      {/* Popout overlays */}
+      {selectedAnomaly && <AnomalyDrilldown anomaly={selectedAnomaly} onClose={() => setSelectedAnomaly(null)} />}
+      {selectedZone && <ZoneDrilldown zone={selectedZone} onSelectAnomaly={handleAnomalyClick} onClose={() => setSelectedZone(null)} />}
       {showDocs && <DocsPanel onClose={() => setShowDocs(false)} />}
     </div>
   )

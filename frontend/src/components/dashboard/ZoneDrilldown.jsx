@@ -106,9 +106,9 @@ export default function ZoneDrilldown({ zone, onSelectAnomaly, onClose }) {
   const peakHourCount = hourCounts[peakHour]
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center">
+    <div className="fixed inset-0 z-200 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-bg1 border border-border w-[90vw] max-w-[860px] max-h-[85vh] overflow-y-auto">
+      <div className="relative bg-bg1 border border-border w-[90vw] max-w-215 max-h-[85vh] overflow-y-auto">
         {/* Header */}
         <div className="bg-bg2 border-b border-border py-1 px-2.5 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-2">
@@ -220,7 +220,7 @@ export default function ZoneDrilldown({ zone, onSelectAnomaly, onClose }) {
           {/* Column 3: recent anomalies in zone */}
           <div className="bg-bg1 py-1">
             <Group title={`recent anomalies (${anomalies.length})`} color="text-ylw">
-              <div className="max-h-[400px] overflow-y-auto">
+              <div className="max-h-100 overflow-y-auto">
                 {anomalies.length === 0 && !loading && (
                   <div className="text-[10px] text-fg3/40 px-2 py-2 text-center">no anomalies found</div>
                 )}

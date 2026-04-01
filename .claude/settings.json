@@ -14,7 +14,8 @@
       "Bash(node -e \"var d=JSON.parse\\(require\\(''''fs''''\\).readFileSync\\(0,''''utf8''''\\)\\); var a=d.ac.filter\\(function\\(x\\){return x.alt_baro>0 && x.lat;}\\); if\\(a[0]\\) console.log\\(JSON.stringify\\(a[0],null,2\\)\\); console.log\\(''''Total:'''',d.total\\);\")",
       "Bash(node -c \"c:\\\\Users\\\\wilso\\\\Documents\\\\Flight\\\\flightterm\\\\backend\\\\index.js\")",
       "Bash(xargs echo:*)",
-      "Read(//c/Users/wilso/.claude/projects/c--Users-wilso-Documents-Flight-flightterm/memory/**)"
+      "Read(//c/Users/wilso/.claude/projects/c--Users-wilso-Documents-Flight-flightterm/memory/**)",
+      "Bash(node -e \"console.log\\(require\\(''./node_modules/axios/package.json''\\).version\\)\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\wilso\\.claude\\projects\\c--Users-wilso-Documents-Flight-flightterm\\memory"

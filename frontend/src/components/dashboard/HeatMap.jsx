@@ -118,7 +118,8 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
   const [sigmets, setSigmets] = useState([])
   const [pireps, setPireps] = useState([])
   const [loading, setLoading] = useState(false)
-  const [showWx, setShowWx] = useState(false)
+  const [showWx, setShowWx] = useState(true)
+  const [showPireps, setShowPireps] = useState(false)
   const [showBounds, setShowBounds] = useState(true)
   const [showHotspots, setShowHotspots] = useState(false)
   const [sevFilter, setSevFilter] = useState({ CRITICAL: true, HIGH: true, MEDIUM: true })
@@ -197,10 +198,16 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
           >
             WX {showWx ? 'ON' : 'OFF'}
           </button>
+          <button
+            onClick={() => setShowPireps(p => !p)}
+            className={`px-1.5 py-px border rounded transition-colors ${showPireps ? 'border-ylw/50 text-ylw' : 'border-border text-fg3'}`}
+          >
+            PIREPs {showPireps ? 'ON' : 'OFF'}
+          </button>
           {showWx && sigmetPolys.length > 0 && (
             <span><span className="text-red">{sigmetPolys.length}</span> SIGMET{sigmetPolys.length !== 1 ? 's' : ''}</span>
           )}
-          {showWx && pirepPoints.length > 0 && (
+          {showPireps && pirepPoints.length > 0 && (
             <span><span className="text-ylw">{pirepPoints.length}</span> PIREP{pirepPoints.length !== 1 ? 's' : ''}</span>
           )}
           <span className="flex gap-0 border border-border rounded overflow-hidden">
@@ -227,7 +234,7 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
           {loading && <span className="text-fg3">updating...</span>}
         </span>
       </div>
-      <div className="h-64 relative">
+      <div className="h-96 relative">
         <MapContainer
           center={center}
           zoom={4}
@@ -329,7 +336,7 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
           })}
 
           {/* PIREP markers — small diamonds */}
-          {showWx && pirepPoints.map((p, i) => {
+          {showPireps && pirepPoints.map((p, i) => {
             const intensity = p.turb || p.ice || 'MOD'
             return (
               <Marker
@@ -404,24 +411,30 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
               </div>
             </div>
           )}
-          {showWx && <>
-            <div className="flex items-center gap-1.5 mt-0.5 border-t border-white/5 pt-0.5">
-              <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="5,1 9,5 5,9 1,5" fill="#ffcc00" stroke="#0d0d0d" strokeWidth="0.6"/></svg>
-              <span className="text-ylw">PIREP</span>
+          {showWx && (
+            <div className="mt-0.5 border-t border-white/5 pt-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-red">---</span>
+                <span className="text-red">SIGMET convective</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-ylw">---</span>
+                <span className="text-ylw">SIGMET turb</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-cyn">---</span>
+                <span className="text-cyn">SIGMET ice</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-red">---</span>
-              <span className="text-red">SIGMET convective</span>
+          )}
+          {showPireps && (
+            <div className={`${showWx ? '' : 'mt-0.5 border-t border-white/5 pt-0.5'}`}>
+              <div className="flex items-center gap-1.5">
+                <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="5,1 9,5 5,9 1,5" fill="#ffcc00" stroke="#0d0d0d" strokeWidth="0.6"/></svg>
+                <span className="text-ylw">PIREP</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-ylw">---</span>
-              <span className="text-ylw">SIGMET turb</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-cyn">---</span>
-              <span className="text-cyn">SIGMET ice</span>
-            </div>
-          </>}
+          )}
         </div>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import clsx from 'clsx'
 
 const SEV_COLORS = {
@@ -23,6 +24,9 @@ const CAT_COLORS = {
   INTENT:    'text-cyn',
 }
 
+const ALL_SEVS = ['CRITICAL', 'HIGH', 'MEDIUM']
+const ALL_CATS = ['SQUAWK', 'EMERGENCY', 'ALTITUDE', 'SPEED', 'HEADING', 'DIVERSION', 'PHASE', 'INTENT']
+
 function fmtTime(iso) {
   if (!iso) return '—'
   try { return iso.substring(11, 19) } catch { return iso }
@@ -42,6 +46,20 @@ function weatherTags(wx) {
 }
 
 export default function AnomalyFeed({ anomalies = [], onSelect, selectedIcao }) {
+  const [sevFilter, setSevFilter] = useState({ CRITICAL: true, HIGH: true, MEDIUM: true })
+  const [catFilter, setCatFilter] = useState(null) // null = all, string = specific category
+  const [hideResolved, setHideResolved] = useState(false)
+
+  // Derive active categories from data
+  const activeCats = [...new Set(anomalies.map(a => a.category).filter(Boolean))]
+
+  const filtered = anomalies.filter(a => {
+    if (!sevFilter[a.severity]) return false
+    if (catFilter && a.category !== catFilter) return false
+    if (hideResolved && a.resolved) return false
+    return true
+  })
+
   if (!anomalies.length) {
     return (
       <div className="bg-bg1 py-6 px-2.5 text-center text-fg3 text-[10px]">
@@ -54,9 +72,55 @@ export default function AnomalyFeed({ anomalies = [], onSelect, selectedIcao }) 
     <div className="bg-bg1 overflow-y-auto h-full">
       <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border sticky top-0 z-10 flex justify-between">
         <span>anomaly feed</span>
-        <span>{anomalies.length} events</span>
+        <span>{filtered.length}/{anomalies.length}</span>
       </div>
-      {anomalies.map((a) => (
+      {/* Filter bar */}
+      <div className="px-1.5 py-1 bg-bg2/50 border-b border-border sticky top-5.25 z-10 flex flex-wrap gap-1">
+        {ALL_SEVS.map(s => (
+          <button
+            key={s}
+            onClick={() => setSevFilter(prev => ({ ...prev, [s]: !prev[s] }))}
+            className={clsx(
+              'text-[8px] px-1 py-px rounded border transition-colors',
+              sevFilter[s]
+                ? s === 'CRITICAL' ? 'border-red/50 text-red' : s === 'HIGH' ? 'border-ylw/50 text-ylw' : 'border-fg3/50 text-fg3'
+                : 'border-border text-fg3/30'
+            )}
+          >
+            {s.substring(0, 4)}
+          </button>
+        ))}
+        <span className="border-l border-border mx-0.5" />
+        <button
+          onClick={() => setCatFilter(null)}
+          className={clsx('text-[8px] px-1 py-px rounded border transition-colors', !catFilter ? 'border-acc/50 text-acc' : 'border-border text-fg3/30')}
+        >
+          ALL
+        </button>
+        {activeCats.map(c => (
+          <button
+            key={c}
+            onClick={() => setCatFilter(prev => prev === c ? null : c)}
+            className={clsx(
+              'text-[8px] px-1 py-px rounded border transition-colors',
+              catFilter === c ? `border-current ${CAT_COLORS[c] || 'text-fg3'}` : 'border-border text-fg3/30'
+            )}
+          >
+            {c}
+          </button>
+        ))}
+        <span className="border-l border-border mx-0.5" />
+        <button
+          onClick={() => setHideResolved(h => !h)}
+          className={clsx('text-[8px] px-1 py-px rounded border transition-colors', hideResolved ? 'border-grn/50 text-grn' : 'border-border text-fg3/30')}
+        >
+          {hideResolved ? 'active only' : 'all'}
+        </button>
+      </div>
+      {filtered.length === 0 && (
+        <div className="py-4 px-2.5 text-center text-fg3/40 text-[10px]">no anomalies match filters</div>
+      )}
+      {filtered.map((a) => (
         <div
           key={a.id}
           onClick={() => onSelect?.(a)}

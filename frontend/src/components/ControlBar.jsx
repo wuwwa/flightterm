@@ -78,7 +78,7 @@ export default function ControlBar({
         <Btn danger onClick={onClearLog} fill>clear</Btn>
         <Btn onClick={onOpenSettings} fill>⚙</Btn>
         <Btn onClick={onOpenUsage} fill>$</Btn>
-        <Btn onClick={onOpenNotams} fill>NOTAMs</Btn>
+        {/* <Btn onClick={onOpenNotams} fill>NOTAMs</Btn> */}
       </div>
 
       <div className="flex gap-1 items-center w-full sm:w-auto sm:shrink-0">
