@@ -79,7 +79,7 @@ export default function NotamPanel({ backendOk }) {
   const received = fns?.received || 0
 
   return (
-    <div className="bg-bg1">
+    <div className="bg-bg1 h-full min-h-0 flex flex-col">
       {/* Header */}
       <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border flex justify-between">
         <span>notams · FAA SWIM</span>
@@ -136,7 +136,7 @@ export default function NotamPanel({ backendOk }) {
 
       {/* Affected airports */}
       {airports.length > 0 && (
-        <div className="border-t border-border max-h-24 overflow-y-auto">
+        <div className="border-t border-border flex-1 min-h-0 overflow-y-auto">
           {airports.map((ap, i) => (
             <div key={ap.location || i} className="flex items-center gap-1.5 py-0.5 px-2.5 text-[9px] border-b border-white/3">
               <span className="text-acc font-bold w-8 shrink-0">{ap.location}</span>

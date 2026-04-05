@@ -17,32 +17,13 @@ function fmtAlt(alt) {
   const s = String(alt).replace(/C$/, '')
   const n = Number(s)
   if (isNaN(n)) return alt
-  if (n >= 100) return `FL${s.replace(/C$/, '')}`
-  return `${n * 100} ft`
-}
-
-function fmtCoord(lat, lon) {
-  if (lat == null || lon == null) return '—'
-  const ns = lat >= 0 ? 'N' : 'S'
-  const ew = lon >= 0 ? 'E' : 'W'
-  return `${Math.abs(lat).toFixed(2)}°${ns} ${Math.abs(lon).toFixed(2)}°${ew}`
-}
-
-function fmtTime(iso) {
-  if (!iso) return '—'
-  return iso.substring(11, 16) + 'z'
+  return n >= 100 ? `FL${s.replace(/C$/, '')}` : `${n * 100}ft`
 }
 
 const STATUS_COLORS = {
-  ACTIVE: 'text-grn',
-  ASCENDING: 'text-cyn',
-  CRUISING: 'text-acc',
-  DESCENDING: 'text-ylw',
-  COMPLETED: 'text-fg3',
-  FILED: 'text-mag',
-  PLANNED: 'text-mag',
-  SCHEDULED: 'text-fg3',
-  CANCELLED: 'text-red',
+  ACTIVE: 'text-grn', ASCENDING: 'text-cyn', CRUISING: 'text-acc',
+  DESCENDING: 'text-ylw', COMPLETED: 'text-fg3', FILED: 'text-mag',
+  PLANNED: 'text-mag', CANCELLED: 'text-red',
 }
 
 export default function FlightLookup({ backendOk }) {
@@ -52,13 +33,10 @@ export default function FlightLookup({ backendOk }) {
   const [flights, setFlights] = useState([])
   const [loading, setLoading] = useState(false)
 
-  // Load recent active flights on mount
   useEffect(() => {
     if (!backendOk) return
     fetchActiveFlights(30).then(setFlights).catch(() => {})
-    const id = setInterval(() => {
-      fetchActiveFlights(30).then(setFlights).catch(() => {})
-    }, 30_000)
+    const id = setInterval(() => fetchActiveFlights(30).then(setFlights).catch(() => {}), 30_000)
     return () => clearInterval(id)
   }, [backendOk])
 
@@ -67,20 +45,10 @@ export default function FlightLookup({ backendOk }) {
     if (!acid) return
     setLoading(true)
     setNotFound(false)
-    try {
-      const plan = await fetchFlightPlan(acid)
-      setResult(plan)
-      setNotFound(false)
-    } catch {
-      setResult(null)
-      setNotFound(true)
-    }
+    try { setResult(await fetchFlightPlan(acid)) }
+    catch { setResult(null); setNotFound(true) }
     setLoading(false)
   }, [query])
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') handleSearch()
-  }
 
   const selectFlight = (acid) => {
     setQuery(acid)
@@ -88,130 +56,63 @@ export default function FlightLookup({ backendOk }) {
   }
 
   return (
-    <div className="bg-border">
-      <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border flex justify-between">
+    <div className="bg-bg1 h-full min-h-0 flex flex-col">
+      <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border flex justify-between shrink-0">
         <span>flight lookup · TFMS</span>
-        <span className="text-fg3">{flights.length} active</span>
+        <span>{flights.length} active</span>
       </div>
 
-      {/* Search bar */}
-      <div className="bg-bg1 p-2 flex gap-1.5">
+      {/* Search */}
+      <div className="p-1.5 flex gap-1 shrink-0">
         <input
-          type="text"
-          value={query}
+          type="text" value={query}
           onChange={(e) => setQuery(e.target.value.toUpperCase())}
-          onKeyDown={handleKeyDown}
-          placeholder="callsign (e.g. UAL1752)"
-          className="flex-1 bg-bg2 border border-border text-fg1 text-[11px] px-2 py-1 rounded outline-none focus:border-acc placeholder:text-fg3/40"
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          placeholder="callsign"
+          className="flex-1 bg-bg2 border border-border text-fg1 text-[10px] px-1.5 py-0.5 rounded outline-none focus:border-acc placeholder:text-fg3/40 min-w-0"
         />
-        <button
-          onClick={handleSearch}
-          disabled={loading || !query.trim()}
-          className="bg-bg2 border border-border hover:border-acc text-[10px] text-fg3 hover:text-acc px-3 py-1 rounded transition-colors disabled:opacity-40"
-        >
-          {loading ? '...' : 'search'}
+        <button onClick={handleSearch} disabled={loading || !query.trim()}
+          className="bg-bg2 border border-border hover:border-acc text-[9px] text-fg3 hover:text-acc px-2 py-0.5 rounded transition-colors disabled:opacity-40">
+          {loading ? '...' : 'go'}
         </button>
       </div>
 
-      {/* Search result */}
+      {/* Search result — compact inline */}
       {result && (
-        <div className="bg-bg1 border-t border-border p-2">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-acc text-[13px] font-bold">{result.acid}</span>
-            <span className={clsx('text-[10px] font-bold', STATUS_COLORS[result.flight_status] || 'text-fg3')}>
-              {result.flight_status || '—'}
-            </span>
-            {result.aircraft_type && <span className="text-fg3 text-[9px]">{result.aircraft_type}</span>}
+        <div className="bg-bg2/30 border-t border-b border-border px-2.5 py-1 shrink-0 text-[10px]">
+          <div className="flex items-center gap-2">
+            <span className="text-acc font-bold">{result.acid}</span>
+            <span className={clsx('font-bold', STATUS_COLORS[result.flight_status] || 'text-fg3')}>{result.flight_status || '—'}</span>
+            <span className="text-fg2">{result.dep_arpt || '?'} → {result.arr_arpt || '?'}</span>
+            <span className="text-cyn">{fmtAlt(result.altitude)}</span>
+            <span className="text-fg3">{result.speed ? result.speed + 'kt' : ''}</span>
           </div>
-
-          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px]">
-            <div className="flex justify-between">
-              <span className="text-fg3">from</span>
-              <span className="text-acc font-bold">{result.dep_arpt || '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-fg3">to</span>
-              <span className="text-acc font-bold">{result.arr_arpt || '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-fg3">altitude</span>
-              <span className="text-cyn">{fmtAlt(result.altitude)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-fg3">speed</span>
-              <span className="text-cyn">{result.speed ? `${result.speed} kt` : '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-fg3">position</span>
-              <span className="text-fg2">{fmtCoord(result.lat, result.lon)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-fg3">ETA</span>
-              <span className="text-fg2">{fmtTime(result.eta)}</span>
-            </div>
-            {result.beacon_code && (
-              <div className="flex justify-between">
-                <span className="text-fg3">squawk</span>
-                <span className={clsx(
-                  result.beacon_code === '7700' || result.beacon_code === '7500' || result.beacon_code === '7600' ? 'text-red font-bold' : 'text-fg2'
-                )}>{result.beacon_code}</span>
-              </div>
-            )}
-            {result.route && (
-              <div className="flex justify-between col-span-2">
-                <span className="text-fg3">route</span>
-                <span className="text-fg2 text-[9px] truncate max-w-[200px]" title={result.route}>{result.route}</span>
-              </div>
-            )}
-          </div>
-          <div className="text-[8px] text-fg3/40 mt-1">
-            updated {result.updated_at?.substring(11, 19)}z · msg: {result.msg_type || '—'}
-          </div>
+          {result.route && (
+            <div className="text-[8px] text-fg3 mt-0.5 truncate" title={result.route}>{result.route}</div>
+          )}
         </div>
       )}
+      {notFound && <div className="px-2.5 py-1 text-[9px] text-fg3 shrink-0">not found</div>}
 
-      {notFound && (
-        <div className="bg-bg1 border-t border-border py-2 px-2.5 text-[10px] text-fg3">
-          no flight plan found for "{query}"
-        </div>
-      )}
-
-      {/* Active flights list */}
-      <div className="border-t border-border max-h-[240px] overflow-y-auto">
-        <div className="grid grid-cols-[70px_55px_25px_55px_40px_40px_1fr] gap-1 py-0.5 px-2.5 text-[8px] text-fg3 bg-bg2/50 border-b border-white/5 sticky top-0">
-          <span>callsign</span>
-          <span>from</span>
-          <span></span>
-          <span>to</span>
-          <span className="text-right">alt</span>
-          <span className="text-right">spd</span>
-          <span className="text-right">status</span>
-        </div>
+      {/* Flight list — compact rows */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {flights.map((f, i) => (
-          <div
-            key={f.acid || i}
+          <div key={f.acid || i}
             className={clsx(
-              'grid grid-cols-[70px_55px_25px_55px_40px_40px_1fr] gap-1 py-0.5 px-2.5 text-[10px] border-b border-white/3 cursor-pointer hover:bg-bg2 transition-colors',
+              'flex items-center gap-2 py-0.5 px-2.5 text-[10px] border-b border-white/3 cursor-pointer hover:bg-bg2 transition-colors',
               result?.acid === f.acid && 'bg-acc/8'
             )}
-            onClick={() => selectFlight(f.acid)}
-          >
-            <span className="text-acc font-bold truncate">{f.acid}</span>
-            <span className="text-fg2">{f.dep_arpt || '—'}</span>
+            onClick={() => selectFlight(f.acid)}>
+            <span className="text-acc font-bold w-16 shrink-0 truncate">{f.acid}</span>
+            <span className="text-fg2 w-10 shrink-0">{f.dep_arpt || '—'}</span>
             <span className="text-fg3">→</span>
-            <span className="text-fg2">{f.arr_arpt || '—'}</span>
-            <span className="text-cyn text-right tabular-nums">{fmtAlt(f.altitude)}</span>
-            <span className="text-fg3 text-right tabular-nums">{f.speed || '—'}</span>
-            <span className={clsx('text-right', STATUS_COLORS[f.flight_status] || 'text-fg3')}>
+            <span className="text-fg2 w-10 shrink-0">{f.arr_arpt || '—'}</span>
+            <span className="text-cyn text-right w-10 shrink-0 tabular-nums">{fmtAlt(f.altitude)}</span>
+            <span className={clsx('ml-auto', STATUS_COLORS[f.flight_status] || 'text-fg3')}>
               {f.flight_status || '—'}
             </span>
           </div>
         ))}
-        {flights.length === 0 && (
-          <div className="py-3 px-2.5 text-center text-fg3 text-[10px]">
-            {backendOk ? 'no active flights — TFMS data loading...' : 'backend offline'}
-          </div>
-        )}
       </div>
     </div>
   )

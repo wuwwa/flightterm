@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-import TopBar from './components/TopBar'
-import ControlBar from './components/ControlBar'
+import CommandBar from './components/CommandBar'
 import LogPanel from './components/LogPanel'
 import FlightTable from './components/FlightTable'
 import DetailPanel from './components/DetailPanel'
@@ -581,41 +580,33 @@ export default function App() {
 
       {/* Page 1: flight tracker — fills one viewport */}
       <div
-        className="grid grid-rows-[auto_auto_auto_1fr] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
+        className="grid grid-rows-[auto_auto_1fr] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
         style={{ '--sidebar-w': `${sidebarW}px` }}
       >
-        {/* Top status bar */}
+        {/* Combined command bar: branding, stats, filter, region, controls, SWIM indicators, clock */}
         <div className="col-span-full row-start-1">
-          <TopBar
+          <CommandBar
             stats={stats}
             backendOk={backendOk}
             lastFetchAt={lastFetchAt}
-          />
-        </div>
-
-        {/* Control bar */}
-        <div className="col-span-full row-start-2">
-          <ControlBar
+            pollInterval={pollInterval}
             filter={filter}
             onFilterChange={setFilter}
             onClearLog={clearLog}
             onOpenSettings={() => setShowSettings(true)}
             onOpenUsage={() => setShowUsage(true)}
-            onOpenNotams={() => setShowNotams(true)}
             region={region}
             onRegionChange={handleRegionChange}
-            lastFetchAt={lastFetchAt}
-            pollInterval={pollInterval}
           />
         </div>
 
-        {/* Log panel */}
-        <div className="col-span-full row-start-3">
+        {/* Log panel — collapsed by default, click to expand */}
+        <div className="col-span-full row-start-2">
           <LogPanel entries={logEntries} />
         </div>
 
         {/* Flight table */}
-        <div className="row-start-4 min-h-0 flex flex-col">
+        <div className="row-start-3 min-h-0 flex flex-col">
           <FlightTable
             flights={flights}
             filter={filter}
@@ -632,7 +623,7 @@ export default function App() {
         </div>
 
         {/* Detail panel — desktop sidebar */}
-        <div className="row-start-4 overflow-y-auto min-h-0 hidden md:block relative">
+        <div className="row-start-3 overflow-y-auto min-h-0 hidden md:block relative">
           {/* Resize handle */}
           <div
             className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-acc/30 active:bg-acc/50 transition-colors"

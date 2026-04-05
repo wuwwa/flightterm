@@ -241,15 +241,25 @@ function dmsToDecimal(dms) {
 function parseFlowData(xml, props) {
   const result = {
     msgType: null,
-    eventType: null,       // GDP, GS, AFP, REROUTE, ADVISORY, CTOP
-    status: null,          // ACTUAL, PROPOSED, PURGED
-    airport: null,         // affected airport
-    reason: null,          // WEATHER, OTHER, VOLUME, etc.
-    text: null,            // advisory text
+    eventType: null,       // GDP, GS, AFP, REROUTE, ADVISORY, CTOP, RSTR, GADV, FXA, APTC
+    status: null,
+    airport: null,
+    facility: null,        // ARTCC (ZNY, ZDC, etc.)
+    reason: null,
+    text: null,
     startTime: null,
     endTime: null,
-    delay: null,           // average delay in minutes
+    delay: null,
     timestamp: null,
+    // RSTR-specific
+    restrictionType: null, // MIT, DEPARTURE, etc.
+    restrictionValue: null,// e.g. "15" (miles in trail)
+    // FXA-specific
+    geometry: null,        // array of [lat, lon] points
+    ceiling: null,         // FL
+    floor: null,           // FL
+    fcaName: null,
+    // APTC-specific (returned separately via parseAirportConfig)
     source: 'TFMS',
   }
 
@@ -260,60 +270,141 @@ function parseFlowData(xml, props) {
     result.msgType = p('msgType') || p('MessageType') || props.msgType || null
     result.airport = p('airport') || p('facility') || null
     result.status = p('tmiStatus') || p('status') || null
-    result.timestamp = props.m_msg_last_updated || null
+    result.timestamp = props.m_msg_last_updated || props.TimeStamp || null
   }
 
-  // Parse XML if present
-  if (xml && xml.length > 10) {
-    try {
-      const doc = parser.parse(xml)
-      const root = doc.TFMDataService || doc.tfmDataService || doc
+  if (!xml || xml.length < 10) {
+    // Infer type from msgType property
+    inferEventType(result)
+    return (result.eventType || result.msgType) ? result : null
+  }
 
-      // Detect event type from message structure
-      if (findNested(root, 'gdpAdvisory') || findNested(root, 'groundDelayProgram')) {
-        result.eventType = 'GDP'
-      } else if (findNested(root, 'gsAdvisory') || findNested(root, 'groundStop')) {
-        result.eventType = 'GS'
-      } else if (findNested(root, 'afpAdvisory') || findNested(root, 'arrivalFlowProgram')) {
-        result.eventType = 'AFP'
-      } else if (findNested(root, 'reroute') || findNested(root, 'rerouteAdvisory')) {
-        result.eventType = 'REROUTE'
-      } else if (findNested(root, 'advisory') || findNested(root, 'atcsccAdvisory')) {
-        result.eventType = 'ADVISORY'
-      } else if (findNested(root, 'ctop')) {
-        result.eventType = 'CTOP'
+  let doc
+  try { doc = parser.parse(xml) } catch { return result.msgType ? result : null }
+  const root = doc.tfmDataService || doc.TFMDataService || doc
+  const output = root.fiOutput || findNested(root, 'fiOutput') || root
+  const fi = output.fiMessage || findNested(output, 'fiMessage') || output
+
+  // ── APTC: Airport Configuration ─────────────────────────────────────
+  const aptc = findNested(fi, 'airportConfigMessage')
+  if (aptc) {
+    result.eventType = 'APTC'
+    result.airport = findVal(aptc, 'airport')
+    result.facility = findVal(aptc, 'facility')
+    result.text = [
+      `rwy arr:${findVal(aptc, 'arrRunwayConf')} dep:${findVal(aptc, 'depRunwayConf')}`,
+      `rate arr:${findVal(aptc, 'arrRate')}/hr dep:${findVal(aptc, 'depRate')}/hr`,
+      findVal(aptc, 'weather') || '',
+    ].filter(Boolean).join(' · ')
+    result.arrRunwayConf = findVal(aptc, 'arrRunwayConf')
+    result.depRunwayConf = findVal(aptc, 'depRunwayConf')
+    result.arrRate = Number(findVal(aptc, 'arrRate')) || null
+    result.depRate = Number(findVal(aptc, 'depRate')) || null
+    result.weather = findVal(aptc, 'weather') // VMC/IMC
+    result.timestamp = findVal(aptc, 'eventTime') || result.timestamp
+    return result
+  }
+
+  // ── GADV: General Advisory ──────────────────────────────────────────
+  const gadv = findNested(fi, 'generalAdvisory')
+  if (gadv) {
+    result.eventType = 'GADV'
+    result.text = findVal(gadv, 'advisoryText') || findVal(gadv, 'advisoryTitle')
+    result.facility = findVal(gadv, 'origin') || findVal(gadv, 'facilities')
+    result.reason = findVal(gadv, 'advisoryTitle')
+    const period = findNested(gadv, 'effectivePeriod')
+    result.startTime = findVal(period || gadv, 'startTime')
+    result.endTime = findVal(period || gadv, 'endTime')
+    result.timestamp = findVal(gadv, 'dateSent') || result.timestamp
+    return result
+  }
+
+  // ── RSTR: Restriction (MIT, departure holds) ────────────────────────
+  const rstr = findNested(fi, 'restrictionMessage')
+  if (rstr) {
+    result.eventType = 'RSTR'
+    result.facility = findVal(rstr, 'facility')
+    result.airport = findVal(rstr, 'airports')
+    result.restrictionType = findVal(rstr, 'restrictionType') // MIT, DEPARTURE
+    result.restrictionValue = findVal(rstr, 'mitValue')
+    result.reason = findVal(rstr, 'reasonText')
+    result.text = `${findVal(rstr, 'restrictionCategory') || ''} ${findVal(rstr, 'restrictedNasElements') || ''}: ${findVal(rstr, 'reasonText') || ''}`.trim()
+    result.startTime = findVal(rstr, 'startTime')
+    result.endTime = findVal(rstr, 'stopTime')
+    result.timestamp = findVal(rstr, 'eventTime') || result.timestamp
+    return result
+  }
+
+  // ── FXA: Flow Evaluation/Constrained Area ───────────────────────────
+  const fxa = findNested(fi, 'feaFca')
+  if (fxa) {
+    result.eventType = 'FXA'
+    result.fcaName = findVal(fxa, 'fcaName')
+    result.reason = findVal(fxa, 'fcaReason')
+    result.status = findVal(fxa, 'tmiStatus')
+    result.startTime = findVal(fxa, 'startTime')
+    result.endTime = findVal(fxa, 'endTime')
+    result.ceiling = findVal(fxa, 'ceiling')
+    result.floor = findVal(fxa, 'floor')
+    result.text = `${result.fcaName || ''}: ${result.reason || ''} FL${result.floor || '?'}-FL${result.ceiling || '?'}`.trim()
+    // Extract geometry points
+    const line = findNested(fxa, 'line')
+    if (line) {
+      let points = findNested(line, 'points')
+      if (points) {
+        let ptList = points.point || points
+        if (!Array.isArray(ptList)) ptList = [ptList]
+        const coords = ptList.map(pt => {
+          const lat = Number(findVal(pt, 'latitude'))
+          const lon = Number(findVal(pt, 'longitude'))
+          return (!isNaN(lat) && !isNaN(lon)) ? [lat, lon] : null
+        }).filter(Boolean)
+        if (coords.length > 0) result.geometry = coords
       }
-
-      // Extract common flow fields
-      const event = findNested(root, 'gdpAdvisory') || findNested(root, 'gsAdvisory')
-        || findNested(root, 'afpAdvisory') || findNested(root, 'advisory')
-        || findNested(root, 'reroute') || root
-
-      result.airport = result.airport || findVal(event, 'airport') || findVal(event, 'facility')
-      result.reason = findVal(event, 'impactingCondition') || findVal(event, 'reason')
-      result.text = findVal(event, 'advisoryText') || findVal(event, 'text')
-        || findVal(event, 'remarks')
-      result.startTime = findVal(event, 'startTime') || findVal(event, 'beginDate')
-      result.endTime = findVal(event, 'endTime') || findVal(event, 'endDate')
-      result.delay = findVal(event, 'avgDelay') || findVal(event, 'averageDelay')
-      result.status = result.status || findVal(event, 'tmiStatus') || findVal(event, 'status')
-    } catch {
-      // XML parse failed
     }
+    return result
   }
 
-  // Infer event type from message type if not detected from XML
-  if (!result.eventType && result.msgType) {
-    const mt = result.msgType.toLowerCase()
-    if (mt.includes('gdp')) result.eventType = 'GDP'
-    else if (mt.includes('groundstop') || mt.includes('gs_')) result.eventType = 'GS'
-    else if (mt.includes('afp')) result.eventType = 'AFP'
-    else if (mt.includes('reroute')) result.eventType = 'REROUTE'
-    else if (mt.includes('advisory')) result.eventType = 'ADVISORY'
-    else if (mt.includes('ctop')) result.eventType = 'CTOP'
-  }
+  // ── GDP, GS, AFP, REROUTE, CTOP, TMI_FLIGHT_LIST ───────────────────
+  if (findNested(fi, 'gdpAdvisory') || findNested(fi, 'groundDelayProgram')) result.eventType = 'GDP'
+  else if (findNested(fi, 'gsAdvisory') || findNested(fi, 'groundStop')) result.eventType = 'GS'
+  else if (findNested(fi, 'afpAdvisory')) result.eventType = 'AFP'
+  else if (findNested(fi, 'rerouteAdvisory') || findNested(fi, 'reroute')) result.eventType = 'REROUTE'
+  else if (findNested(fi, 'ctop')) result.eventType = 'CTOP'
+  else if (findNested(fi, 'tmiFlightDataList')) result.eventType = 'TMI_LIST'
 
+  const event = findNested(fi, 'gdpAdvisory') || findNested(fi, 'gsAdvisory')
+    || findNested(fi, 'afpAdvisory') || findNested(fi, 'rerouteAdvisory')
+    || findNested(fi, 'reroute') || fi
+
+  result.airport = result.airport || findVal(event, 'airport') || findVal(event, 'facility')
+  result.reason = result.reason || findVal(event, 'impactingCondition') || findVal(event, 'reason')
+  result.text = result.text || findVal(event, 'advisoryText') || findVal(event, 'text') || findVal(event, 'remarks')
+  result.startTime = result.startTime || findVal(event, 'startTime') || findVal(event, 'beginDate')
+  result.endTime = result.endTime || findVal(event, 'endTime') || findVal(event, 'endDate')
+  result.delay = findVal(event, 'avgDelay') || findVal(event, 'averageDelay')
+  result.status = result.status || findVal(event, 'tmiStatus') || findVal(event, 'status')
+
+  inferEventType(result)
   return (result.eventType || result.msgType) ? result : null
+}
+
+function inferEventType(result) {
+  if (result.eventType) return
+  if (!result.msgType) return
+  const mt = result.msgType.toLowerCase()
+  if (mt === 'aptc') result.eventType = 'APTC'
+  else if (mt === 'gadv') result.eventType = 'GADV'
+  else if (mt === 'rstr') result.eventType = 'RSTR'
+  else if (mt === 'fxa' || mt === 'fca') result.eventType = 'FXA'
+  else if (mt.includes('gdp')) result.eventType = 'GDP'
+  else if (mt.includes('groundstop') || mt === 'gs_advisory') result.eventType = 'GS'
+  else if (mt.includes('afp')) result.eventType = 'AFP'
+  else if (mt.includes('reroute')) result.eventType = 'REROUTE'
+  else if (mt.includes('advisory') || mt === 'gadv') result.eventType = 'GADV'
+  else if (mt.includes('ctop')) result.eventType = 'CTOP'
+  else if (mt.includes('tmi_flight')) result.eventType = 'TMI_LIST'
+  else result.eventType = mt.toUpperCase()
 }
 
 /**
@@ -323,12 +414,16 @@ function classifyMessage(props) {
   if (!props) return 'unknown'
 
   const msgType = (props.msgType || props.MessageType || props.us_gov_dot_faa_tfm_msgType || '').toLowerCase()
+  const dataClass = (props.TFMDataClass || props.TFMS_CATEGORY || '').toLowerCase()
 
-  // Flow types
+  // Flow types — check both msgType and TFMDataClass
+  if (dataClass.includes('flow')) return 'flow'
   if (msgType.includes('gdp') || msgType.includes('groundstop') || msgType.includes('gs_')
     || msgType.includes('afp') || msgType.includes('reroute') || msgType.includes('advisory')
     || msgType.includes('ctop') || msgType.includes('fca') || msgType.includes('fea')
-    || msgType.includes('fadt') || msgType.includes('runway_config') || msgType.includes('deicing')) {
+    || msgType.includes('fadt') || msgType.includes('runway_config') || msgType.includes('deicing')
+    || msgType === 'aptc' || msgType === 'gadv' || msgType === 'rstr' || msgType === 'fxa'
+    || msgType.includes('tmi_flight')) {
     return 'flow'
   }
 

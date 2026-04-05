@@ -444,6 +444,93 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_flow_received ON flow_events(received_at);
 `)
 
+// v7 migration: add new columns to flow_events for RSTR/FXA data
+{
+  const cols = db.pragma('table_info(flow_events)').map(c => c.name)
+  if (!cols.includes('facility')) {
+    db.exec(`ALTER TABLE flow_events ADD COLUMN facility TEXT`)
+    db.exec(`ALTER TABLE flow_events ADD COLUMN geometry TEXT`)  // JSON [[lat,lon], ...]
+    db.exec(`ALTER TABLE flow_events ADD COLUMN ceiling TEXT`)
+    db.exec(`ALTER TABLE flow_events ADD COLUMN floor TEXT`)
+    db.exec(`ALTER TABLE flow_events ADD COLUMN restriction_type TEXT`)
+    db.exec(`ALTER TABLE flow_events ADD COLUMN restriction_value TEXT`)
+  }
+}
+
+// ── SWIM TFMS airport configurations ────────────────────────────────────────
+// Real-time runway configs, arrival/departure rates, weather. Upserted by airport.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS airport_configs (
+    airport         TEXT PRIMARY KEY,
+    facility        TEXT,
+    arr_runway      TEXT,
+    dep_runway      TEXT,
+    arr_rate        INTEGER,
+    dep_rate        INTEGER,
+    weather         TEXT,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`)
+
+// ── SWIM ITWS terminal weather ──────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS terminal_weather (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type      TEXT NOT NULL,
+    site            TEXT,
+    airport         TEXT,
+    severity        TEXT,
+    lat             REAL,
+    lon             REAL,
+    altitude        TEXT,
+    cell_id         TEXT,
+    movement        TEXT,
+    speed           TEXT,
+    tops            TEXT,
+    vil_level       TEXT,
+    runway          TEXT,
+    gain_loss       TEXT,
+    text            TEXT,
+    valid_time      TEXT,
+    expiry_time     TEXT,
+    received_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_tw_airport ON terminal_weather(airport);
+  CREATE INDEX IF NOT EXISTS idx_tw_type ON terminal_weather(event_type);
+  CREATE INDEX IF NOT EXISTS idx_tw_received ON terminal_weather(received_at);
+`)
+
+// ── SWIM STDDS surface/terminal data ────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS surface_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    service         TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    airport         TEXT,
+    tracon          TEXT,
+    callsign        TEXT,
+    lat             REAL,
+    lon             REAL,
+    altitude        TEXT,
+    speed           REAL,
+    heading         REAL,
+    surface_event   TEXT,
+    runway          TEXT,
+    gate            TEXT,
+    taxiway         TEXT,
+    rvr             REAL,
+    rvr_trend       TEXT,
+    alert_type      TEXT,
+    text            TEXT,
+    received_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_se_airport ON surface_events(airport);
+  CREATE INDEX IF NOT EXISTS idx_se_callsign ON surface_events(callsign);
+  CREATE INDEX IF NOT EXISTS idx_se_service ON surface_events(service);
+  CREATE INDEX IF NOT EXISTS idx_se_received ON surface_events(received_at);
+  CREATE INDEX IF NOT EXISTS idx_se_type ON surface_events(event_type);
+`)
+
 // ── prepared statements (pre-compiled once) ─────────────────────────────────
 
 const _stmts = {
@@ -834,8 +921,102 @@ const _stmts = {
   `),
 
   insertFlowEvent: db.prepare(`
-    INSERT INTO flow_events (event_type, airport, status, reason, text, delay_minutes, start_time, end_time, msg_type, received_at)
-    VALUES (@event_type, @airport, @status, @reason, @text, @delay_minutes, @start_time, @end_time, @msg_type, datetime('now'))
+    INSERT INTO flow_events (event_type, airport, status, reason, text, delay_minutes, start_time, end_time, msg_type, facility, geometry, ceiling, floor, restriction_type, restriction_value, received_at)
+    VALUES (@event_type, @airport, @status, @reason, @text, @delay_minutes, @start_time, @end_time, @msg_type, @facility, @geometry, @ceiling, @floor, @restriction_type, @restriction_value, datetime('now'))
+  `),
+
+  upsertAirportConfig: db.prepare(`
+    INSERT INTO airport_configs (airport, facility, arr_runway, dep_runway, arr_rate, dep_rate, weather, updated_at)
+    VALUES (@airport, @facility, @arr_runway, @dep_runway, @arr_rate, @dep_rate, @weather, datetime('now'))
+    ON CONFLICT(airport) DO UPDATE SET
+      facility = excluded.facility,
+      arr_runway = excluded.arr_runway,
+      dep_runway = excluded.dep_runway,
+      arr_rate = excluded.arr_rate,
+      dep_rate = excluded.dep_rate,
+      weather = excluded.weather,
+      updated_at = datetime('now')
+  `),
+
+  getAirportConfigs: db.prepare(`
+    SELECT * FROM airport_configs ORDER BY updated_at DESC
+  `),
+
+  getAirportConfig: db.prepare(`
+    SELECT * FROM airport_configs WHERE airport = ?
+  `),
+
+  // Terminal weather
+  insertTerminalWeather: db.prepare(`
+    INSERT INTO terminal_weather (event_type, site, airport, severity, lat, lon, altitude, cell_id, movement, speed, tops, vil_level, runway, gain_loss, text, valid_time, expiry_time, received_at)
+    VALUES (@event_type, @site, @airport, @severity, @lat, @lon, @altitude, @cell_id, @movement, @speed, @tops, @vil_level, @runway, @gain_loss, @text, @valid_time, @expiry_time, datetime('now'))
+  `),
+
+  getRecentTerminalWeather: db.prepare(`
+    SELECT * FROM terminal_weather
+    WHERE received_at > datetime('now', '-1 hour')
+    ORDER BY received_at DESC LIMIT ?
+  `),
+
+  getTerminalWeatherByAirport: db.prepare(`
+    SELECT * FROM terminal_weather
+    WHERE airport = ? AND received_at > datetime('now', '-1 hour')
+    ORDER BY received_at DESC LIMIT ?
+  `),
+
+  getTerminalWeatherStats: db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN event_type = 'TORNADO' THEN 1 ELSE 0 END) as tornado,
+      SUM(CASE WHEN event_type = 'WINDSHEAR' THEN 1 ELSE 0 END) as windshear,
+      SUM(CASE WHEN event_type = 'MICROBURST' THEN 1 ELSE 0 END) as microburst,
+      SUM(CASE WHEN event_type = 'GUST_FRONT' THEN 1 ELSE 0 END) as gust_front,
+      SUM(CASE WHEN event_type = 'PRECIP' THEN 1 ELSE 0 END) as precip,
+      SUM(CASE WHEN event_type = 'HAZARD_TEXT' THEN 1 ELSE 0 END) as hazard_text,
+      SUM(CASE WHEN event_type = 'STORM_MOTION' THEN 1 ELSE 0 END) as storm_motion,
+      SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical,
+      COUNT(DISTINCT airport) as sites
+    FROM terminal_weather
+    WHERE received_at > datetime('now', '-1 hour')
+  `),
+
+  purgeOldTerminalWeather: db.prepare(`
+    DELETE FROM terminal_weather WHERE received_at < datetime('now', '-24 hours')
+  `),
+
+  // Surface events (STDDS)
+  insertSurfaceEvent: db.prepare(`
+    INSERT INTO surface_events (service, event_type, airport, tracon, callsign, lat, lon, altitude, speed, heading, surface_event, runway, gate, taxiway, rvr, rvr_trend, alert_type, text, received_at)
+    VALUES (@service, @event_type, @airport, @tracon, @callsign, @lat, @lon, @altitude, @speed, @heading, @surface_event, @runway, @gate, @taxiway, @rvr, @rvr_trend, @alert_type, @text, datetime('now'))
+  `),
+
+  getRecentSurfaceEvents: db.prepare(`
+    SELECT * FROM surface_events WHERE received_at > datetime('now', '-1 hour') ORDER BY received_at DESC LIMIT ?
+  `),
+
+  getSurfaceEventsByAirport: db.prepare(`
+    SELECT * FROM surface_events WHERE airport = ? AND received_at > datetime('now', '-1 hour') ORDER BY received_at DESC LIMIT ?
+  `),
+
+  getOooi: db.prepare(`
+    SELECT * FROM surface_events WHERE event_type IN ('SPOT_OUT','OFF','ON','SPOT_IN','DEPARTURE') AND received_at > datetime('now', '-2 hours') ORDER BY received_at DESC LIMIT ?
+  `),
+
+  getSurfaceStats: db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN service = 'SMES' THEN 1 ELSE 0 END) as surface,
+      SUM(CASE WHEN service = 'TDES' THEN 1 ELSE 0 END) as departures,
+      SUM(CASE WHEN service = 'TAIS' THEN 1 ELSE 0 END) as tracon,
+      SUM(CASE WHEN service = 'APDS' THEN 1 ELSE 0 END) as rvr,
+      SUM(CASE WHEN event_type IN ('SPOT_OUT','OFF','ON','SPOT_IN') THEN 1 ELSE 0 END) as oooi,
+      COUNT(DISTINCT airport) as airports
+    FROM surface_events
+    WHERE received_at > datetime('now', '-1 hour')
+  `),
+
+  purgeOldSurfaceEvents: db.prepare(`
+    DELETE FROM surface_events WHERE received_at < datetime('now', '-6 hours')
   `),
 
   getFlightPlan: db.prepare(`SELECT * FROM flight_plans WHERE acid = ?`),
@@ -1444,6 +1625,20 @@ function upsertFlightPlanBatch(plans) {
 }
 
 function insertFlowEvent(event) {
+  // APTC events go to airport_configs table (upsert by airport)
+  if (event.eventType === 'APTC' && event.airport) {
+    _stmts.upsertAirportConfig.run({
+      airport: event.airport,
+      facility: event.facility || null,
+      arr_runway: event.arrRunwayConf || null,
+      dep_runway: event.depRunwayConf || null,
+      arr_rate: event.arrRate ?? null,
+      dep_rate: event.depRate ?? null,
+      weather: event.weather || null,
+    })
+    return
+  }
+
   _stmts.insertFlowEvent.run({
     event_type: event.eventType || 'UNKNOWN',
     airport: event.airport || null,
@@ -1454,8 +1649,70 @@ function insertFlowEvent(event) {
     start_time: event.startTime || null,
     end_time: event.endTime || null,
     msg_type: event.msgType || null,
+    facility: event.facility || null,
+    geometry: event.geometry ? JSON.stringify(event.geometry) : null,
+    ceiling: event.ceiling || null,
+    floor: event.floor || null,
+    restriction_type: event.restrictionType || null,
+    restriction_value: event.restrictionValue || null,
   })
 }
+
+function getAirportConfigs() { return _stmts.getAirportConfigs.all() }
+function getAirportConfig(airport) { return _stmts.getAirportConfig.get(airport) || null }
+
+// ── Terminal weather functions ───────────────────────────────────────────────
+
+function insertTerminalWeather(event) {
+  _stmts.insertTerminalWeather.run({
+    event_type: event.eventType || 'UNKNOWN',
+    site: event.site || null,
+    airport: event.airport || null,
+    severity: event.severity || null,
+    lat: event.lat ?? null,
+    lon: event.lon ?? null,
+    altitude: event.altitude || null,
+    cell_id: event.cellId || null,
+    movement: event.movement != null ? String(event.movement) : null,
+    speed: event.speed != null ? String(event.speed) : null,
+    tops: event.tops || null,
+    vil_level: event.vilLevel || null,
+    runway: event.runway || null,
+    gain_loss: event.gainLoss || null,
+    text: event.text || null,
+    valid_time: event.validTime || null,
+    expiry_time: event.expiryTime || null,
+  })
+}
+
+function insertSurfaceEvent(event) {
+  _stmts.insertSurfaceEvent.run({
+    service: event.service || 'UNKNOWN',
+    event_type: event.eventType || 'UNKNOWN',
+    airport: event.airport || null,
+    tracon: event.tracon || null,
+    callsign: event.callsign || null,
+    lat: event.lat ?? null, lon: event.lon ?? null,
+    altitude: event.altitude || null,
+    speed: event.speed ?? null, heading: event.heading ?? null,
+    surface_event: event.surfaceEvent || null,
+    runway: event.runway || null, gate: event.gate || null, taxiway: event.taxiway || null,
+    rvr: event.rvr ?? null, rvr_trend: event.rvrTrend || null,
+    alert_type: event.alertType || null,
+    text: event.text || null,
+  })
+}
+
+function getRecentSurfaceEvents(limit = 30) { return _stmts.getRecentSurfaceEvents.all(limit) }
+function getSurfaceEventsByAirport(airport, limit = 20) { return _stmts.getSurfaceEventsByAirport.all(airport, limit) }
+function getOooi(limit = 30) { return _stmts.getOooi.all(limit) }
+function getSurfaceStats() { return _stmts.getSurfaceStats.get() }
+function purgeOldSurfaceEvents() { return _stmts.purgeOldSurfaceEvents.run().changes }
+
+function getRecentTerminalWeather(limit = 20) { return _stmts.getRecentTerminalWeather.all(limit) }
+function getTerminalWeatherByAirport(airport, limit = 10) { return _stmts.getTerminalWeatherByAirport.all(airport, limit) }
+function getTerminalWeatherStats() { return _stmts.getTerminalWeatherStats.get() }
+function purgeOldTerminalWeather() { return _stmts.purgeOldTerminalWeather.run().changes }
 
 function getFlightPlan(acid) { return _stmts.getFlightPlan.get(acid) || null }
 function getActiveFlightPlans(limit = 50) { return _stmts.getActiveFlightPlans.all(limit) }
@@ -2000,4 +2257,17 @@ module.exports = {
   getFlowEventsByAirport,
   getTfmsStats,
   purgeOldTfms,
+  getAirportConfigs,
+  getAirportConfig,
+  insertSurfaceEvent,
+  getRecentSurfaceEvents,
+  getSurfaceEventsByAirport,
+  getOooi,
+  getSurfaceStats,
+  purgeOldSurfaceEvents,
+  insertTerminalWeather,
+  getRecentTerminalWeather,
+  getTerminalWeatherByAirport,
+  getTerminalWeatherStats,
+  purgeOldTerminalWeather,
 }

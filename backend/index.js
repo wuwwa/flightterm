@@ -1009,6 +1009,71 @@ app.get('/api/swim/flow/:airport', (req, res) => {
   }
 })
 
+// ITWS — recent terminal weather events
+// GET /api/swim/weather?limit=20
+app.get('/api/swim/weather', (req, res) => {
+  try {
+    const { getRecentTerminalWeather } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 20, 100)
+    res.json(getRecentTerminalWeather(limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ITWS — terminal weather for specific airport
+// GET /api/swim/weather/:airport
+app.get('/api/swim/weather/:airport', (req, res) => {
+  try {
+    const { getTerminalWeatherByAirport } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 10, 50)
+    res.json(getTerminalWeatherByAirport(req.params.airport.toUpperCase(), limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// STDDS — recent surface events (OOOI, taxi, departures, RVR)
+// GET /api/swim/surface?limit=30
+app.get('/api/swim/surface', (req, res) => {
+  try {
+    const { getRecentSurfaceEvents } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 30, 100)
+    res.json(getRecentSurfaceEvents(limit))
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// STDDS — OOOI events (gate out, wheels off, wheels on, gate in)
+// GET /api/swim/oooi?limit=30
+app.get('/api/swim/oooi', (req, res) => {
+  try {
+    const { getOooi } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 30, 100)
+    res.json(getOooi(limit))
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// STDDS — surface events by airport
+// GET /api/swim/surface/:airport
+app.get('/api/swim/surface/:airport', (req, res) => {
+  try {
+    const { getSurfaceEventsByAirport } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 20, 100)
+    res.json(getSurfaceEventsByAirport(req.params.airport.toUpperCase(), limit))
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// TFMS — real-time airport configurations (runways, rates, weather)
+// GET /api/swim/airports
+app.get('/api/swim/airports', (_req, res) => {
+  try {
+    const { getAirportConfigs } = require('./db')
+    res.json(getAirportConfigs())
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Database metrics
 // GET /api/db/metrics
 app.get('/api/db/metrics', (_req, res) => {
@@ -1171,8 +1236,11 @@ if (!process.env.VITEST) app.listen(PORT, () => {
   console.log(`  ── swim feeds ──`)
   console.log(`  SWIM_USERNAME:   ${process.env.SWIM_USERNAME ? '✓ set' : '✗ not set'}`)
   console.log(`  SWIM_PASSWORD:   ${process.env.SWIM_PASSWORD ? '✓ set' : '✗ not set'}`)
-  console.log(`  SWIM_FNS_QUEUE:  ${process.env.SWIM_FNS_QUEUE ? '✓ FNS (NOTAMs)' : '✗ not set'}`)
-  console.log(`  SWIM_TFMS_QUEUE: ${process.env.SWIM_TFMS_QUEUE ? '✓ TFMS (flight plans)' : '✗ not set'}`)
+  console.log(`  SWIM_FNS_QUEUE:   ${process.env.SWIM_FNS_QUEUE ? '✓ FNS (NOTAMs)' : '✗ not set'}`)
+  console.log(`  SWIM_TFMS_QUEUE:  ${process.env.SWIM_TFMS_QUEUE ? '✓ TFMS (flight plans)' : '✗ not set'}`)
+  console.log(`  SWIM_SFDPS_QUEUE: ${process.env.SWIM_SFDPS_QUEUE ? '✓ SFDPS (en route)' : '✗ not set'}`)
+  console.log(`  SWIM_ITWS_QUEUE:  ${process.env.SWIM_ITWS_QUEUE ? '✓ ITWS (weather)' : '✗ not set'}`)
+  console.log(`  SWIM_STDDS_QUEUE: ${process.env.SWIM_STDDS_QUEUE ? '✓ STDDS (surface)' : '✗ not set'}`)
   console.log(``)
   console.log(`  ── security ──`)
   console.log(`  ADMIN_SECRET:   ${process.env.ADMIN_SECRET ? '✓ set' : '✗ not set'}`)

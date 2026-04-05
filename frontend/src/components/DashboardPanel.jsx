@@ -3,6 +3,7 @@ import AnomalyFeed from './dashboard/AnomalyFeed'
 import StatsCards from './dashboard/StatsCards'
 import WeatherStatus from './dashboard/WeatherStatus'
 import NotamPanel from './dashboard/NotamPanel'
+import ItwsPanel from './dashboard/ItwsPanel'
 import DocsPanel from './dashboard/DocsPanel'
 import HeatMap from './dashboard/HeatMap'
 import AnomalyDrilldown from './dashboard/AnomalyDrilldown'
@@ -11,6 +12,7 @@ import ZoneDrilldown from './dashboard/ZoneDrilldown'
 import ActivityChart from './dashboard/ActivityChart'
 import NasStatus from './dashboard/NasStatus'
 import FlightLookup from './dashboard/FlightLookup'
+import SurfaceOps from './dashboard/SurfaceOps'
 import {
   fetchAnomalyFeed,
   fetchAnomalyStats,
@@ -62,7 +64,6 @@ export default function DashboardPanel({ backendOk, region: appRegion, lastFetch
     setSelectedAnomaly(prev => prev?.icao === anomaly.icao ? null : anomaly)
   }, [])
 
-  // Select by ICAO (from repeat offenders) — find most recent anomaly for this aircraft
   const handleSelectIcao = useCallback((icao, callsign) => {
     setSelectedZone(null)
     const match = anomalies.find(a => a.icao === icao)
@@ -83,7 +84,7 @@ export default function DashboardPanel({ backendOk, region: appRegion, lastFetch
       {/* Header */}
       <div className="bg-bg2 border-b border-border py-1.5 px-3 flex items-center gap-2">
         <span className="text-acc text-[11px] font-bold tracking-wider uppercase">dashboard</span>
-        <span className="text-fg3 text-[10px]">anomaly analytics · 24h window</span>
+        <span className="text-fg3 text-[10px]">NAS operations · anomaly analytics</span>
         <button
           onClick={() => setShowDocs(true)}
           className="ml-auto text-[10px] text-fg3 hover:text-acc border border-border hover:border-acc/50 px-2 py-0.5 rounded transition-colors"
@@ -92,45 +93,48 @@ export default function DashboardPanel({ backendOk, region: appRegion, lastFetch
         </button>
       </div>
 
-      {/* Warming up notice */}
-      {!anomalies.length && !sightingStats && (
-        <div className="bg-bg1 border-b border-border py-3 px-3 text-center">
-          <div className="text-fg3 text-[11px]">waiting for poller data — anomalies and stats will appear after the first few poll cycles</div>
-          <div className="text-fg3/50 text-[10px] mt-0.5">weather and NOTAMs are available immediately</div>
-        </div>
-      )}
-
-      {/* Status bars — weather + NOTAMs + NAS status */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-border">
-        <WeatherStatus region={appRegion || 'usa'} backendOk={backendOk} />
-        <NotamPanel backendOk={backendOk} />
-        <NasStatus backendOk={backendOk} />
+      {/* ═══ FAA SWIM DATA ═══════════════════════════════════════════════════ */}
+      <div className="bg-bg2 border-b border-border py-1 px-3">
+        <span className="text-grn text-[9px] tracking-wider uppercase font-bold">FAA SWIM</span>
+        <span className="text-fg3 text-[9px] ml-2">real-time NAS data</span>
       </div>
 
-      {/* Heatmap — full width */}
+      {/* Row 1: NAS Status + NOTAMs + Terminal Weather — compact, scrollable */}
+      <div className="grid grid-cols-1 md:grid-cols-3 md:grid-rows-1 gap-px bg-border md:h-52">
+        <NasStatus backendOk={backendOk} />
+        <NotamPanel backendOk={backendOk} />
+        <ItwsPanel backendOk={backendOk} />
+      </div>
+
+      {/* Row 2: Flight Lookup + Surface Ops — compact, scrollable */}
+      <div className="grid grid-cols-1 md:grid-cols-2 md:grid-rows-1 gap-px bg-border md:h-64">
+        <FlightLookup backendOk={backendOk} />
+        <SurfaceOps backendOk={backendOk} />
+      </div>
+
+      {/* ═══ ANOMALY ANALYTICS ═══════════════════════════════════════════════ */}
+      <div className="bg-bg2 border-t-2 border-t-border2 border-b border-border py-1 px-3 mt-1">
+        <span className="text-red text-[9px] tracking-wider uppercase font-bold">anomaly analytics</span>
+        <span className="text-fg3 text-[9px] ml-2">weather · detection · 24h window</span>
+      </div>
+
+      {/* Weather hazards (aviationweather.gov) */}
+      <WeatherStatus region={appRegion || 'usa'} backendOk={backendOk} />
+
+      {/* Heatmap */}
       <HeatMap backendOk={backendOk} region={appRegion || 'usa'} lastFetchAt={lastFetchAt} onSelect={handleAnomalyClick} />
 
-      {/* Main content: anomaly feed + flight lookup + stats */}
-      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr_320px] md:grid-rows-[1fr] gap-px bg-border">
-        {/* Left: anomaly feed */}
+      {/* Anomaly feed + charts/stats */}
+      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] md:grid-rows-[1fr] gap-px bg-border">
         <div className="relative">
           <div className="md:absolute md:inset-0">
             <AnomalyFeed anomalies={anomalies} onSelect={handleAnomalyClick} selectedIcao={selectedAnomaly?.icao} />
           </div>
         </div>
-
-        {/* Center: charts + zone metrics + stats */}
         <div className="bg-bg1">
           <ActivityChart hourly={hourlyActivity} anomalyHourly={anomalyStats?.hourly || []} />
           <ZoneMetrics hotspots={hotspots} onSelectZone={handleSelectZone} selectedZone={selectedZone} />
           <StatsCards stats={sightingStats} anomalyStats={anomalyStats} onSelectIcao={handleSelectIcao} />
-        </div>
-
-        {/* Right: flight lookup */}
-        <div className="relative">
-          <div className="md:absolute md:inset-0 overflow-y-auto">
-            <FlightLookup backendOk={backendOk} />
-          </div>
         </div>
       </div>
 

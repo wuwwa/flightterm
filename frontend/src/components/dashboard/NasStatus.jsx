@@ -13,21 +13,28 @@ async function fetchFlowEvents() {
 }
 
 const EVENT_COLORS = {
-  GDP: 'text-ylw',
-  GS: 'text-red',
-  AFP: 'text-ylw',
-  REROUTE: 'text-mag',
-  ADVISORY: 'text-cyn',
-  CTOP: 'text-ylw',
+  GDP: 'text-ylw', GS: 'text-red', AFP: 'text-ylw', REROUTE: 'text-mag',
+  GADV: 'text-cyn', RSTR: 'text-ylw', FXA: 'text-mag', CTOP: 'text-ylw',
+  APTC: 'text-grn', TMI_LIST: 'text-fg3',
 }
 
 const EVENT_LABELS = {
-  GDP: 'Ground Delay',
-  GS: 'Ground Stop',
-  AFP: 'Arrival Flow',
-  REROUTE: 'Reroute',
-  ADVISORY: 'Advisory',
-  CTOP: 'CTOP',
+  GDP: 'Ground Delay', GS: 'Ground Stop', AFP: 'Arrival Flow', REROUTE: 'Reroute',
+  GADV: 'Advisory', RSTR: 'Restriction', FXA: 'Flow Area', CTOP: 'CTOP',
+  APTC: 'Apt Config', TMI_LIST: 'TMI List',
+}
+
+function FeedDot({ feed, label }) {
+  if (!feed) return <span className="text-fg3/40 text-[9px]">{label}</span>
+  return (
+    <span className="flex items-center gap-0.5 text-[9px]">
+      <span className={clsx('inline-block w-1.5 h-1.5 rounded-full', feed.connected ? 'bg-grn' : 'bg-red')} />
+      <span className={feed.connected ? 'text-grn' : 'text-fg3/40'}>{label}</span>
+      {feed.connected && feed.received > 0 && (
+        <span className="text-fg3/50">{feed.received > 999 ? Math.round(feed.received / 1000) + 'k' : feed.received}</span>
+      )}
+    </span>
+  )
 }
 
 export default function NasStatus({ backendOk }) {
@@ -57,38 +64,29 @@ export default function NasStatus({ backendOk }) {
     return () => { cancelled = true; clearInterval(id) }
   }, [backendOk])
 
+  const feeds = status?.feeds || {}
   const tfmsStats = status?.tfms
-  const tfmsFeed = status?.feeds?.tfms
-  const connected = tfmsFeed?.connected
   const activeFlights = tfmsStats?.active_flights || 0
   const totalPlans = tfmsStats?.recent_plans || 0
   const gdps = tfmsStats?.active_gdps || 0
   const groundStops = tfmsStats?.active_gs || 0
-  const flowCount = tfmsStats?.recent_flow_events || 0
+  const connectedCount = Object.values(feeds).filter(f => f?.connected).length
 
   return (
-    <div className="bg-bg1">
-      {/* Header */}
+    <div className="bg-bg1 h-full min-h-0 flex flex-col">
+      {/* Header with all feed indicators */}
       <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border flex justify-between">
-        <span>NAS status · TFMS</span>
-        <span className="flex items-center gap-1.5">
-          {tfmsFeed ? (
-            <>
-              <span className={clsx(
-                'inline-block w-1.5 h-1.5 rounded-full',
-                connected ? 'bg-grn' : 'bg-red'
-              )} />
-              <span className={connected ? 'text-grn' : 'text-red'}>
-                {connected ? 'live' : 'disconnected'}
-              </span>
-              {tfmsFeed.received > 0 && (
-                <span className="text-fg3">{tfmsFeed.received.toLocaleString()} msgs</span>
-              )}
-            </>
-          ) : loading ? 'loading...' : (
-            <span className="text-fg3">not configured</span>
-          )}
-        </span>
+        <span>NAS status · FAA SWIM</span>
+        <span className="text-fg3">{connectedCount}/5 feeds</span>
+      </div>
+
+      {/* Feed connection indicators */}
+      <div className="flex gap-3 px-2.5 py-1 border-b border-white/5">
+        <FeedDot feed={feeds.fns} label="FNS" />
+        <FeedDot feed={feeds.tfms} label="TFMS" />
+        <FeedDot feed={feeds.sfdps} label="SFDPS" />
+        <FeedDot feed={feeds.itws} label="ITWS" />
+        <FeedDot feed={feeds.stdds} label="STDDS" />
       </div>
 
       {/* Key metrics */}
@@ -119,7 +117,7 @@ export default function NasStatus({ backendOk }) {
 
       {/* Active flow events */}
       {flowEvents.length > 0 && (
-        <div className="border-t border-border max-h-28 overflow-y-auto">
+        <div className="border-t border-border flex-1 min-h-0 overflow-y-auto">
           {flowEvents.map((ev, i) => (
             <div key={ev.id || i} className="flex items-start gap-2 py-0.5 px-2.5 text-[9px] border-b border-white/3">
               <span className={clsx('font-bold shrink-0 w-14', EVENT_COLORS[ev.event_type] || 'text-fg3')}>
@@ -145,10 +143,10 @@ export default function NasStatus({ backendOk }) {
         </div>
       )}
 
-      {/* No TFMS */}
-      {!tfmsFeed && !loading && (
+      {/* No feeds configured */}
+      {connectedCount === 0 && !loading && (
         <div className="px-2.5 py-1.5 text-[9px] text-fg3/60">
-          set SWIM_TFMS_QUEUE in .env to enable
+          set SWIM_* env vars to enable FAA data feeds
         </div>
       )}
     </div>

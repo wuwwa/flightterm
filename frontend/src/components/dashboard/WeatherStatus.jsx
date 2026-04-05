@@ -9,6 +9,15 @@ const REGIONS = {
   atlantic: { bbox: [10, -70, 60, -10], label: 'Atlantic' },
 }
 
+const ITWS_TYPE_COLORS = {
+  WINDSHEAR: 'text-red',
+  MICROBURST: 'text-red',
+  STORM_CELL: 'text-ylw',
+  LIGHTNING: 'text-mag',
+  WINDS_ALOFT: 'text-cyn',
+  PRECIP: 'text-acc',
+}
+
 export default function WeatherStatus({ region = 'usa', backendOk }) {
   const [sigmets, setSigmets] = useState(null)
   const [pireps, setPireps] = useState(null)
@@ -20,18 +29,7 @@ export default function WeatherStatus({ region = 'usa', backendOk }) {
     setLoading(true)
 
     const r = REGIONS[region] || REGIONS.usa
-    Promise.all([
-      fetchSigmets().catch(() => []),
-      fetchPireps(r.bbox[0], r.bbox[1], r.bbox[2], r.bbox[3], { age: 2, inten: 'mod' }).catch(() => []),
-    ]).then(([sigs, pirs]) => {
-      if (cancelled) return
-      setSigmets(summarizeSigmets(sigs))
-      setPireps(summarizePireps(pirs))
-      setLoading(false)
-    })
-
-    // Refresh every 5 min
-    const id = setInterval(() => {
+    const refresh = () => {
       Promise.all([
         fetchSigmets().catch(() => []),
         fetchPireps(r.bbox[0], r.bbox[1], r.bbox[2], r.bbox[3], { age: 2, inten: 'mod' }).catch(() => []),
@@ -39,9 +37,12 @@ export default function WeatherStatus({ region = 'usa', backendOk }) {
         if (cancelled) return
         setSigmets(summarizeSigmets(sigs))
         setPireps(summarizePireps(pirs))
+        setLoading(false)
       })
-    }, 300_000)
+    }
 
+    refresh()
+    const id = setInterval(refresh, 60_000)
     return () => { cancelled = true; clearInterval(id) }
   }, [backendOk, region])
 
@@ -119,6 +120,7 @@ export default function WeatherStatus({ region = 'usa', backendOk }) {
           ))}
         </div>
       )}
+
     </div>
   )
 }
