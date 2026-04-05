@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import axios from 'axios'
 import AIRPORTS from '../../data/airports'
@@ -27,15 +27,21 @@ function Metric({ label, value, color, unit, sub }) {
 }
 
 export default function AirportBoard({ backendOk }) {
-  const [airport, setAirport] = useState('')
+  const [airport, setAirport] = useState('KJFK')
   const [ops, setOps] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [newAcids, setNewAcids] = useState(new Set())
+  const prevArrRef = useRef(new Set())
+  const prevDepRef = useRef(new Set())
 
   useEffect(() => {
     if (!airport || !backendOk) { setOps(null); setLoading(false); return }
     let cancelled = false
     setOps(null)       // clear stale data immediately
     setLoading(true)
+    setNewAcids(new Set())
+    prevArrRef.current = new Set()
+    prevDepRef.current = new Set()
     const refresh = () => {
       axios.get(`/api/swim/airport/${airport}/ops`)
         .then(r => { if (!cancelled) { setOps(r.data); setLoading(false) } })
@@ -50,6 +56,23 @@ export default function AirportBoard({ backendOk }) {
   const arrivals = ops?.arrivals || []
   const departures = ops?.departures || []
   const recentArrivals = ops?.recentArrivals || []
+
+  // Track new/changed flights for highlight animation
+  useEffect(() => {
+    if (!ops) return
+    const currArr = new Set(arrivals.map(f => f.acid))
+    const currDep = new Set(departures.map(f => f.acid))
+    const fresh = new Set()
+    for (const acid of currArr) { if (!prevArrRef.current.has(acid)) fresh.add(acid) }
+    for (const acid of currDep) { if (!prevDepRef.current.has(acid)) fresh.add(acid) }
+    prevArrRef.current = currArr
+    prevDepRef.current = currDep
+    if (fresh.size > 0) {
+      setNewAcids(fresh)
+      const timer = setTimeout(() => setNewAcids(new Set()), 2500)
+      return () => clearTimeout(timer)
+    }
+  }, [ops, arrivals, departures])
 
   const cfg = ops?.config
   const flow = ops?.flow
@@ -91,7 +114,10 @@ export default function AirportBoard({ backendOk }) {
       </div>
 
       {!airport ? (
-        <div className="flex-1 flex items-center justify-center text-fg3 text-[10px]">select an airport above</div>
+        <div className="flex-1 flex flex-col items-center justify-center gap-1 text-fg3 px-4">
+          <span className="text-[10px]">select an airport to view live operations</span>
+          <span className="text-[8px] text-fg3/50">real-time arrivals, departures, delays, runway configs, and capacity from FAA TFMS</span>
+        </div>
       ) : loading ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-2">
           <div className="flex gap-1">
@@ -105,15 +131,16 @@ export default function AirportBoard({ backendOk }) {
         <>
           {/* Metrics row — computed cross-referenced data */}
           {ops && (
-            <div className="grid grid-cols-8 gap-px bg-border shrink-0">
+            <div className="grid grid-cols-[auto_1fr_1fr_auto_1fr_1fr_auto_1fr_1fr] gap-px bg-border shrink-0 items-stretch">
+              <div className="bg-bg2 flex items-center px-1.5"><span className="text-[7px] text-fg3/50 uppercase tracking-wider">traffic</span></div>
               <Metric label="inbound" value={cap?.inbound} color={cap?.arrOverflow > 0 ? 'text-red' : 'text-cyn'} sub={`${cap?.arrRate || '?'}/hr capacity`} />
               <Metric label="outbound" value={cap?.outbound} color={cap?.depOverflow > 0 ? 'text-red' : 'text-grn'} sub={`${cap?.depRate || '?'}/hr capacity`} />
-              <Metric label="arr rate" value={cap?.arrRate} unit="/hr" />
-              <Metric label="dep rate" value={cap?.depRate} unit="/hr" />
-              <Metric label="dep delay" value={delays?.departures?.avg} unit="m" color={delays?.departures?.avg > 15 ? 'text-red' : delays?.departures?.avg > 5 ? 'text-ylw' : 'text-grn'} sub={`${delays?.departures?.count || 0} samples`} />
-              <Metric label="arr delay" value={delays?.arrivals?.avg} unit="m" color={delays?.arrivals?.avg > 15 ? 'text-red' : delays?.arrivals?.avg > 5 ? 'text-ylw' : 'text-grn'} sub={`${delays?.arrivals?.count || 0} samples`} />
-              <Metric label="taxi out" value={taxi?.out?.avg} unit="m" color={taxi?.out?.avg > 20 ? 'text-ylw' : 'text-fg2'} sub={`${taxi?.out?.count || 0} samples`} />
-              <Metric label="taxi in" value={taxi?.in?.avg} unit="m" color={taxi?.in?.avg > 15 ? 'text-ylw' : 'text-fg2'} sub={`${taxi?.in?.count || 0} samples`} />
+              <div className="bg-bg2 flex items-center px-1.5"><span className="text-[7px] text-fg3/50 uppercase tracking-wider">delays</span></div>
+              <Metric label="dep avg" value={delays?.departures?.avg} unit="m" color={delays?.departures?.avg > 15 ? 'text-red' : delays?.departures?.avg > 5 ? 'text-ylw' : 'text-grn'} sub={`${delays?.departures?.count || 0} flights measured`} />
+              <Metric label="arr avg" value={delays?.arrivals?.avg} unit="m" color={delays?.arrivals?.avg > 15 ? 'text-red' : delays?.arrivals?.avg > 5 ? 'text-ylw' : 'text-grn'} sub={`${delays?.arrivals?.count || 0} flights measured`} />
+              <div className="bg-bg2 flex items-center px-1.5"><span className="text-[7px] text-fg3/50 uppercase tracking-wider">taxi</span></div>
+              <Metric label="out" value={taxi?.out?.avg} unit="m" color={taxi?.out?.avg > 20 ? 'text-ylw' : 'text-fg2'} sub={`push → wheels up (${taxi?.out?.count || 0} samples)`} />
+              <Metric label="in" value={taxi?.in?.avg} unit="m" color={taxi?.in?.avg > 15 ? 'text-ylw' : 'text-fg2'} sub={`touchdown → gate (${taxi?.in?.count || 0} samples)`} />
             </div>
           )}
 
@@ -134,15 +161,18 @@ export default function AirportBoard({ backendOk }) {
           <div className="flex-1 min-h-0 grid grid-cols-2 gap-px bg-border">
             {/* Arrivals */}
             <div className="bg-bg1 flex flex-col min-h-0">
-              <div className="px-2 py-0.5 text-[8px] text-cyn bg-bg2 border-b border-border shrink-0 flex justify-between">
-                <span>ARRIVALS</span>
-                <span className="text-fg3">{arrivals.length}</span>
+              <div className="px-2 py-0.5 text-[8px] bg-bg2 border-b border-border shrink-0 flex justify-between">
+                <span className="text-cyn">ARRIVALS</span>
+                <span className="text-fg3">{arrivals.length} inbound{recentArrivals.length > 0 ? ` · ${recentArrivals.length} landed` : ''}</span>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto">
                 {arrivals.length > 0 ? arrivals.map(f => (
                   <div
                     key={f.acid}
-                    className="flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-white/3"
+                    className={clsx(
+                      'flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-white/3',
+                      newAcids.has(f.acid) && 'animate-row-arrive'
+                    )}
                     title={`${f.acid} from ${f.dep_arpt || '?'} — ${f.flight_status}${f.eta ? ' ETA ' + fmtTime(f.eta) : ''}`}
                   >
                     <span className="text-acc font-bold w-14 shrink-0 truncate">{f.acid}</span>
@@ -169,15 +199,18 @@ export default function AirportBoard({ backendOk }) {
 
             {/* Departures */}
             <div className="bg-bg1 flex flex-col min-h-0">
-              <div className="px-2 py-0.5 text-[8px] text-grn bg-bg2 border-b border-border shrink-0 flex justify-between">
-                <span>DEPARTURES</span>
-                <span className="text-fg3">{departures.length}</span>
+              <div className="px-2 py-0.5 text-[8px] bg-bg2 border-b border-border shrink-0 flex justify-between">
+                <span className="text-grn">DEPARTURES</span>
+                <span className="text-fg3">{departures.length} outbound</span>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto">
                 {departures.length > 0 ? departures.map(f => (
                   <div
                     key={f.acid}
-                    className="flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-white/3"
+                    className={clsx(
+                      'flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-white/3',
+                      newAcids.has(f.acid) && 'animate-row-arrive'
+                    )}
                     title={`${f.acid} to ${f.arr_arpt || '?'} — ${f.flight_status}${f.etd ? ' ETD ' + fmtTime(f.etd) : ''}${f.route ? '\nRoute: ' + f.route : ''}`}
                   >
                     <span className="text-acc font-bold w-14 shrink-0 truncate">{f.acid}</span>

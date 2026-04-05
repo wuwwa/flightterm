@@ -127,6 +127,7 @@ const AIRPORTS = [
   { icao: 'KRSW', lat: 26.536, lon: -81.755, city: 'Fort Myers', state: 'FL' },
   { icao: 'KPBI', lat: 26.683, lon: -80.096, city: 'West Palm Beach', state: 'FL' },
   { icao: 'KABQ', lat: 35.040, lon: -106.609, city: 'Albuquerque', state: 'NM' },
+  { icao: 'KSYR', lat: 43.111, lon: -76.106, city: 'Syracuse', state: 'NY' },
 ]
 
 const AIRPORT_PROXIMITY_KM = 50 // suppress descent anomalies within this radius

@@ -51,6 +51,7 @@ const AIRPORTS = {
   KRSW: { lat: 26.536, lon: -81.755, city: 'Fort Myers', state: 'FL' },
   KPBI: { lat: 26.683, lon: -80.096, city: 'West Palm Beach', state: 'FL' },
   KABQ: { lat: 35.040, lon: -106.609, city: 'Albuquerque', state: 'NM' },
+  KSYR: { lat: 43.111, lon: -76.106, city: 'Syracuse', state: 'NY' },
 }
 
 export default AIRPORTS
