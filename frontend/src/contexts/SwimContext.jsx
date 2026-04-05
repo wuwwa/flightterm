@@ -7,7 +7,7 @@ const SwimContext = createContext(null)
 // Fast:   real-time operational data that changes every few seconds
 // Medium: data that updates on each SWIM message cycle (~15-30s)
 // Slow:   structural/config data that rarely changes
-const FAST   = 10_000  // 10s — flights, oooi, status
+const FAST   = 10_000  // 10s — flights, oooi, status, NAS summary
 const MEDIUM = 30_000  // 30s — flow events, weather, TFRs
 const SLOW   = 60_000  // 60s — airport configs, NOTAM airports
 
@@ -20,20 +20,23 @@ export function SwimProvider({ backendOk, children }) {
   const [notamAirports, setNotamAirports] = useState([])
   const [weather, setWeather] = useState([])
   const [oooi, setOooi] = useState([])
+  const [nasSummary, setNasSummary] = useState(null)
 
-  // Fast tier (10s): flight positions, surface events, feed status
+  // Fast tier (10s): flight positions, surface events, feed status, NAS health
   const refreshFast = useCallback(async () => {
     if (!backendOk) return
     const results = await Promise.allSettled([
       axios.get('/api/swim/status'),
       axios.get('/api/swim/flights', { params: { limit: 200 } }),
       axios.get('/api/swim/oooi', { params: { limit: 30 } }),
+      axios.get('/api/swim/nas'),
     ])
     const val = (i) => results[i].status === 'fulfilled' ? results[i].value.data : null
     const arr = (i) => { const v = val(i); return Array.isArray(v) ? v : [] }
     if (val(0)) setStatus(val(0))
     setFlights(arr(1))
     setOooi(arr(2))
+    if (val(3)) setNasSummary(val(3))
   }, [backendOk])
 
   // Medium tier (30s): flow events, weather, TFRs
@@ -64,7 +67,6 @@ export function SwimProvider({ backendOk, children }) {
 
   useEffect(() => {
     if (!backendOk) return
-    // Initial fetch — all tiers at once
     refreshFast()
     refreshMedium()
     refreshSlow()
@@ -76,14 +78,7 @@ export function SwimProvider({ backendOk, children }) {
 
   return (
     <SwimContext.Provider value={{
-      status,
-      flowEvents,
-      flights,
-      airportConfigs,
-      tfrs,
-      notamAirports,
-      weather,
-      oooi,
+      status, flowEvents, flights, airportConfigs, tfrs, notamAirports, weather, oooi, nasSummary,
     }}>
       {children}
     </SwimContext.Provider>

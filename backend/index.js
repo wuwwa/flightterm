@@ -1285,6 +1285,30 @@ app.get('/api/swim/airports', (_req, res) => {
   }
 })
 
+// ── Computed airport operations (cross-references TFMS + STDDS + ITWS) ──────
+
+// GET /api/swim/airport/:icao/ops — full computed ops for one airport
+app.get('/api/swim/airport/:icao/ops', (req, res) => {
+  cachePublic(res, 15)
+  try {
+    const { getAirportOps } = require('./db')
+    res.json(getAirportOps(req.params.icao.toUpperCase()))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/swim/nas — NAS-wide health summary
+app.get('/api/swim/nas', (_req, res) => {
+  cachePublic(res, 15)
+  try {
+    const { getNasSummary } = require('./db')
+    res.json(getNasSummary())
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Database metrics
 // GET /api/db/metrics
 app.get('/api/db/metrics', (_req, res) => {
@@ -1441,6 +1465,7 @@ if (!process.env.VITEST) _server = app.listen(PORT, () => {
   console.log(`  AEROAPI_KEY:    ${process.env.AEROAPI_KEY ? '✓ set' : '✗ not set'}`)
   console.log(`  OS_CLIENT_ID:   ${process.env.OS_CLIENT_ID ? '✓ set' : '✗ not set'}`)
   console.log(`  OS_CLIENT_ID_2: ${process.env.OS_CLIENT_ID_2 ? '✓ set' : '✗ not set'}`)
+  console.log(`  OS_CLIENT_ID_3: ${process.env.OS_CLIENT_ID_3 ? '✓ set' : '✗ not set'}`)
   console.log(`  FAA_CLIENT_ID:  ${process.env.FAA_CLIENT_ID ? '✓ set' : '✗ not set'}`)
   console.log(``)
   console.log(`  ── s3 archive ──`)

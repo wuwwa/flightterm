@@ -6,6 +6,7 @@ const mockPost = vi.fn()
 const mockRecordAnomalies = vi.fn(() => 0)
 const mockResolveAnomalies = vi.fn(() => 0)
 const mockGetRoutesBulk = vi.fn(() => ({}))
+const mockGetFlightPlan = vi.fn(() => null)
 
 // Patch axios directly — vi.mock doesn't intercept node_modules CJS requires
 const axios = require('axios')
@@ -17,9 +18,11 @@ const db = require('./db')
 const _origRecordAnomalies = db.recordAnomalies
 const _origResolveAnomalies = db.resolveAnomalies
 const _origGetRoutesBulk = db.getRoutesBulk
+const _origGetFlightPlan = db.getFlightPlan
 db.recordAnomalies = mockRecordAnomalies
 db.resolveAnomalies = mockResolveAnomalies
 db.getRoutesBulk = mockGetRoutesBulk
+db.getFlightPlan = mockGetFlightPlan
 
 const poller = require('./poller')
 const { _internals } = poller

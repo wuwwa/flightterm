@@ -2190,6 +2190,205 @@ function close() {
   try { db.close() } catch {}
 }
 
+// ── Computed airport operations (cross-referencing TFMS + STDDS + ITWS) ─────
+
+// Departure delay: compare TFMS ETD with STDDS actual OFF time for an airport
+const _stmtDepDelay = db.prepare(`
+  SELECT
+    fp.acid,
+    fp.etd,
+    fp.arr_arpt,
+    se.received_at AS actual_off,
+    CAST((julianday(se.received_at) - julianday(fp.etd)) * 1440 AS INTEGER) AS delay_min
+  FROM flight_plans fp
+  JOIN surface_events se ON se.callsign = fp.acid AND se.event_type = 'OFF'
+  WHERE fp.dep_arpt = ?
+    AND fp.etd IS NOT NULL
+    AND se.received_at > datetime('now', '-2 hours')
+    AND fp.updated_at > datetime('now', '-2 hours')
+  ORDER BY se.received_at DESC LIMIT ?
+`)
+
+// Arrival delay: compare TFMS ETA with STDDS actual ON time
+const _stmtArrDelay = db.prepare(`
+  SELECT
+    fp.acid,
+    fp.eta,
+    fp.dep_arpt,
+    se.received_at AS actual_on,
+    CAST((julianday(se.received_at) - julianday(fp.eta)) * 1440 AS INTEGER) AS delay_min
+  FROM flight_plans fp
+  JOIN surface_events se ON se.callsign = fp.acid AND se.event_type = 'ON'
+  WHERE fp.arr_arpt = ?
+    AND fp.eta IS NOT NULL
+    AND se.received_at > datetime('now', '-2 hours')
+    AND fp.updated_at > datetime('now', '-2 hours')
+  ORDER BY se.received_at DESC LIMIT ?
+`)
+
+// Taxi-out time: SPOT_OUT to OFF for an airport (minutes)
+const _stmtTaxiOut = db.prepare(`
+  SELECT
+    a.callsign,
+    a.received_at AS push_time,
+    b.received_at AS off_time,
+    CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL) AS taxi_min
+  FROM surface_events a
+  JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'OFF'
+  WHERE a.airport = ? AND a.event_type = 'SPOT_OUT'
+    AND a.received_at > datetime('now', '-2 hours')
+    AND b.received_at > a.received_at
+    AND b.received_at < datetime(a.received_at, '+60 minutes')
+  ORDER BY a.received_at DESC LIMIT ?
+`)
+
+// Taxi-in time: ON to SPOT_IN for an airport (minutes)
+const _stmtTaxiIn = db.prepare(`
+  SELECT
+    a.callsign,
+    a.received_at AS on_time,
+    b.received_at AS gate_time,
+    CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL) AS taxi_min
+  FROM surface_events a
+  JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'SPOT_IN'
+  WHERE a.airport = ? AND a.event_type = 'ON'
+    AND a.received_at > datetime('now', '-2 hours')
+    AND b.received_at > a.received_at
+    AND b.received_at < datetime(a.received_at, '+60 minutes')
+  ORDER BY a.received_at DESC LIMIT ?
+`)
+
+// Inbound count: flights with arr_arpt = airport and active status
+const _stmtInboundCount = db.prepare(`
+  SELECT COUNT(*) as count FROM flight_plans
+  WHERE arr_arpt = ? AND flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING')
+    AND updated_at > datetime('now', '-2 hours')
+`)
+
+// Outbound count: flights with dep_arpt = airport and active/filed status
+const _stmtOutboundCount = db.prepare(`
+  SELECT COUNT(*) as count FROM flight_plans
+  WHERE dep_arpt = ? AND flight_status IN ('ACTIVE','ASCENDING','FILED')
+    AND updated_at > datetime('now', '-2 hours')
+`)
+
+// Weather events at airport (ITWS)
+const _stmtAirportWeather = db.prepare(`
+  SELECT * FROM terminal_weather
+  WHERE airport = ? AND received_at > datetime('now', '-1 hour')
+  ORDER BY received_at DESC LIMIT ?
+`)
+
+function getAirportOps(airport) {
+  const config = getAirportConfig(airport)
+  const flowEvents = getFlowEventsByAirport(airport, 10)
+
+  // Delay computation
+  const depDelays = _stmtDepDelay.all(airport, 20)
+  const arrDelays = _stmtArrDelay.all(airport, 20)
+  const avgDepDelay = depDelays.length > 0 ? Math.round(depDelays.reduce((s, d) => s + (d.delay_min || 0), 0) / depDelays.length) : null
+  const avgArrDelay = arrDelays.length > 0 ? Math.round(arrDelays.reduce((s, d) => s + (d.delay_min || 0), 0) / arrDelays.length) : null
+
+  // Taxi times
+  const taxiOuts = _stmtTaxiOut.all(airport, 20)
+  const taxiIns = _stmtTaxiIn.all(airport, 20)
+  const avgTaxiOut = taxiOuts.length > 0 ? +(taxiOuts.reduce((s, t) => s + t.taxi_min, 0) / taxiOuts.length).toFixed(1) : null
+  const avgTaxiIn = taxiIns.length > 0 ? +(taxiIns.reduce((s, t) => s + t.taxi_min, 0) / taxiIns.length).toFixed(1) : null
+
+  // Capacity vs demand
+  const inbound = _stmtInboundCount.get(airport)?.count || 0
+  const outbound = _stmtOutboundCount.get(airport)?.count || 0
+  const arrRate = config?.arr_rate || null
+  const depRate = config?.dep_rate || null
+
+  // Weather
+  const weather = _stmtAirportWeather.all(airport, 10)
+
+  // Active restrictions
+  const groundStop = flowEvents.find(e => e.event_type === 'GS')
+  const gdp = flowEvents.find(e => e.event_type === 'GDP')
+
+  return {
+    airport,
+    config: config || null,
+    flow: {
+      events: flowEvents,
+      groundStop: groundStop || null,
+      gdp: gdp || null,
+    },
+    delays: {
+      departures: { avg: avgDepDelay, recent: depDelays.slice(0, 5), count: depDelays.length },
+      arrivals: { avg: avgArrDelay, recent: arrDelays.slice(0, 5), count: arrDelays.length },
+    },
+    taxi: {
+      out: { avg: avgTaxiOut, recent: taxiOuts.slice(0, 5), count: taxiOuts.length },
+      in: { avg: avgTaxiIn, recent: taxiIns.slice(0, 5), count: taxiIns.length },
+    },
+    capacity: {
+      inbound,
+      outbound,
+      arrRate,
+      depRate,
+      arrOverflow: arrRate ? Math.max(0, inbound - arrRate) : null,
+      depOverflow: depRate ? Math.max(0, outbound - depRate) : null,
+    },
+    weather,
+  }
+}
+
+// NAS-wide summary: all airports with active issues
+function getNasSummary() {
+  const flowEvents = getActiveFlowEvents(100)
+  const configs = getAirportConfigs()
+
+  // Aggregate by airport
+  const airports = {}
+  for (const e of flowEvents) {
+    if (!e.airport) continue
+    if (!airports[e.airport]) airports[e.airport] = { airport: e.airport, events: [], maxDelay: 0 }
+    airports[e.airport].events.push(e)
+    if (e.delay_minutes > airports[e.airport].maxDelay) airports[e.airport].maxDelay = e.delay_minutes
+  }
+
+  // Add capacity data
+  for (const ap of Object.values(airports)) {
+    const cfg = configs.find(c => c.airport === ap.airport)
+    if (cfg) ap.config = cfg
+    const inbound = _stmtInboundCount.get(ap.airport)?.count || 0
+    const outbound = _stmtOutboundCount.get(ap.airport)?.count || 0
+    ap.inbound = inbound
+    ap.outbound = outbound
+  }
+
+  // NAS health score (0-100, 100 = healthy)
+  const totalGS = flowEvents.filter(e => e.event_type === 'GS').length
+  const totalGDP = flowEvents.filter(e => e.event_type === 'GDP').length
+  const totalDelay = flowEvents.reduce((s, e) => s + (e.delay_minutes || 0), 0)
+  const affectedAirports = Object.keys(airports).length
+
+  let health = 100
+  health -= totalGS * 15        // ground stops are severe
+  health -= totalGDP * 5         // GDPs are moderate
+  health -= Math.min(30, totalDelay / 10)  // accumulated delay
+  health -= affectedAirports * 2 // breadth of impact
+  health = Math.max(0, Math.min(100, Math.round(health)))
+
+  return {
+    health,
+    groundStops: totalGS,
+    gdps: totalGDP,
+    totalDelayMin: Math.round(totalDelay),
+    affectedAirports,
+    airports: Object.values(airports).sort((a, b) => {
+      const aGS = a.events.some(e => e.event_type === 'GS') ? 1 : 0
+      const bGS = b.events.some(e => e.event_type === 'GS') ? 1 : 0
+      if (aGS !== bGS) return bGS - aGS
+      return b.maxDelay - a.maxDelay
+    }),
+    flowEvents,
+  }
+}
+
 // ── exports ─────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -2276,5 +2475,7 @@ module.exports = {
   getTerminalWeatherByAirport,
   getTerminalWeatherStats,
   purgeOldTerminalWeather,
+  getAirportOps,
+  getNasSummary,
   close,
 }

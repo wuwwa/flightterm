@@ -57,10 +57,11 @@ const CREDIT_SWITCH_THRESHOLD = 100 // remaining credits before switching
 const OS_KEY_SLOTS = [
   { id: process.env.OS_CLIENT_ID,   secret: process.env.OS_CLIENT_SECRET },
   { id: process.env.OS_CLIENT_ID_2, secret: process.env.OS_CLIENT_SECRET_2 },
+  { id: process.env.OS_CLIENT_ID_3, secret: process.env.OS_CLIENT_SECRET_3 },
 ].filter(k => k.id && k.secret)
 
 let activeKeySlot = 0                // index into OS_KEY_SLOTS
-const osTokens = [null, null]        // cached tokens per slot
+const osTokens = Array(OS_KEY_SLOTS.length).fill(null) // cached tokens per slot
 
 function getActiveKeyCount() { return OS_KEY_SLOTS.length }
 
@@ -94,27 +95,56 @@ async function fetchOpenSky(region = 'usa') {
   const reg = REGIONS[region] || REGIONS.usa
   const params = reg.bbox ? { ...reg.bbox } : {}
   const headers = {}
+  const slotUsed = activeKeySlot
 
   try {
     const token = await getOsToken()
-    if (token) headers['Authorization'] = `Bearer ${token}`
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    } else {
+      console.warn(`poller: opensky no token available (slot ${slotUsed + 1}/${OS_KEY_SLOTS.length}, id: ${OS_KEY_SLOTS[slotUsed]?.id?.substring(0, 8)}...)`)
+    }
   } catch (err) {
-    console.warn('poller: opensky token failed:', err.message)
+    const status = err.response?.status
+    const body = err.response?.data ? JSON.stringify(err.response.data).substring(0, 200) : ''
+    console.warn(`poller: opensky token failed (slot ${slotUsed + 1}): ${status || ''} ${err.message}${body ? ' — ' + body : ''}`)
   }
 
-  const res = await axios.get(`${OS_BASE}/states/all`, { headers, params, timeout: 30000 })
+  const authMode = headers['Authorization'] ? 'authenticated' : 'anonymous'
+  let res
+  try {
+    res = await axios.get(`${OS_BASE}/states/all`, { headers, params, timeout: 30000 })
+  } catch (err) {
+    const status = err.response?.status
+    const body = err.response?.data ? JSON.stringify(err.response.data).substring(0, 200) : ''
+    console.error(`poller: opensky API ${status || 'network error'} (${authMode}, key ${slotUsed + 1}/${OS_KEY_SLOTS.length}): ${err.message}${body ? ' — ' + body : ''}`)
+    // Auto-switch key on 429 (rate limit) or 401 (bad token)
+    if ((status === 429 || status === 401) && OS_KEY_SLOTS.length > 1) {
+      const nextSlot = (activeKeySlot + 1) % OS_KEY_SLOTS.length
+      console.log(`poller: switching from key ${activeKeySlot + 1} to key ${nextSlot + 1} after ${status}`)
+      activeKeySlot = nextSlot
+    }
+    throw err
+  }
   const states = res.data?.states || []
+  if (states.length === 0) {
+    console.warn(`poller: opensky returned 0 states (${authMode}, key ${slotUsed + 1}, region: ${region})`)
+  }
 
   // Check remaining credits from response header and auto-switch if needed
   const remaining = res.headers?.['x-rate-limit-remaining']
   if (remaining != null) {
     const rem = Number(remaining)
-    if (rem < CREDIT_SWITCH_THRESHOLD && OS_KEY_SLOTS.length > 1 && activeKeySlot === 0) {
-      activeKeySlot = 1
-      console.log(`poller: opensky key 1 low (${rem} remaining), switching to key 2`)
-    } else if (rem < CREDIT_SWITCH_THRESHOLD && OS_KEY_SLOTS.length > 1 && activeKeySlot === 1) {
-      console.warn(`poller: opensky key 2 also low (${rem} remaining) — both keys near exhaustion`)
-    } else if (rem > 3000 && activeKeySlot === 1) {
+    if (rem < CREDIT_SWITCH_THRESHOLD && OS_KEY_SLOTS.length > 1) {
+      const nextSlot = (activeKeySlot + 1) % OS_KEY_SLOTS.length
+      if (nextSlot !== activeKeySlot) {
+        console.log(`poller: opensky key ${activeKeySlot + 1} low (${rem} remaining), switching to key ${nextSlot + 1}`)
+        activeKeySlot = nextSlot
+      }
+      if (nextSlot === 0) {
+        console.warn(`poller: all ${OS_KEY_SLOTS.length} opensky keys cycled — credits may be near exhaustion`)
+      }
+    } else if (rem > 3000 && activeKeySlot !== 0) {
       // credits reset (new day) — switch back to key 1
       activeKeySlot = 0
       console.log(`poller: credits reset detected (${rem} remaining), switching back to key 1`)
@@ -410,7 +440,84 @@ function buildEnrichment(f) {
     }
   }
 
+  // ── TFMS enrichment: look up flight plan by callsign ──────────────────────
+  if (!enrich.tfms && f.callsign) {
+    try {
+      const plan = db.getFlightPlan(f.callsign)
+      if (plan) {
+        enrich.tfms = {
+          dep_arpt: plan.dep_arpt,
+          arr_arpt: plan.arr_arpt,
+          route: plan.route,
+          etd: plan.etd,
+          eta: plan.eta,
+          atd: plan.atd,
+          ata: plan.ata,
+          altitude: plan.altitude,
+          speed: plan.speed,
+          beacon_code: plan.beacon_code,
+          aircraft_type: plan.aircraft_type,
+          flight_status: plan.flight_status,
+        }
+        // Backfill route from TFMS if callsign_routes didn't have it
+        if (!enrich.flightroute && plan.dep_arpt && plan.arr_arpt) {
+          const { AIRPORTS } = require('./anomaly')
+          const orig = AIRPORTS.find(a => a.icao === plan.dep_arpt)
+          const dest = AIRPORTS.find(a => a.icao === plan.arr_arpt)
+          if (orig && dest) {
+            enrich.flightroute = {
+              destination: { latitude: dest.lat, longitude: dest.lon, icao_code: plan.arr_arpt },
+              origin: { latitude: orig.lat, longitude: orig.lon, icao_code: plan.dep_arpt },
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // ── Off-route deviation detection ─────────────────────────────────────────
+  // If we have a TFMS route with dep/arr coords and a current ADS-B position,
+  // compute how far the aircraft is from the great-circle path.
+  if (enrich.flightroute && f.lat != null && f.lon != null) {
+    const orig = enrich.flightroute.origin
+    const dest = enrich.flightroute.destination
+    if (orig?.latitude && dest?.latitude) {
+      const deviation = crossTrackDistKm(
+        f.lat, f.lon,
+        orig.latitude, orig.longitude,
+        dest.latitude, dest.longitude
+      )
+      enrich.routeDeviation = Math.round(deviation)
+    }
+  }
+
   return Object.keys(enrich).length > 0 ? enrich : null
+}
+
+// Great-circle cross-track distance: how far a point is from the line between two points (km)
+function crossTrackDistKm(pLat, pLon, aLat, aLon, bLat, bLon) {
+  const R = 6371
+  const toRad = d => d * Math.PI / 180
+  const pLatR = toRad(pLat), pLonR = toRad(pLon)
+  const aLatR = toRad(aLat), aLonR = toRad(aLon)
+  const bLatR = toRad(bLat), bLonR = toRad(bLon)
+
+  // Angular distance from A to P
+  const dAP = 2 * Math.asin(Math.sqrt(
+    Math.sin((pLatR - aLatR) / 2) ** 2 +
+    Math.cos(aLatR) * Math.cos(pLatR) * Math.sin((pLonR - aLonR) / 2) ** 2
+  ))
+  // Bearing from A to B
+  const brngAB = Math.atan2(
+    Math.sin(bLonR - aLonR) * Math.cos(bLatR),
+    Math.cos(aLatR) * Math.sin(bLatR) - Math.sin(aLatR) * Math.cos(bLatR) * Math.cos(bLonR - aLonR)
+  )
+  // Bearing from A to P
+  const brngAP = Math.atan2(
+    Math.sin(pLonR - aLonR) * Math.cos(pLatR),
+    Math.cos(aLatR) * Math.sin(pLatR) - Math.sin(aLatR) * Math.cos(pLatR) * Math.cos(pLonR - aLonR)
+  )
+  return Math.abs(Math.asin(Math.sin(dAP) * Math.sin(brngAP - brngAB)) * R)
 }
 
 // ── Weather fetching ─────────────────────────────────────────────────────────
@@ -447,13 +554,21 @@ async function fetchWeatherContext(anomalyFlights) {
 async function pollCycle() {
   const region = process.env.POLL_REGION || 'usa'
 
-  // 1. Fetch flight data
+  // 1. Fetch flight data (retry once with next key on 429/401)
   let flights
   try {
     flights = await fetchOpenSky(region)
   } catch (err) {
-    console.error('poller: fetch failed:', err.message)
-    return
+    if ((err.response?.status === 429 || err.response?.status === 401) && OS_KEY_SLOTS.length > 1) {
+      console.log(`poller: retrying immediately with key ${activeKeySlot + 1}`)
+      try {
+        flights = await fetchOpenSky(region)
+      } catch (retryErr) {
+        return
+      }
+    } else {
+      return
+    }
   }
 
   if (!flights.length) return
@@ -720,7 +835,10 @@ function start() {
   if (running) return
   running = true
 
-  console.log(`poller: starting (interval: ${POLL_INTERVAL / 1000}s, region: ${process.env.POLL_REGION || 'usa'})`)
+  console.log(`poller: starting (interval: ${POLL_INTERVAL / 1000}s, region: ${process.env.POLL_REGION || 'usa'}, keys: ${OS_KEY_SLOTS.length})`)
+  for (let i = 0; i < OS_KEY_SLOTS.length; i++) {
+    console.log(`poller:   key ${i + 1}: ${OS_KEY_SLOTS[i].id.substring(0, 12)}...`)
+  }
 
   // Load route baselines on start
   refreshBaselines()
@@ -765,14 +883,25 @@ function getStatus() {
 }
 
 function getFlights() {
-  // Merge aircraft cache (type/reg/operator) into flight objects
+  // Merge aircraft cache (type/reg/operator) + TFMS enrichment into flight objects
   const icaos = latestFlights.map(f => f.icao)
   const acCache = icaos.length > 0 ? db.getAircraftCacheBulk(icaos) : {}
 
   const flights = latestFlights.map(f => {
+    const out = { ...f }
     const ac = acCache[f.icao]
-    if (!ac || !ac.type) return f  // skip unknown/empty entries
-    return { ...f, acType: ac.type, acReg: ac.reg, acDesc: ac.desc, acOperator: ac.operator }
+    if (ac?.type) {
+      out.acType = ac.type; out.acReg = ac.reg; out.acDesc = ac.desc; out.acOperator = ac.operator
+    }
+    // Attach TFMS enrichment from cache
+    const enrich = enrichCache.get(f.icao)
+    if (enrich?.tfms) {
+      out.tfms = enrich.tfms
+    }
+    if (enrich?.routeDeviation != null) {
+      out.routeDeviation = enrich.routeDeviation
+    }
+    return out
   })
 
   return {
