@@ -2060,6 +2060,20 @@ async function runPurgeCycle() {
   purgeOldDailySummaries()
   purgeStaleRoutes()
 
+  // SWIM data purge — flight plans, flow events, surface events, weather, NOTAMs
+  try {
+    const tfms = purgeOldTfms()
+    if (tfms.plans > 0 || tfms.events > 0) console.log(`  purge: ${tfms.plans} flight plans, ${tfms.events} flow events`)
+    const surface = purgeOldSurfaceEvents()
+    if (surface.changes > 0) console.log(`  purge: ${surface.changes} surface events`)
+    const wx = purgeOldTerminalWeather()
+    if (wx.changes > 0) console.log(`  purge: ${wx.changes} terminal weather events`)
+    const notams = purgeExpiredNotams()
+    if (notams.changes > 0) console.log(`  purge: ${notams.changes} expired NOTAMs`)
+  } catch (err) {
+    console.warn('  purge: SWIM data purge error:', err.message)
+  }
+
   // Zone baseline rollup: aggregate yesterday's anomalies into daily zone data
   const zoneRows = rollupYesterday()
   if (zoneRows > 0) console.log(`  zone: rolled up ${zoneRows} zone-day records`)
@@ -2272,6 +2286,35 @@ const _stmtOutboundCount = db.prepare(`
     AND updated_at > datetime('now', '-2 hours')
 `)
 
+// Per-airport flight lists (direct DB query, not filtered from global 200)
+const _stmtAirportArrivals = db.prepare(`
+  SELECT acid, dep_arpt, arr_arpt, flight_status, eta, ata, altitude, speed, aircraft_type, lat, lon, beacon_code, reported_alt
+  FROM flight_plans
+  WHERE arr_arpt = ?
+    AND flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED')
+    AND updated_at > datetime('now', '-2 hours')
+  ORDER BY eta ASC LIMIT ?
+`)
+
+const _stmtAirportDepartures = db.prepare(`
+  SELECT acid, dep_arpt, arr_arpt, flight_status, etd, atd, altitude, speed, aircraft_type, lat, lon, beacon_code, reported_alt
+  FROM flight_plans
+  WHERE dep_arpt = ?
+    AND flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED')
+    AND updated_at > datetime('now', '-2 hours')
+  ORDER BY etd ASC LIMIT ?
+`)
+
+// Recently completed arrivals (landed in last 30 min)
+const _stmtRecentArrivals = db.prepare(`
+  SELECT acid, dep_arpt, arr_arpt, flight_status, eta, ata, aircraft_type
+  FROM flight_plans
+  WHERE arr_arpt = ?
+    AND flight_status = 'COMPLETED'
+    AND updated_at > datetime('now', '-30 minutes')
+  ORDER BY updated_at DESC LIMIT ?
+`)
+
 // Weather events at airport (ITWS)
 const _stmtAirportWeather = db.prepare(`
   SELECT * FROM terminal_weather
@@ -2282,6 +2325,11 @@ const _stmtAirportWeather = db.prepare(`
 function getAirportOps(airport) {
   const config = getAirportConfig(airport)
   const flowEvents = getFlowEventsByAirport(airport, 10)
+
+  // Per-airport flight lists — queried directly by airport, not filtered from global 200
+  const arrivals = _stmtAirportArrivals.all(airport, 150)
+  const departures = _stmtAirportDepartures.all(airport, 150)
+  const recentArrivals = _stmtRecentArrivals.all(airport, 20)
 
   // Delay computation
   const depDelays = _stmtDepDelay.all(airport, 20)
@@ -2295,7 +2343,7 @@ function getAirportOps(airport) {
   const avgTaxiOut = taxiOuts.length > 0 ? +(taxiOuts.reduce((s, t) => s + t.taxi_min, 0) / taxiOuts.length).toFixed(1) : null
   const avgTaxiIn = taxiIns.length > 0 ? +(taxiIns.reduce((s, t) => s + t.taxi_min, 0) / taxiIns.length).toFixed(1) : null
 
-  // Capacity vs demand
+  // Capacity vs demand (use actual query counts, not the arrivals list length which may differ)
   const inbound = _stmtInboundCount.get(airport)?.count || 0
   const outbound = _stmtOutboundCount.get(airport)?.count || 0
   const arrRate = config?.arr_rate || null
@@ -2311,6 +2359,9 @@ function getAirportOps(airport) {
   return {
     airport,
     config: config || null,
+    arrivals,
+    departures,
+    recentArrivals,
     flow: {
       events: flowEvents,
       groundStop: groundStop || null,

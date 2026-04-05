@@ -1,8 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import axios from 'axios'
 import AIRPORTS from '../../data/airports'
-import { useSwim } from '../../contexts/SwimContext'
 
 const STATUS_COLORS = {
   ACTIVE: 'text-grn', ASCENDING: 'text-cyn', CRUISING: 'text-acc',
@@ -28,35 +27,29 @@ function Metric({ label, value, color, unit, sub }) {
 }
 
 export default function AirportBoard({ backendOk }) {
-  const { flights } = useSwim()
   const [airport, setAirport] = useState('')
   const [ops, setOps] = useState(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!airport || !backendOk) { setOps(null); return }
+    if (!airport || !backendOk) { setOps(null); setLoading(false); return }
     let cancelled = false
+    setOps(null)       // clear stale data immediately
+    setLoading(true)
     const refresh = () => {
-      setLoading(true)
       axios.get(`/api/swim/airport/${airport}/ops`)
-        .then(r => { if (!cancelled) setOps(r.data) })
-        .catch(() => {})
-        .finally(() => { if (!cancelled) setLoading(false) })
+        .then(r => { if (!cancelled) { setOps(r.data); setLoading(false) } })
+        .catch(() => { if (!cancelled) setLoading(false) })
     }
     refresh()
     const id = setInterval(refresh, 15_000)
     return () => { cancelled = true; clearInterval(id) }
   }, [airport, backendOk])
 
-  // Flights for this airport from shared context
-  const arrivals = useMemo(() =>
-    flights.filter(f => f.arr_arpt === airport).sort((a, b) => (a.eta || '').localeCompare(b.eta || '')),
-    [flights, airport]
-  )
-  const departures = useMemo(() =>
-    flights.filter(f => f.dep_arpt === airport).sort((a, b) => (a.etd || '').localeCompare(b.etd || '')),
-    [flights, airport]
-  )
+  // Flight lists come directly from the ops endpoint (per-airport DB query, not filtered from global 200)
+  const arrivals = ops?.arrivals || []
+  const departures = ops?.departures || []
+  const recentArrivals = ops?.recentArrivals || []
 
   const cfg = ops?.config
   const flow = ops?.flow
@@ -99,6 +92,15 @@ export default function AirportBoard({ backendOk }) {
 
       {!airport ? (
         <div className="flex-1 flex items-center justify-center text-fg3 text-[10px]">select an airport above</div>
+      ) : loading ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-2">
+          <div className="flex gap-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-acc animate-bounce" style={{ animationDelay: '0ms' }} />
+            <div className="w-1.5 h-1.5 rounded-full bg-acc animate-bounce" style={{ animationDelay: '150ms' }} />
+            <div className="w-1.5 h-1.5 rounded-full bg-acc animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+          <span className="text-fg3 text-[9px]">loading {airport.replace(/^K/, '')}...</span>
+        </div>
       ) : (
         <>
           {/* Metrics row — computed cross-referenced data */}
@@ -141,14 +143,27 @@ export default function AirportBoard({ backendOk }) {
                   <div
                     key={f.acid}
                     className="flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-white/3"
-                    title={`${f.acid} from ${f.dep_arpt || '?'} — ${f.flight_status}${f.eta ? ' ETA ' + fmtTime(f.eta) : ''}${f.route ? '\nRoute: ' + f.route : ''}`}
+                    title={`${f.acid} from ${f.dep_arpt || '?'} — ${f.flight_status}${f.eta ? ' ETA ' + fmtTime(f.eta) : ''}`}
                   >
                     <span className="text-acc font-bold w-14 shrink-0 truncate">{f.acid}</span>
                     <span className="text-fg2 w-8 shrink-0">{f.dep_arpt?.replace(/^K/, '') || '?'}</span>
                     <span className={clsx('w-12 shrink-0', STATUS_COLORS[f.flight_status] || 'text-fg3')}>{f.flight_status?.substring(0, 5) || '—'}</span>
                     <span className="text-cyn tabular-nums ml-auto shrink-0">{fmtTime(f.eta)}</span>
                   </div>
-                )) : <div className="py-2 text-center text-fg3 text-[8px]">no arrivals</div>}
+                )) : <div className="py-2 text-center text-fg3 text-[8px]">{loading ? 'loading...' : 'no arrivals'}</div>}
+                {recentArrivals.length > 0 && (
+                  <>
+                    <div className="px-2 py-0.5 text-[7px] text-fg3/50 bg-bg2/50 border-t border-border">LANDED</div>
+                    {recentArrivals.map(f => (
+                      <div key={f.acid} className="flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-white/3 opacity-50">
+                        <span className="text-fg3 font-bold w-14 shrink-0 truncate">{f.acid}</span>
+                        <span className="text-fg3 w-8 shrink-0">{f.dep_arpt?.replace(/^K/, '') || '?'}</span>
+                        <span className="text-fg3 w-12 shrink-0">LANDED</span>
+                        <span className="text-fg3 tabular-nums ml-auto shrink-0">{fmtTime(f.ata)}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
             </div>
 
@@ -170,7 +185,7 @@ export default function AirportBoard({ backendOk }) {
                     <span className={clsx('w-12 shrink-0', STATUS_COLORS[f.flight_status] || 'text-fg3')}>{f.flight_status?.substring(0, 5) || '—'}</span>
                     <span className="text-grn tabular-nums ml-auto shrink-0">{fmtTime(f.etd || f.atd)}</span>
                   </div>
-                )) : <div className="py-2 text-center text-fg3 text-[8px]">no departures</div>}
+                )) : <div className="py-2 text-center text-fg3 text-[8px]">{loading ? 'loading...' : 'no departures'}</div>}
               </div>
             </div>
           </div>
