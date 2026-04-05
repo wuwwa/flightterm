@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { fetchAplByHex } from '../../services/airplaneslive'
 import { enrichByHex } from '../../services/adsbfi'
-import { fetchAnomaliesByIcao } from '../../services/dashboard'
+import { fetchAnomaliesByIcao, submitAnomalyFeedback } from '../../services/dashboard'
 
 function Row({ label, value, color = 'text-fg' }) {
   const empty = value == null || value === ''
@@ -42,6 +42,7 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
   const [adsbfi, setAdsbfi] = useState(null)
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
+  const [feedbackSent, setFeedbackSent] = useState(anomaly?.feedback || null)
 
   useEffect(() => {
     if (!anomaly?.icao) return
@@ -49,6 +50,7 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
     setApl(null)
     setAdsbfi(null)
     setHistory([])
+    setFeedbackSent(anomaly?.feedback || null)
 
     Promise.allSettled([
       fetchAplByHex(anomaly.icao),
@@ -70,6 +72,14 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
     return () => window.removeEventListener('keydown', handler)
   }, [anomaly, onClose])
 
+  const handleFeedback = async (type) => {
+    if (!anomaly?.id || feedbackSent) return
+    try {
+      await submitAnomalyFeedback(anomaly.id, type)
+      setFeedbackSent(type)
+    } catch { /* ignore */ }
+  }
+
   if (!anomaly) return null
 
   // Safe accessors
@@ -85,7 +95,7 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
   return (
     <div className="fixed inset-0 z-200 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-bg1 border border-border w-[90vw] max-w-225 max-h-[85vh] overflow-y-auto">
+      <div className="relative bg-bg1 border border-border w-[95vw] sm:w-[90vw] max-w-225 max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
         {/* Header */}
         <div className="bg-bg2 border-b border-border py-1 px-2.5 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-2">
@@ -97,7 +107,27 @@ export default function AnomalyDrilldown({ anomaly, onClose }) {
             <span className="text-red text-[10px] font-bold">{anomaly.score}</span>
             {loading && <span className="text-fg3 text-[9px]">enriching...</span>}
           </div>
-          <button onClick={onClose} className="text-fg3 hover:text-fg1 text-[11px] px-1">✕</button>
+          <div className="flex items-center gap-1.5">
+            {feedbackSent ? (
+              <span className={clsx('text-[9px] px-1.5 py-0.5 rounded border',
+                feedbackSent === 'false_positive' ? 'text-ylw border-ylw/30' : 'text-red border-red/30'
+              )}>
+                {feedbackSent === 'false_positive' ? 'marked false positive' : 'confirmed real'}
+              </span>
+            ) : (
+              <>
+                <button
+                  onClick={() => handleFeedback('false_positive')}
+                  className="text-[9px] text-fg3 hover:text-ylw border border-white/10 hover:border-ylw/30 px-1.5 py-0.5 rounded transition-colors"
+                >false positive</button>
+                <button
+                  onClick={() => handleFeedback('confirmed_real')}
+                  className="text-[9px] text-fg3 hover:text-red border border-white/10 hover:border-red/30 px-1.5 py-0.5 rounded transition-colors"
+                >confirm real</button>
+              </>
+            )}
+            <button onClick={onClose} className="text-fg3 hover:text-fg1 text-[11px] px-1">✕</button>
+          </div>
         </div>
 
         {/* 3-column grid */}

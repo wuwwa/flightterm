@@ -682,7 +682,9 @@ export default function App() {
       </div>
 
       {/* Page 2: dashboard — always visible, scroll down to see */}
-      <DashboardPanel backendOk={backendOk} region={region} lastFetchAt={lastFetchAt} />
+      <div id="dashboard" className="pb-8">
+        <DashboardPanel backendOk={backendOk} region={region} lastFetchAt={lastFetchAt} />
+      </div>
 
       {/* Sticky status bar — always at bottom of viewport */}
       <div className="sticky bottom-0 z-40 bg-acc py-0.5 px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg">

@@ -11,6 +11,7 @@ const {
   getUsageSummary, getTodayCredits, getDailyUsage, getRecentCalls,
   getAeroSpendTotal, getAeroSpendMonth,
   getRecentAnomalies, getActiveAnomalies, getAnomaliesByIcao, getAnomalyStats, getAnomalyHotspots, getAnomaliesByZone,
+  setAnomalyFeedback, getFeedbackStats,
   getTrafficHeatmap,
   runDeferredMaintenance,
   getRoutesBulk,
@@ -22,6 +23,7 @@ const rateLimit = require('express-rate-limit')
 
 const path = require('path')
 const poller = require('./poller')
+const swim = require('./swim')
 const app = express()
 const PORT = process.env.PORT || 3001
 const AERO_BASE = 'https://aeroapi.flightaware.com/aeroapi'
@@ -894,6 +896,119 @@ app.get('/api/anomalies/zone', (req, res) => {
   res.json(getAnomaliesByZone(cellLat, cellLon, hours, limit))
 })
 
+// Anomaly feedback — mark as false positive or confirmed real
+// PUT /api/anomalies/:id/feedback
+app.put('/api/anomalies/:id/feedback', (req, res) => {
+  const id = Number(req.params.id)
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' })
+  const { feedback, note } = req.body || {}
+  if (!['false_positive', 'confirmed_real'].includes(feedback)) {
+    return res.status(400).json({ error: 'feedback must be "false_positive" or "confirmed_real"' })
+  }
+  try {
+    const result = setAnomalyFeedback(id, feedback, note || null)
+    res.json({ ok: true, changes: result.changes })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Feedback stats — false positive rate over last 7 days
+// GET /api/anomalies/feedback/stats
+app.get('/api/anomalies/feedback/stats', (_req, res) => {
+  res.json(getFeedbackStats())
+})
+
+// SWIM feed status
+// GET /api/swim/status
+app.get('/api/swim/status', (_req, res) => {
+  res.json(swim.getStatus())
+})
+
+// Active TFRs from SWIM FNS
+// GET /api/swim/tfrs
+app.get('/api/swim/tfrs', (_req, res) => {
+  try {
+    const { getActiveTfrs } = require('./db')
+    res.json(getActiveTfrs())
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// NOTAMs grouped by airport
+// GET /api/swim/notams/airports?limit=20
+app.get('/api/swim/notams/airports', (req, res) => {
+  try {
+    const { getNotamsByAirport } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 20, 50)
+    res.json(getNotamsByAirport(limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Recent NOTAM activity feed
+// GET /api/swim/notams/recent?limit=15
+app.get('/api/swim/notams/recent', (req, res) => {
+  try {
+    const { getRecentNotams } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 15, 50)
+    res.json(getRecentNotams(limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// TFMS — active flight plans
+// GET /api/swim/flights?limit=50
+app.get('/api/swim/flights', (req, res) => {
+  try {
+    const { getActiveFlightPlans } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 50, 200)
+    res.json(getActiveFlightPlans(limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// TFMS — single flight plan by callsign
+// GET /api/swim/flights/:acid
+app.get('/api/swim/flights/:acid', (req, res) => {
+  try {
+    const { getFlightPlan } = require('./db')
+    const plan = getFlightPlan(req.params.acid.toUpperCase())
+    if (!plan) return res.status(404).json({ error: 'not found' })
+    res.json(plan)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// TFMS — active flow events (GDPs, ground stops, reroutes)
+// GET /api/swim/flow?limit=20
+app.get('/api/swim/flow', (req, res) => {
+  try {
+    const { getActiveFlowEvents } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 20, 100)
+    res.json(getActiveFlowEvents(limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// TFMS — flow events for a specific airport
+// GET /api/swim/flow/:airport
+app.get('/api/swim/flow/:airport', (req, res) => {
+  try {
+    const { getFlowEventsByAirport } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 10, 50)
+    res.json(getFlowEventsByAirport(req.params.airport.toUpperCase(), limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Database metrics
 // GET /api/db/metrics
 app.get('/api/db/metrics', (_req, res) => {
@@ -1053,6 +1168,12 @@ if (!process.env.VITEST) app.listen(PORT, () => {
   console.log(`  POLL_INTERVAL:  ${process.env.POLL_INTERVAL || '45000'}ms`)
   console.log(`  POLL_REGION:    ${process.env.POLL_REGION || 'usa'}`)
   console.log(``)
+  console.log(`  ── swim feeds ──`)
+  console.log(`  SWIM_USERNAME:   ${process.env.SWIM_USERNAME ? '✓ set' : '✗ not set'}`)
+  console.log(`  SWIM_PASSWORD:   ${process.env.SWIM_PASSWORD ? '✓ set' : '✗ not set'}`)
+  console.log(`  SWIM_FNS_QUEUE:  ${process.env.SWIM_FNS_QUEUE ? '✓ FNS (NOTAMs)' : '✗ not set'}`)
+  console.log(`  SWIM_TFMS_QUEUE: ${process.env.SWIM_TFMS_QUEUE ? '✓ TFMS (flight plans)' : '✗ not set'}`)
+  console.log(``)
   console.log(`  ── security ──`)
   console.log(`  ADMIN_SECRET:   ${process.env.ADMIN_SECRET ? '✓ set' : '✗ not set'}`)
   console.log(`  CORS_ORIGIN:    ${process.env.CORS_ORIGIN || '*'}`)
@@ -1077,6 +1198,13 @@ if (!process.env.VITEST) app.listen(PORT, () => {
     poller.start()
   } else {
     console.log('  ℹ  Anomaly poller disabled — set POLLER_ENABLED=true to enable')
+  }
+
+  // Start SWIM feed consumers if configured
+  if (process.env.SWIM_USERNAME && process.env.SWIM_PASSWORD) {
+    swim.startAll().catch(err => console.error('swim: startup error:', err.message))
+  } else {
+    console.log('  ℹ  SWIM feeds disabled — set SWIM_USERNAME + SWIM_PASSWORD to enable')
   }
 })
 

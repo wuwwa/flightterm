@@ -37,10 +37,12 @@ const REGIONS = {
 const trackHistory = new Map()     // icao → snapshot[]
 const activeAnomalies = new Map()  // icao → { score, ... }
 const anomalyMisses = new Map()    // icao → consecutive miss count
+const pendingAnomalies = new Map() // icao → { anomaly, cycles } — persistence gate for MEDIUM
 const enrichCache = new Map()      // icao → { adsbfi, flightroute, ... }
 let latestFlights = []             // most recent flight states from last cycle
 let lastFetchAt = null             // timestamp of last successful fetch
 let weatherContext = null           // { sigmets, pireps } from last cycle
+let baselineCache = new Map()      // "KJFK→KLAX" → baseline object
 let pollTimer = null
 let running = false
 
@@ -461,13 +463,31 @@ async function pollCycle() {
   //    If we update history first, prev === current and all deltas are 0.
   const newAnomalies = {}
   const anomalyFlights = []
+  let enrichStats = { scored: 0, withRoute: 0, withApl: 0, withAdsbfi: 0, withAny: 0 }
 
   for (const f of flights) {
     const hist = trackHistory.get(f.icao)
     if (!hist || hist.length < 2) continue
 
     const enrich = buildEnrichment(f)
-    const result = scoreAnomaly(hist, f, enrich, weatherContext, flights)
+    enrichStats.scored++
+    if (enrich?.flightroute) enrichStats.withRoute++
+    if (enrich?.apl) enrichStats.withApl++
+    if (enrich?.adsbfi) enrichStats.withAdsbfi++
+    if (enrich) enrichStats.withAny++
+
+    // Look up per-route baseline if route is known
+    let baseline = null
+    if (enrich?.flightroute) {
+      const orig = enrich.flightroute.origin?.icao_code
+      const dest = enrich.flightroute.destination?.icao_code
+      if (orig && dest) {
+        const key = `${orig}→${dest}`
+        baseline = baselineCache.get(key) || null
+      }
+    }
+
+    const result = scoreAnomaly(hist, f, enrich, weatherContext, flights, baseline)
 
     if (result.score >= ANOMALY_THRESHOLD) {
       newAnomalies[f.icao] = {
@@ -512,7 +532,14 @@ async function pollCycle() {
           const hist = trackHistory.get(f.icao)
           if (!hist || hist.length < 2) continue
           const enrich = buildEnrichment(f)
-          const result = scoreAnomaly(hist, f, enrich, weatherContext, flights)
+          // Look up route baseline for re-scoring
+          let reBaseline = null
+          if (enrich?.flightroute) {
+            const orig = enrich.flightroute.origin?.icao_code
+            const dest = enrich.flightroute.destination?.icao_code
+            if (orig && dest) reBaseline = baselineCache.get(`${orig}→${dest}`) || null
+          }
+          const result = scoreAnomaly(hist, f, enrich, weatherContext, flights, reBaseline)
 
           if (result.score >= ANOMALY_THRESHOLD) {
             // Update anomaly with enriched score
@@ -535,10 +562,53 @@ async function pollCycle() {
     }
   }
 
-  // 4. Update track history (after scoring, so prev ≠ current)
+  // 4. Persistence gate — require MEDIUM anomalies to persist for 2 consecutive
+  //    cycles before emitting. This eliminates single-sample noise (turbulence
+  //    bumps, GPS jitter, momentary transponder spikes). CRITICAL and HIGH
+  //    severity bypass the gate — genuine emergencies should never be delayed.
+  const PERSIST_CYCLES = 2
+  const gatedIcaos = []
+  for (const [icao, anomaly] of Object.entries(newAnomalies)) {
+    // Already active — no need to gate again
+    if (activeAnomalies.has(icao)) continue
+
+    // CRITICAL/HIGH bypass — emit immediately
+    if (anomaly.severity === 'CRITICAL' || anomaly.severity === 'HIGH') {
+      pendingAnomalies.delete(icao)
+      continue
+    }
+
+    // MEDIUM — must persist across multiple cycles
+    const pending = pendingAnomalies.get(icao)
+    if (pending) {
+      pending.cycles++
+      if (pending.cycles >= PERSIST_CYCLES) {
+        // Confirmed — promote to real anomaly
+        pendingAnomalies.delete(icao)
+        // Keep in newAnomalies — it will be emitted
+      } else {
+        // Not yet confirmed — hold back
+        gatedIcaos.push(icao)
+      }
+    } else {
+      // First sighting — add to pending, don't emit yet
+      pendingAnomalies.set(icao, { anomaly, cycles: 1 })
+      gatedIcaos.push(icao)
+    }
+  }
+  for (const icao of gatedIcaos) delete newAnomalies[icao]
+
+  // Clear pending entries that didn't re-score this cycle (transient noise)
+  for (const icao of pendingAnomalies.keys()) {
+    if (!gatedIcaos.includes(icao) && !newAnomalies[icao]) {
+      pendingAnomalies.delete(icao)
+    }
+  }
+
+  // 5. Update track history (after scoring, so prev ≠ current)
   updateTrackHistory(flights)
 
-  // 5. Anomaly lifecycle — grace period & resolution
+  // 6. Anomaly lifecycle — grace period & resolution
   const anomalyList = Object.values(newAnomalies)
   const resolvedIcaos = []
   for (const icao of activeAnomalies.keys()) {
@@ -571,7 +641,7 @@ async function pollCycle() {
     activeAnomalies.set(icao, anomaly)
   }
 
-  // 6. Persist + emit new anomalies
+  // 7. Persist + emit new anomalies
   if (anomalyList.length > 0) {
     // Fetch weather context for next cycle (non-blocking)
     fetchWeatherContext(anomalyFlights).then(wx => {
@@ -599,14 +669,14 @@ async function pollCycle() {
       }
     }
 
-    console.log(`poller: ${flights.length} flights, ${anomalyList.length} anomalies (${resolvedIcaos.length} resolved)`)
+    console.log(`poller: ${flights.length} flights, ${anomalyList.length} anomalies (${resolvedIcaos.length} resolved) | enrichment: ${enrichStats.scored} scored, ${enrichStats.withRoute} route (${enrichStats.scored > 0 ? Math.round(enrichStats.withRoute / enrichStats.scored * 100) : 0}%), ${enrichStats.withAny} any`)
   } else {
     // No anomalies — still update weather context to null for next cycle
     if (weatherContext) weatherContext = null
-    console.log(`poller: ${flights.length} flights, 0 anomalies (${resolvedIcaos.length} resolved)`)
+    console.log(`poller: ${flights.length} flights, 0 anomalies (${resolvedIcaos.length} resolved) | enrichment: ${enrichStats.scored} scored, ${enrichStats.withRoute} route (${enrichStats.scored > 0 ? Math.round(enrichStats.withRoute / enrichStats.scored * 100) : 0}%)`)
   }
 
-  // 7. Background aircraft enrichment (non-blocking, runs between cycles)
+  // 8. Background aircraft enrichment (non-blocking, runs between cycles)
   enrichAircraftBackground(flights).catch(err =>
     console.warn('poller: background enrichment error:', err.message)
   )
@@ -614,11 +684,41 @@ async function pollCycle() {
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
+// Load route baselines into memory from DB
+function refreshBaselines() {
+  try {
+    const all = db.getAllBaselines()
+    baselineCache = new Map()
+    for (const b of all) {
+      baselineCache.set(`${b.origin_icao}→${b.destination_icao}`, b)
+    }
+    if (all.length > 0) console.log(`poller: loaded ${all.length} route baselines`)
+  } catch (err) {
+    console.warn('poller: baseline load failed:', err.message)
+  }
+}
+
 function start() {
   if (running) return
   running = true
 
   console.log(`poller: starting (interval: ${POLL_INTERVAL / 1000}s, region: ${process.env.POLL_REGION || 'usa'})`)
+
+  // Load route baselines on start
+  refreshBaselines()
+
+  // Rebuild baselines every 6 hours (non-blocking)
+  setInterval(() => {
+    try {
+      const count = db.buildRouteBaselines()
+      if (count > 0) {
+        console.log(`poller: rebuilt ${count} route baselines`)
+        refreshBaselines()
+      }
+    } catch (err) {
+      console.warn('poller: baseline rebuild failed:', err.message)
+    }
+  }, 6 * 60 * 60 * 1000)
 
   // Run first cycle immediately, then on interval
   pollCycle().catch(err => console.error('poller: cycle error:', err.message))

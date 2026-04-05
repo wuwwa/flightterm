@@ -177,9 +177,9 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
 
   return (
     <div className="bg-bg1">
-      <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border flex justify-between items-center">
-        <span>anomaly map</span>
-        <span className="flex gap-2 items-center">
+      <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border flex flex-wrap gap-y-0.5 justify-between items-center">
+        <span className="mr-2">anomaly map</span>
+        <span className="flex flex-wrap gap-1.5 items-center">
           <button
             onClick={() => setShowBounds(b => !b)}
             className={`px-1.5 py-px border rounded transition-colors ${showBounds ? 'border-mag/50 text-mag' : 'border-border text-fg3'}`}
@@ -190,7 +190,7 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
             onClick={() => setShowHotspots(h => !h)}
             className={`px-1.5 py-px border rounded transition-colors ${showHotspots ? 'border-mag/50 text-mag' : 'border-border text-fg3'}`}
           >
-            hotspots {hotspots.length > 0 ? `(${hotspots.length})` : ''}
+            <span className="hidden sm:inline">hotspots</span><span className="sm:hidden">HS</span> {hotspots.length > 0 ? `(${hotspots.length})` : ''}
           </button>
           <button
             onClick={() => setShowWx(w => !w)}
@@ -202,13 +202,13 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
             onClick={() => setShowPireps(p => !p)}
             className={`px-1.5 py-px border rounded transition-colors ${showPireps ? 'border-ylw/50 text-ylw' : 'border-border text-fg3'}`}
           >
-            PIREPs {showPireps ? 'ON' : 'OFF'}
+            <span className="hidden sm:inline">PIREPs</span><span className="sm:hidden">PR</span> {showPireps ? 'ON' : 'OFF'}
           </button>
           {showWx && sigmetPolys.length > 0 && (
-            <span><span className="text-red">{sigmetPolys.length}</span> SIGMET{sigmetPolys.length !== 1 ? 's' : ''}</span>
+            <span className="hidden sm:inline"><span className="text-red">{sigmetPolys.length}</span> SIGMET{sigmetPolys.length !== 1 ? 's' : ''}</span>
           )}
           {showPireps && pirepPoints.length > 0 && (
-            <span><span className="text-ylw">{pirepPoints.length}</span> PIREP{pirepPoints.length !== 1 ? 's' : ''}</span>
+            <span className="hidden sm:inline"><span className="text-ylw">{pirepPoints.length}</span> PIREP{pirepPoints.length !== 1 ? 's' : ''}</span>
           )}
           <span className="flex gap-0 border border-border rounded overflow-hidden">
             {[
@@ -226,12 +226,14 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
               </button>
             ))}
           </span>
-          {points.length > 0 ? (
-            <span>{points.length} anomal{points.length !== 1 ? 'ies' : 'y'}</span>
-          ) : (
-            <span className="text-grn">clear</span>
-          )}
-          {loading && <span className="text-fg3">updating...</span>}
+          <span>
+            {points.length > 0 ? (
+              <span>{points.length} anomal{points.length !== 1 ? 'ies' : 'y'}</span>
+            ) : (
+              <span className="text-grn">clear</span>
+            )}
+          </span>
+          {loading && <span className="text-fg3">...</span>}
         </span>
       </div>
       <div className="h-96 relative">

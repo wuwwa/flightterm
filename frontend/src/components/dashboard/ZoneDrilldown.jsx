@@ -108,7 +108,7 @@ export default function ZoneDrilldown({ zone, onSelectAnomaly, onClose }) {
   return (
     <div className="fixed inset-0 z-200 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-bg1 border border-border w-[90vw] max-w-215 max-h-[85vh] overflow-y-auto">
+      <div className="relative bg-bg1 border border-border w-[95vw] sm:w-[90vw] max-w-215 max-h-[90vh] sm:max-h-[85vh] overflow-y-auto">
         {/* Header */}
         <div className="bg-bg2 border-b border-border py-1 px-2.5 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-2">

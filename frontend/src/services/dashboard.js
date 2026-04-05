@@ -59,3 +59,13 @@ export async function fetchAnomaliesByZone(lat, lon, hours = 168, limit = 30) {
   const res = await axios.get('/api/anomalies/zone', { params: { lat, lon, hours, limit } })
   return res.data
 }
+
+export async function submitAnomalyFeedback(id, feedback, note = null) {
+  const res = await axios.put(`/api/anomalies/${id}/feedback`, { feedback, note })
+  return res.data
+}
+
+export async function fetchFeedbackStats() {
+  const res = await axios.get('/api/anomalies/feedback/stats')
+  return res.data
+}

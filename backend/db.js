@@ -271,6 +271,18 @@ db.exec(`
   }
 }
 
+// ── v6 migration: add feedback column to anomalies ─────────────────────────
+// Stores user feedback inline: 'false_positive', 'confirmed_real', or null.
+// Simpler than a separate table — each anomaly gets at most one verdict.
+{
+  const cols = db.pragma('table_info(anomalies)').map(c => c.name)
+  if (!cols.includes('feedback')) {
+    db.exec(`ALTER TABLE anomalies ADD COLUMN feedback TEXT`)       // 'false_positive' | 'confirmed_real' | null
+    db.exec(`ALTER TABLE anomalies ADD COLUMN feedback_note TEXT`)  // optional user note
+    db.exec(`ALTER TABLE anomalies ADD COLUMN feedback_at TEXT`)    // timestamp
+  }
+}
+
 // ── callsign route cache ─────────────────────────────────────────────────────
 // Stores callsign→route mappings so diversion detection works for all aircraft,
 // not just ones the user has clicked on. Routes are stable per callsign (e.g.
@@ -325,6 +337,111 @@ db.exec(`
     PRIMARY KEY (date, cell_lat, cell_lon)
   );
   CREATE INDEX IF NOT EXISTS idx_zone_daily_date ON zone_daily(date);
+`)
+
+// ── Per-route baselines — learned norms from historical sightings ───────────
+// Instead of static PHASE_NORMS, these capture what aircraft actually do on
+// each route. Built from sightings + callsign_routes joins.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS route_baselines (
+    origin_icao      TEXT NOT NULL,
+    destination_icao TEXT NOT NULL,
+    sample_flights   INTEGER NOT NULL DEFAULT 0,
+    sample_points    INTEGER NOT NULL DEFAULT 0,
+    alt_rate_mean    REAL,      -- mean vertical rate across all sightings (m/s)
+    alt_rate_std     REAL,      -- standard deviation of vertical rate
+    alt_rate_p95     REAL,      -- 95th percentile absolute altitude rate
+    vel_mean         REAL,      -- mean ground speed (m/s)
+    vel_std          REAL,      -- standard deviation of speed
+    max_alt_mean     REAL,      -- typical cruise altitude (m)
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (origin_icao, destination_icao)
+  );
+`)
+
+// ── SWIM NOTAM storage ──────────────────────────────────────────────────────
+// Stores NOTAMs from FAA FNS (Federal NOTAM System) via SWIM SCDS.
+// Used for TFR detection, airport status, and anomaly suppression.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notams (
+    id              TEXT PRIMARY KEY,
+    location        TEXT,            -- airport ICAO or area code
+    classification  TEXT,            -- FDC, NOTAM, etc.
+    keyword         TEXT,            -- RWY, TWY, OBST, AIRSPACE, SVC, etc.
+    scenario        TEXT,
+    is_tfr          INTEGER DEFAULT 0,
+    lat             REAL,
+    lon             REAL,
+    alt_lower       REAL,            -- feet (TFR lower altitude)
+    alt_upper       REAL,            -- feet (TFR upper altitude)
+    geometry        TEXT,            -- JSON array of [lat, lon] pairs (TFR boundary)
+    effective       TEXT,            -- ISO datetime
+    expiration      TEXT,            -- ISO datetime (null if permanent)
+    permanent       INTEGER DEFAULT 0,
+    text            TEXT,            -- NOTAM E-field text
+    full_text       TEXT,            -- complete traditional message
+    raw_xml         TEXT,            -- original AIXM XML (for debugging/reparse)
+    received_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_notams_location ON notams(location);
+  CREATE INDEX IF NOT EXISTS idx_notams_tfr ON notams(is_tfr);
+  CREATE INDEX IF NOT EXISTS idx_notams_effective ON notams(effective);
+  CREATE INDEX IF NOT EXISTS idx_notams_expiration ON notams(expiration);
+`)
+
+// ── SWIM TFMS flight plans ──────────────────────────────────────────────────
+// Stores filed flight plans from TFMS (Traffic Flow Management System).
+// Keyed by acid (callsign) — updated as amendments arrive.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS flight_plans (
+    acid            TEXT NOT NULL,
+    gufi            TEXT,
+    dep_arpt        TEXT,
+    arr_arpt        TEXT,
+    aircraft_type   TEXT,
+    altitude        TEXT,
+    speed           TEXT,
+    route           TEXT,
+    flight_status   TEXT,
+    etd             TEXT,
+    eta             TEXT,
+    atd             TEXT,
+    ata             TEXT,
+    beacon_code     TEXT,
+    lat             REAL,
+    lon             REAL,
+    reported_alt    TEXT,
+    msg_type        TEXT,
+    received_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (acid)
+  );
+  CREATE INDEX IF NOT EXISTS idx_fp_dep ON flight_plans(dep_arpt);
+  CREATE INDEX IF NOT EXISTS idx_fp_arr ON flight_plans(arr_arpt);
+  CREATE INDEX IF NOT EXISTS idx_fp_status ON flight_plans(flight_status);
+  CREATE INDEX IF NOT EXISTS idx_fp_updated ON flight_plans(updated_at);
+`)
+
+// ── SWIM TFMS flow events ───────────────────────────────────────────────────
+// Stores traffic management initiatives: GDPs, ground stops, AFPs, reroutes.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS flow_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type      TEXT NOT NULL,
+    airport         TEXT,
+    status          TEXT,
+    reason          TEXT,
+    text            TEXT,
+    delay_minutes   REAL,
+    start_time      TEXT,
+    end_time        TEXT,
+    msg_type        TEXT,
+    received_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_flow_airport ON flow_events(airport);
+  CREATE INDEX IF NOT EXISTS idx_flow_type ON flow_events(event_type);
+  CREATE INDEX IF NOT EXISTS idx_flow_received ON flow_events(received_at);
 `)
 
 // ── prepared statements (pre-compiled once) ─────────────────────────────────
@@ -559,6 +676,211 @@ const _stmts = {
     LIMIT 10
   `),
 
+  // Anomaly feedback
+  setFeedback: db.prepare(`
+    UPDATE anomalies SET feedback = ?, feedback_note = ?, feedback_at = datetime('now')
+    WHERE id = ?
+  `),
+
+  // False positive rate: how many anomalies in last 7 days were marked false_positive
+  feedbackStats: db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN feedback = 'false_positive' THEN 1 ELSE 0 END) as false_positives,
+      SUM(CASE WHEN feedback = 'confirmed_real' THEN 1 ELSE 0 END) as confirmed_real,
+      SUM(CASE WHEN feedback IS NULL THEN 1 ELSE 0 END) as unreviewed
+    FROM anomalies
+    WHERE detected_at > datetime('now', '-7 days')
+  `),
+
+  // ── Route baseline statements ───────────────────────────────────────────
+  upsertBaseline: db.prepare(`
+    INSERT INTO route_baselines (origin_icao, destination_icao, sample_flights, sample_points, alt_rate_mean, alt_rate_std, alt_rate_p95, vel_mean, vel_std, max_alt_mean, updated_at)
+    VALUES (@origin_icao, @destination_icao, @sample_flights, @sample_points, @alt_rate_mean, @alt_rate_std, @alt_rate_p95, @vel_mean, @vel_std, @max_alt_mean, datetime('now'))
+    ON CONFLICT(origin_icao, destination_icao) DO UPDATE SET
+      sample_flights = excluded.sample_flights,
+      sample_points = excluded.sample_points,
+      alt_rate_mean = excluded.alt_rate_mean,
+      alt_rate_std = excluded.alt_rate_std,
+      alt_rate_p95 = excluded.alt_rate_p95,
+      vel_mean = excluded.vel_mean,
+      vel_std = excluded.vel_std,
+      max_alt_mean = excluded.max_alt_mean,
+      updated_at = datetime('now')
+  `),
+
+  getBaseline: db.prepare(`
+    SELECT * FROM route_baselines WHERE origin_icao = ? AND destination_icao = ?
+  `),
+
+  allBaselines: db.prepare(`
+    SELECT * FROM route_baselines ORDER BY sample_flights DESC
+  `),
+
+  // Sightings for baseline computation — recent sightings with routes
+  sightingsForBaseline: db.prepare(`
+    SELECT s.icao, s.callsign, s.alt, s.vel, s.hdg, s.seen_at,
+           cr.origin_icao, cr.destination_icao
+    FROM sightings s
+    INNER JOIN callsign_routes cr ON s.callsign = cr.callsign
+    WHERE s.seen_at > datetime('now', '-7 days')
+      AND s.alt IS NOT NULL AND s.vel IS NOT NULL
+      AND s.grounded = 0
+    ORDER BY s.icao, s.seen_at
+  `),
+
+  // ── NOTAM statements ────────────────────────────────────────────────────
+  upsertNotam: db.prepare(`
+    INSERT INTO notams (id, location, classification, keyword, scenario, is_tfr, lat, lon, alt_lower, alt_upper, geometry, effective, expiration, permanent, text, full_text, raw_xml, received_at, updated_at)
+    VALUES (@id, @location, @classification, @keyword, @scenario, @is_tfr, @lat, @lon, @alt_lower, @alt_upper, @geometry, @effective, @expiration, @permanent, @text, @full_text, @raw_xml, datetime('now'), datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET
+      location = excluded.location,
+      classification = excluded.classification,
+      keyword = excluded.keyword,
+      is_tfr = excluded.is_tfr,
+      lat = excluded.lat,
+      lon = excluded.lon,
+      alt_lower = excluded.alt_lower,
+      alt_upper = excluded.alt_upper,
+      geometry = excluded.geometry,
+      effective = excluded.effective,
+      expiration = excluded.expiration,
+      permanent = excluded.permanent,
+      text = excluded.text,
+      full_text = excluded.full_text,
+      raw_xml = excluded.raw_xml,
+      updated_at = datetime('now')
+  `),
+
+  getActiveTfrs: db.prepare(`
+    SELECT * FROM notams
+    WHERE is_tfr = 1
+      AND (expiration IS NULL OR expiration > datetime('now'))
+      AND (effective IS NULL OR effective <= datetime('now'))
+    ORDER BY effective DESC
+  `),
+
+  getActiveNotamsByLocation: db.prepare(`
+    SELECT * FROM notams
+    WHERE location = ?
+      AND (expiration IS NULL OR expiration > datetime('now'))
+      AND (effective IS NULL OR effective <= datetime('now'))
+    ORDER BY effective DESC
+  `),
+
+  getNotamStats: db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN is_tfr = 1 THEN 1 ELSE 0 END) as tfrs,
+      SUM(CASE WHEN expiration IS NULL OR expiration > datetime('now') THEN 1 ELSE 0 END) as active,
+      SUM(CASE WHEN is_tfr = 1 AND (expiration IS NULL OR expiration > datetime('now')) THEN 1 ELSE 0 END) as active_tfrs
+    FROM notams
+  `),
+
+  purgeExpiredNotams: db.prepare(`
+    DELETE FROM notams WHERE expiration IS NOT NULL AND expiration < datetime('now', '-7 days')
+  `),
+
+  // Airports with active NOTAMs — grouped, with keyword counts
+  notamsByAirport: db.prepare(`
+    SELECT location,
+      COUNT(*) as count,
+      SUM(CASE WHEN keyword = 'RWY' THEN 1 ELSE 0 END) as rwy,
+      SUM(CASE WHEN keyword = 'TWY' THEN 1 ELSE 0 END) as twy,
+      SUM(CASE WHEN keyword = 'APRON' THEN 1 ELSE 0 END) as apron,
+      SUM(CASE WHEN keyword = 'AIRSPACE' THEN 1 ELSE 0 END) as airspace,
+      SUM(CASE WHEN keyword = 'SVC' OR keyword = 'NAV' THEN 1 ELSE 0 END) as svc,
+      SUM(CASE WHEN keyword = 'OBST' THEN 1 ELSE 0 END) as obst,
+      MAX(received_at) as latest
+    FROM notams
+    WHERE location IS NOT NULL
+      AND text NOT LIKE 'CANCELLED%'
+    GROUP BY location
+    ORDER BY count DESC
+    LIMIT ?
+  `),
+
+  // Recent NOTAM activity (last N messages received)
+  recentNotams: db.prepare(`
+    SELECT id, location, keyword, classification, text, is_tfr, received_at
+    FROM notams
+    ORDER BY received_at DESC
+    LIMIT ?
+  `),
+
+  // ── TFMS statements ─────────────────────────────────────────────────────
+  upsertFlightPlan: db.prepare(`
+    INSERT INTO flight_plans (acid, gufi, dep_arpt, arr_arpt, aircraft_type, altitude, speed, route, flight_status, etd, eta, atd, ata, beacon_code, lat, lon, reported_alt, msg_type, received_at, updated_at)
+    VALUES (@acid, @gufi, @dep_arpt, @arr_arpt, @aircraft_type, @altitude, @speed, @route, @flight_status, @etd, @eta, @atd, @ata, @beacon_code, @lat, @lon, @reported_alt, @msg_type, datetime('now'), datetime('now'))
+    ON CONFLICT(acid) DO UPDATE SET
+      gufi = COALESCE(excluded.gufi, flight_plans.gufi),
+      dep_arpt = COALESCE(excluded.dep_arpt, flight_plans.dep_arpt),
+      arr_arpt = COALESCE(excluded.arr_arpt, flight_plans.arr_arpt),
+      aircraft_type = COALESCE(excluded.aircraft_type, flight_plans.aircraft_type),
+      altitude = COALESCE(excluded.altitude, flight_plans.altitude),
+      speed = COALESCE(excluded.speed, flight_plans.speed),
+      route = COALESCE(excluded.route, flight_plans.route),
+      flight_status = COALESCE(excluded.flight_status, flight_plans.flight_status),
+      etd = COALESCE(excluded.etd, flight_plans.etd),
+      eta = COALESCE(excluded.eta, flight_plans.eta),
+      atd = COALESCE(excluded.atd, flight_plans.atd),
+      ata = COALESCE(excluded.ata, flight_plans.ata),
+      beacon_code = COALESCE(excluded.beacon_code, flight_plans.beacon_code),
+      lat = COALESCE(excluded.lat, flight_plans.lat),
+      lon = COALESCE(excluded.lon, flight_plans.lon),
+      reported_alt = COALESCE(excluded.reported_alt, flight_plans.reported_alt),
+      msg_type = excluded.msg_type,
+      updated_at = datetime('now')
+  `),
+
+  insertFlowEvent: db.prepare(`
+    INSERT INTO flow_events (event_type, airport, status, reason, text, delay_minutes, start_time, end_time, msg_type, received_at)
+    VALUES (@event_type, @airport, @status, @reason, @text, @delay_minutes, @start_time, @end_time, @msg_type, datetime('now'))
+  `),
+
+  getFlightPlan: db.prepare(`SELECT * FROM flight_plans WHERE acid = ?`),
+
+  getFlightPlanByRoute: db.prepare(`
+    SELECT * FROM flight_plans WHERE dep_arpt = ? AND arr_arpt = ? ORDER BY updated_at DESC LIMIT ?
+  `),
+
+  getActiveFlightPlans: db.prepare(`
+    SELECT * FROM flight_plans
+    WHERE flight_status IN ('ACTIVE', 'ASCENDING', 'CRUISING', 'DESCENDING', 'FILED')
+      AND updated_at > datetime('now', '-2 hours')
+    ORDER BY updated_at DESC LIMIT ?
+  `),
+
+  getActiveFlowEvents: db.prepare(`
+    SELECT * FROM flow_events
+    WHERE received_at > datetime('now', '-6 hours')
+    ORDER BY received_at DESC LIMIT ?
+  `),
+
+  getFlowEventsByAirport: db.prepare(`
+    SELECT * FROM flow_events
+    WHERE airport = ? AND received_at > datetime('now', '-12 hours')
+    ORDER BY received_at DESC LIMIT ?
+  `),
+
+  getTfmsStats: db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM flight_plans) as total_plans,
+      (SELECT COUNT(*) FROM flight_plans WHERE updated_at > datetime('now', '-1 hour')) as recent_plans,
+      (SELECT COUNT(*) FROM flight_plans WHERE flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING')) as active_flights,
+      (SELECT COUNT(*) FROM flow_events WHERE received_at > datetime('now', '-6 hours')) as recent_flow_events,
+      (SELECT COUNT(*) FROM flow_events WHERE event_type = 'GDP' AND received_at > datetime('now', '-6 hours')) as active_gdps,
+      (SELECT COUNT(*) FROM flow_events WHERE event_type = 'GS' AND received_at > datetime('now', '-6 hours')) as active_gs
+  `),
+
+  purgeOldFlightPlans: db.prepare(`
+    DELETE FROM flight_plans WHERE updated_at < datetime('now', '-24 hours')
+  `),
+
+  purgeOldFlowEvents: db.prepare(`
+    DELETE FROM flow_events WHERE received_at < datetime('now', '-7 days')
+  `),
+
   // Hourly anomaly counts (for chart overlay)
   // ── Route cache statements ──────────────────────────────────────────────
   routeLookup: db.prepare(`
@@ -569,19 +891,21 @@ const _stmts = {
     SELECT * FROM callsign_routes WHERE callsign IN (SELECT value FROM json_each(?))
   `),
 
+  // Route upsert with source confidence: TFMS routes are authoritative (filed flight plans).
+  // Non-TFMS sources (adsbdb, hexdb) won't overwrite a TFMS route — but TFMS always overwrites.
   routeUpsert: db.prepare(`
     INSERT INTO callsign_routes (callsign, origin_icao, origin_lat, origin_lon, destination_icao, destination_lat, destination_lon, source, last_seen, updated_at)
     VALUES (@callsign, @origin_icao, @origin_lat, @origin_lon, @destination_icao, @destination_lat, @destination_lon, @source, datetime('now'), datetime('now'))
     ON CONFLICT(callsign) DO UPDATE SET
-      origin_icao = excluded.origin_icao,
-      origin_lat = excluded.origin_lat,
-      origin_lon = excluded.origin_lon,
-      destination_icao = excluded.destination_icao,
-      destination_lat = excluded.destination_lat,
-      destination_lon = excluded.destination_lon,
-      source = excluded.source,
+      origin_icao = CASE WHEN excluded.source = 'tfms' OR callsign_routes.source != 'tfms' THEN excluded.origin_icao ELSE callsign_routes.origin_icao END,
+      origin_lat = CASE WHEN excluded.source = 'tfms' OR callsign_routes.source != 'tfms' THEN excluded.origin_lat ELSE callsign_routes.origin_lat END,
+      origin_lon = CASE WHEN excluded.source = 'tfms' OR callsign_routes.source != 'tfms' THEN excluded.origin_lon ELSE callsign_routes.origin_lon END,
+      destination_icao = CASE WHEN excluded.source = 'tfms' OR callsign_routes.source != 'tfms' THEN excluded.destination_icao ELSE callsign_routes.destination_icao END,
+      destination_lat = CASE WHEN excluded.source = 'tfms' OR callsign_routes.source != 'tfms' THEN excluded.destination_lat ELSE callsign_routes.destination_lat END,
+      destination_lon = CASE WHEN excluded.source = 'tfms' OR callsign_routes.source != 'tfms' THEN excluded.destination_lon ELSE callsign_routes.destination_lon END,
+      source = CASE WHEN excluded.source = 'tfms' OR callsign_routes.source != 'tfms' THEN excluded.source ELSE callsign_routes.source END,
       last_seen = datetime('now'),
-      updated_at = datetime('now')
+      updated_at = CASE WHEN excluded.source = 'tfms' OR callsign_routes.source != 'tfms' THEN datetime('now') ELSE callsign_routes.updated_at END
   `),
 
   routeTouch: db.prepare(`
@@ -899,6 +1223,252 @@ function getAnomaliesByIcao(icao, limit = 20) {
   return _stmts.anomaliesByIcao.all(icao, limit).map(parseAnomaly)
 }
 
+// ── Route baseline computation ─────────────────────────────────────────────
+// Builds per-route statistical profiles from recent sightings.
+// Call periodically (e.g. daily during maintenance).
+
+function buildRouteBaselines() {
+  const rows = _stmts.sightingsForBaseline.all()
+  if (rows.length < 100) return 0 // not enough data
+
+  // Group sightings by aircraft+route, compute altitude rates from consecutive readings
+  const routeStats = {} // "KJFK→KLAX" → { altRates: [], vels: [], maxAlts: [], flights: Set }
+  let prevRow = null
+
+  for (const row of rows) {
+    const routeKey = `${row.origin_icao}→${row.destination_icao}`
+    if (!routeStats[routeKey]) {
+      routeStats[routeKey] = { altRates: [], vels: [], maxAlts: [], flights: new Set(), origin: row.origin_icao, dest: row.destination_icao }
+    }
+    const rs = routeStats[routeKey]
+    rs.flights.add(row.icao)
+    rs.vels.push(row.vel)
+    rs.maxAlts.push(row.alt)
+
+    // Compute altitude rate between consecutive sightings of the same aircraft
+    if (prevRow && prevRow.icao === row.icao) {
+      const dt = (new Date(row.seen_at) - new Date(prevRow.seen_at)) / 1000
+      if (dt > 10 && dt < 300 && prevRow.alt != null) { // reasonable time gap
+        const altRate = (row.alt - prevRow.alt) / dt
+        rs.altRates.push(altRate)
+      }
+    }
+    prevRow = row
+  }
+
+  // Compute statistics per route and upsert
+  const upsertBatch = db.transaction((baselines) => {
+    for (const b of baselines) _stmts.upsertBaseline.run(b)
+  })
+
+  const baselines = []
+  for (const [, rs] of Object.entries(routeStats)) {
+    if (rs.altRates.length < 20 || rs.flights.size < 3) continue // need meaningful sample
+
+    const altMean = rs.altRates.reduce((a, b) => a + b, 0) / rs.altRates.length
+    const altVariance = rs.altRates.reduce((a, r) => a + (r - altMean) ** 2, 0) / rs.altRates.length
+    const altStd = Math.sqrt(altVariance)
+
+    // 95th percentile of absolute altitude rate
+    const absRates = rs.altRates.map(Math.abs).sort((a, b) => a - b)
+    const p95Idx = Math.floor(absRates.length * 0.95)
+    const altP95 = absRates[p95Idx] || absRates[absRates.length - 1]
+
+    const velMean = rs.vels.reduce((a, b) => a + b, 0) / rs.vels.length
+    const velVariance = rs.vels.reduce((a, v) => a + (v - velMean) ** 2, 0) / rs.vels.length
+    const velStd = Math.sqrt(velVariance)
+
+    const maxAltMean = rs.maxAlts.reduce((a, b) => a + b, 0) / rs.maxAlts.length
+
+    baselines.push({
+      origin_icao: rs.origin,
+      destination_icao: rs.dest,
+      sample_flights: rs.flights.size,
+      sample_points: rs.altRates.length,
+      alt_rate_mean: Math.round(altMean * 100) / 100,
+      alt_rate_std: Math.round(altStd * 100) / 100,
+      alt_rate_p95: Math.round(altP95 * 100) / 100,
+      vel_mean: Math.round(velMean * 100) / 100,
+      vel_std: Math.round(velStd * 100) / 100,
+      max_alt_mean: Math.round(maxAltMean),
+    })
+  }
+
+  if (baselines.length > 0) upsertBatch(baselines)
+  return baselines.length
+}
+
+function getRouteBaseline(origin, destination) {
+  if (!origin || !destination) return null
+  return _stmts.getBaseline.get(origin, destination) || null
+}
+
+function getAllBaselines() {
+  return _stmts.allBaselines.all()
+}
+
+// ── NOTAM functions ─────────────────────────────────────────────────────────
+
+const _upsertNotamBatch = db.transaction((rows) => {
+  for (const row of rows) _stmts.upsertNotam.run(row)
+})
+
+function upsertNotam(notam, rawXml = null) {
+  _stmts.upsertNotam.run({
+    id: notam.id || `FNS_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    location: notam.location || null,
+    classification: notam.classification || null,
+    keyword: notam.keyword || null,
+    scenario: notam.scenario || null,
+    is_tfr: notam.isTfr ? 1 : 0,
+    lat: notam.lat ?? null,
+    lon: notam.lon ?? null,
+    alt_lower: notam.altitudeLower ?? null,
+    alt_upper: notam.altitudeUpper ?? null,
+    geometry: notam.geometry ? JSON.stringify(notam.geometry) : null,
+    effective: notam.effective || null,
+    expiration: notam.expiration || null,
+    permanent: notam.permanent ? 1 : 0,
+    text: notam.text || null,
+    full_text: notam.fullText || null,
+    raw_xml: rawXml || null,
+  })
+}
+
+function upsertNotamBatch(notams, rawXmls = []) {
+  const rows = notams.map((n, i) => ({
+    id: n.id || `FNS_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 8)}`,
+    location: n.location || null,
+    classification: n.classification || null,
+    keyword: n.keyword || null,
+    scenario: n.scenario || null,
+    is_tfr: n.isTfr ? 1 : 0,
+    lat: n.lat ?? null,
+    lon: n.lon ?? null,
+    alt_lower: n.altitudeLower ?? null,
+    alt_upper: n.altitudeUpper ?? null,
+    geometry: n.geometry ? JSON.stringify(n.geometry) : null,
+    effective: n.effective || null,
+    expiration: n.expiration || null,
+    permanent: n.permanent ? 1 : 0,
+    text: n.text || null,
+    full_text: n.fullText || null,
+    raw_xml: rawXmls[i] || null,
+  }))
+  _upsertNotamBatch(rows)
+  return rows.length
+}
+
+function getActiveTfrs() {
+  const rows = _stmts.getActiveTfrs.all()
+  return rows.map(r => ({
+    ...r,
+    geometry: r.geometry ? JSON.parse(r.geometry) : null,
+    is_tfr: !!r.is_tfr,
+    permanent: !!r.permanent,
+  }))
+}
+
+function getActiveNotamsByLocation(location) {
+  return _stmts.getActiveNotamsByLocation.all(location)
+}
+
+function getNotamStats() {
+  return _stmts.getNotamStats.get()
+}
+
+function purgeExpiredNotams() {
+  return _stmts.purgeExpiredNotams.run().changes
+}
+
+function getNotamsByAirport(limit = 20) {
+  return _stmts.notamsByAirport.all(limit)
+}
+
+function getRecentNotams(limit = 15) {
+  return _stmts.recentNotams.all(limit)
+}
+
+// ── TFMS functions ──────────────────────────────────────────────────────────
+
+const _upsertFlightPlanBatch = db.transaction((rows) => {
+  for (const row of rows) _stmts.upsertFlightPlan.run(row)
+})
+
+function upsertFlightPlan(fp) {
+  _stmts.upsertFlightPlan.run({
+    acid: fp.acid,
+    gufi: fp.gufi || null,
+    dep_arpt: fp.depArpt || null,
+    arr_arpt: fp.arrArpt || null,
+    aircraft_type: fp.aircraftType || null,
+    altitude: fp.altitude != null ? String(fp.altitude) : null,
+    speed: fp.speed != null ? String(fp.speed) : null,
+    route: fp.route || null,
+    flight_status: fp.flightStatus || null,
+    etd: fp.etd || null,
+    eta: fp.eta || null,
+    atd: fp.atd || null,
+    ata: fp.ata || null,
+    beacon_code: fp.beaconCode || null,
+    lat: fp.lat ?? null,
+    lon: fp.lon ?? null,
+    reported_alt: fp.reportedAlt != null ? String(fp.reportedAlt) : null,
+    msg_type: fp.msgType || null,
+  })
+}
+
+function upsertFlightPlanBatch(plans) {
+  const rows = plans.map(fp => ({
+    acid: fp.acid,
+    gufi: fp.gufi || null,
+    dep_arpt: fp.depArpt || null,
+    arr_arpt: fp.arrArpt || null,
+    aircraft_type: fp.aircraftType || null,
+    altitude: fp.altitude != null ? String(fp.altitude) : null,
+    speed: fp.speed != null ? String(fp.speed) : null,
+    route: fp.route || null,
+    flight_status: fp.flightStatus || null,
+    etd: fp.etd || null,
+    eta: fp.eta || null,
+    atd: fp.atd || null,
+    ata: fp.ata || null,
+    beacon_code: fp.beaconCode || null,
+    lat: fp.lat ?? null,
+    lon: fp.lon ?? null,
+    reported_alt: fp.reportedAlt != null ? String(fp.reportedAlt) : null,
+    msg_type: fp.msgType || null,
+  }))
+  _upsertFlightPlanBatch(rows)
+  return rows.length
+}
+
+function insertFlowEvent(event) {
+  _stmts.insertFlowEvent.run({
+    event_type: event.eventType || 'UNKNOWN',
+    airport: event.airport || null,
+    status: event.status || null,
+    reason: event.reason || null,
+    text: event.text || null,
+    delay_minutes: event.delay ? Number(event.delay) : null,
+    start_time: event.startTime || null,
+    end_time: event.endTime || null,
+    msg_type: event.msgType || null,
+  })
+}
+
+function getFlightPlan(acid) { return _stmts.getFlightPlan.get(acid) || null }
+function getActiveFlightPlans(limit = 50) { return _stmts.getActiveFlightPlans.all(limit) }
+function getActiveFlowEvents(limit = 20) { return _stmts.getActiveFlowEvents.all(limit) }
+function getFlowEventsByAirport(airport, limit = 10) { return _stmts.getFlowEventsByAirport.all(airport, limit) }
+function getTfmsStats() { return _stmts.getTfmsStats.get() }
+
+function purgeOldTfms() {
+  const plans = _stmts.purgeOldFlightPlans.run().changes
+  const events = _stmts.purgeOldFlowEvents.run().changes
+  return { plans, events }
+}
+
 function getAnomaliesByZone(cellLat, cellLon, hours = 168, limit = 30) {
   return _stmts.anomaliesByZone.all(cellLat, cellLon, `-${hours} hours`, limit).map(parseAnomaly)
 }
@@ -918,6 +1488,16 @@ function getAnomalyStats() {
     repeaters,
     hourly,
   }
+}
+
+function setAnomalyFeedback(id, feedback, note = null) {
+  const valid = ['false_positive', 'confirmed_real']
+  if (!valid.includes(feedback)) throw new Error(`Invalid feedback: ${feedback}`)
+  return _stmts.setFeedback.run(feedback, note, id)
+}
+
+function getFeedbackStats() {
+  return _stmts.feedbackStats.get()
 }
 
 // ── Anomaly hotspot clustering ───────────────────────────────────────────────
@@ -1382,6 +1962,8 @@ module.exports = {
   getAnomalyStats,
   getAnomalyHotspots,
   getAnomaliesByZone,
+  setAnomalyFeedback,
+  getFeedbackStats,
   getTrafficHeatmap,
   rollupYesterday,
   purgeZoneDaily,
@@ -1398,4 +1980,24 @@ module.exports = {
   getAircraftCacheIcaos,
   getUnknownAircraftIcaos,
   upsertAircraftCache,
+  buildRouteBaselines,
+  getRouteBaseline,
+  getAllBaselines,
+  upsertNotam,
+  upsertNotamBatch,
+  getActiveTfrs,
+  getActiveNotamsByLocation,
+  getNotamStats,
+  getNotamsByAirport,
+  getRecentNotams,
+  purgeExpiredNotams,
+  upsertFlightPlan,
+  upsertFlightPlanBatch,
+  insertFlowEvent,
+  getFlightPlan,
+  getActiveFlightPlans,
+  getActiveFlowEvents,
+  getFlowEventsByAirport,
+  getTfmsStats,
+  purgeOldTfms,
 }

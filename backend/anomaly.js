@@ -65,12 +65,12 @@ function detectPhase(snapshots) {
   // low altitude + accelerating + climbing = climb-out
   if (currentAlt < 3000 && avgAltDelta > 20) return PHASE.CLIMB
 
-  // consistent descent
-  if (avgAltDelta < -30) return PHASE.DESCENT
+  // consistent descent — check before cruise to avoid misclassifying shallow descents
+  if (avgAltDelta < -15) return PHASE.DESCENT
   // consistent climb
-  if (avgAltDelta > 30) return PHASE.CLIMB
-  // stable altitude at speed = cruise
-  if (Math.abs(avgAltDelta) < 50 && currentVel > 80) return PHASE.CRUISE
+  if (avgAltDelta > 15) return PHASE.CLIMB
+  // stable altitude at speed = cruise (tighter band now that descent/climb catch more cases)
+  if (Math.abs(avgAltDelta) < 15 && currentVel > 80) return PHASE.CRUISE
 
   return PHASE.UNKNOWN
 }
@@ -235,17 +235,48 @@ function classMultiplier(enrich, current) {
   return CLASS_TOLERANCE[cat] ?? 1.0
 }
 
+// ── History-based volatility ─────────────────────────────────────────────────
+// Compute how volatile an aircraft's recent behavior has been. If the aircraft
+// has been oscillating (turbulence, ATC vectors, busy terminal area), its own
+// history tells us what "normal variation" looks like — far more accurately than
+// static phase norms. Returns a multiplier ≥ 1.0 that widens norms.
+
+function recentVolatility(snapshots) {
+  if (!snapshots || snapshots.length < 4) return 1.0
+
+  // Compute vertical rate deltas between consecutive snapshots
+  const rates = []
+  for (let i = 1; i < snapshots.length; i++) {
+    const s = snapshots[i], p = snapshots[i - 1]
+    if (s.alt != null && p.alt != null && s.ts && p.ts) {
+      const dt = Math.max(1, (s.ts - p.ts) / 1000)
+      rates.push((s.alt - p.alt) / dt)
+    }
+  }
+  if (rates.length < 3) return 1.0
+
+  // Standard deviation of vertical rates
+  const mean = rates.reduce((a, b) => a + b, 0) / rates.length
+  const variance = rates.reduce((a, r) => a + (r - mean) ** 2, 0) / rates.length
+  const stdDev = Math.sqrt(variance)
+
+  // If stdDev > 3 m/s, the aircraft has been volatile — widen norms proportionally.
+  // Cap at 2.5x to prevent total suppression of genuine anomalies.
+  if (stdDev > 3) return Math.min(2.5, 1.0 + (stdDev - 3) / 5)
+  return 1.0
+}
+
 // ── Scoring ─────────────────────────────────────────────────────────────────
 
 // Normal rates by phase (m/s vertical, m/s horizontal change)
 // Base norms — adjusted by altitude band below.
 const PHASE_NORMS = {
-  [PHASE.CLIMB]:    { altRate: [5, 20],  velChange: 15 },   // 5-20 m/s climb
-  [PHASE.CRUISE]:   { altRate: [-2, 2],  velChange: 5 },    // nearly flat
-  [PHASE.DESCENT]:  { altRate: [-20, -3], velChange: 15 },  // 3-20 m/s descent
+  [PHASE.CLIMB]:    { altRate: [3, 25],   velChange: 20 },  // 3-25 m/s climb (includes shallow climb-outs)
+  [PHASE.CRUISE]:   { altRate: [-5, 5],   velChange: 12 },  // step climbs, minor turbulence, ATC adjustments
+  [PHASE.DESCENT]:  { altRate: [-25, -2], velChange: 20 },  // 2-25 m/s descent (includes shallow initial descent)
   [PHASE.APPROACH]: { altRate: [-15, -1], velChange: 20 },  // slower descent, speed varies
-  [PHASE.GROUND]:   { altRate: [0, 0],   velChange: 5 },
-  [PHASE.UNKNOWN]:  { altRate: [-15, 15], velChange: 20 },  // wide tolerance
+  [PHASE.GROUND]:   { altRate: [0, 0],    velChange: 5 },
+  [PHASE.UNKNOWN]:  { altRate: [-15, 15], velChange: 25 },  // wide tolerance
 }
 
 // ── Altitude-aware norm scaling ──────────────────────────────────────────────
@@ -319,7 +350,7 @@ function routeProximityMultiplier(lat, lon, route) {
 //                       1.0  = not enough neighbors to compare.
 
 function spatialContextMultiplier(current, allFlights) {
-  if (!allFlights || allFlights.length < 10 || current.lat == null || current.hdg == null) return 1.0
+  if (!allFlights || allFlights.length < 10 || current.lat == null) return 1.0
 
   // Find neighbors within 100km, same altitude band (±3000m), airborne
   const RADIUS_KM = 100
@@ -328,7 +359,7 @@ function spatialContextMultiplier(current, allFlights) {
 
   for (const f of allFlights) {
     if (f.icao === current.icao) continue
-    if (f.grounded || f.lat == null || f.hdg == null) continue
+    if (f.grounded || f.lat == null) continue
     if (current.alt != null && f.alt != null && Math.abs(f.alt - current.alt) > ALT_BAND) continue
     const d = distKm(current.lat, current.lon, f.lat, f.lon)
     if (d < RADIUS_KM) {
@@ -339,36 +370,49 @@ function spatialContextMultiplier(current, allFlights) {
 
   if (neighbors.length < 3) return 1.0 // not enough to compare
 
-  // Compare heading changes: compute mean neighbor heading, then see if
-  // this aircraft's heading is an outlier vs the group
-  const neighborHdgs = neighbors.map(n => n.hdg)
+  let mult = 1.0
 
-  // Circular mean heading (handles wrapping)
-  const sinSum = neighborHdgs.reduce((s, h) => s + Math.sin(h * DEG), 0)
-  const cosSum = neighborHdgs.reduce((s, h) => s + Math.cos(h * DEG), 0)
-  const meanHdg = (Math.atan2(sinSum, cosSum) / DEG + 360) % 360
+  // ── Heading comparison ──────────────────────────────────────────────────
+  const hdgNeighbors = neighbors.filter(n => n.hdg != null)
+  if (current.hdg != null && hdgNeighbors.length >= 3) {
+    const neighborHdgs = hdgNeighbors.map(n => n.hdg)
+    // Circular mean heading (handles wrapping)
+    const sinSum = neighborHdgs.reduce((s, h) => s + Math.sin(h * DEG), 0)
+    const cosSum = neighborHdgs.reduce((s, h) => s + Math.cos(h * DEG), 0)
+    const meanHdg = (Math.atan2(sinSum, cosSum) / DEG + 360) % 360
 
-  // How much does this aircraft deviate from the local traffic flow?
-  const myDeviation = headingDelta(current.hdg, meanHdg)
-  // How much does the average neighbor deviate? (spread of the group)
-  const neighborDeviations = neighborHdgs.map(h => headingDelta(h, meanHdg))
-  const avgNeighborDev = neighborDeviations.reduce((a, b) => a + b, 0) / neighborDeviations.length
+    const myDeviation = headingDelta(current.hdg, meanHdg)
+    const neighborDeviations = neighborHdgs.map(h => headingDelta(h, meanHdg))
+    const avgNeighborDev = neighborDeviations.reduce((a, b) => a + b, 0) / neighborDeviations.length
 
-  // If neighbors are all deviating similarly (ATC reroute / weather):
-  // everyone turning ~30° → avgNeighborDev ≈ 30, myDeviation ≈ 30 → dampen
-  if (avgNeighborDev > 15 && myDeviation < avgNeighborDev * 1.5) {
-    // Group is maneuvering together — this aircraft is following the herd
-    return 0.4
+    if (avgNeighborDev > 15 && myDeviation < avgNeighborDev * 1.5) {
+      mult = Math.min(mult, 0.4) // group maneuvering together
+    } else if (avgNeighborDev < 10 && myDeviation > 25) {
+      mult = Math.max(mult, 1.3) // lone heading deviant
+    }
   }
 
-  // If this aircraft is the outlier:
-  // neighbors flying straight (avgDev ≈ 5°), this aircraft turning 40° → boost
-  if (avgNeighborDev < 10 && myDeviation > 25) {
-    // Lone deviant — more suspicious
-    return 1.3
+  // ── Vertical rate comparison ────────────────────────────────────────────
+  // If neighbors are all descending/climbing similarly (approach sequencing,
+  // group weather avoidance), this aircraft's vertical rate is expected.
+  const vrNeighbors = neighbors.filter(n => n.vertRate != null)
+  if (current.vertRate != null && vrNeighbors.length >= 3) {
+    const neighborVRates = vrNeighbors.map(n => n.vertRate)
+    const meanVR = neighborVRates.reduce((a, b) => a + b, 0) / neighborVRates.length
+    const myVRDev = Math.abs(current.vertRate - meanVR)
+    const avgNeighborVRDev = neighborVRates.reduce((a, vr) => a + Math.abs(vr - meanVR), 0) / neighborVRates.length
+
+    // Group descending/climbing together (e.g. approach sequencing near airport)
+    if (avgNeighborVRDev > 2 && myVRDev < avgNeighborVRDev * 1.5) {
+      mult = Math.min(mult, 0.4)
+    }
+    // This aircraft's vertical rate is an outlier vs stable neighbors
+    else if (avgNeighborVRDev < 2 && myVRDev > 5) {
+      mult = Math.max(mult, 1.3)
+    }
   }
 
-  return 1.0
+  return mult
 }
 
 /**
@@ -383,9 +427,10 @@ function spatialContextMultiplier(current, allFlights) {
  *   weather.sigmets  - { count, convective, turbulence, icing }
  *   weather.pireps   - { count, severe, maxTurbulence, maxIcing }
  * @param {Array}  [allFlights] - all current flights for spatial context comparison
+ * @param {Object} [baseline]  - per-route baseline { alt_rate_mean, alt_rate_std, alt_rate_p95, vel_mean, vel_std }
  * @returns {{ score, phase, reasons[], confirmed, category, severity, categories[] }}
  */
-function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlights = null) {
+function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlights = null, baseline = null) {
   const result = {
     score: 0, phase: PHASE.UNKNOWN, reasons: [], confirmed: false,
     category: null, severity: SEVERITY.LOW, categories: [],
@@ -434,11 +479,12 @@ function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlig
     category: current.category ?? null,
   } : null
 
-  // Combined tolerance multiplier: aircraft class × altitude band × route proximity
+  // Combined tolerance multiplier: aircraft class × altitude band × route proximity × volatility
   // Light aircraft at low altitude near destination = very wide tolerances
-  // Heavy jet at FL350+ mid-route = tight tolerances — deviations matter
+  // Heavy jet at FL350+ mid-route with smooth history = tight tolerances
   const routeMult = routeProximityMultiplier(current.lat, current.lon, route)
-  const classMult = classMultiplier(enrich, current) * altitudeBandMultiplier(current.alt) * routeMult
+  const volMult = recentVolatility(snapshots)
+  const classMult = classMultiplier(enrich, current) * altitudeBandMultiplier(current.alt) * routeMult * volMult
 
   // track per-category scores to determine primary category
   const catScores = {}
@@ -469,9 +515,21 @@ function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlig
     }
 
     const norms = PHASE_NORMS[phase] || PHASE_NORMS[PHASE.UNKNOWN]
-    // Apply aircraft class multiplier and vertRate source adjustment
-    const normLow = norms.altRate[0] * classMult * vertRateWidener
-    const normHigh = norms.altRate[1] * classMult * vertRateWidener
+
+    // If a per-route baseline exists, use it to set route-specific norms.
+    // The baseline's P95 altitude rate captures what 95% of flights on this route
+    // actually do — far more accurate than generic phase norms.
+    let normLow, normHigh
+    if (baseline && baseline.alt_rate_p95 > 0 && baseline.sample_points >= 50) {
+      // Use route-specific range: mean ± P95, widened by class/vertRate multipliers
+      const p95 = baseline.alt_rate_p95 * vertRateWidener
+      normLow = -p95 * classMult
+      normHigh = p95 * classMult
+    } else {
+      // Fall back to static phase norms
+      normLow = norms.altRate[0] * classMult * vertRateWidener
+      normHigh = norms.altRate[1] * classMult * vertRateWidener
+    }
 
     let altDeviation = 0
     if (altRate < normLow) altDeviation = Math.abs(altRate - normLow)
@@ -481,7 +539,8 @@ function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlig
       const altScore = Math.min(80, altDeviation * 4)
       const src = current.vertRate != null ? 'transponder' : 'computed'
       const dir = altRate < normLow ? 'descent' : 'climb'
-      addScore(CATEGORY.ALTITUDE, altScore, `${dir} ${altRate.toFixed(1)} m/s [${src}] (expected ${normLow.toFixed(0)} to ${normHigh.toFixed(0)} in ${phase})`)
+      const normSrc = baseline?.sample_points >= 50 ? 'route baseline' : phase
+      addScore(CATEGORY.ALTITUDE, altScore, `${dir} ${altRate.toFixed(1)} m/s [${src}] (expected ${normLow.toFixed(0)} to ${normHigh.toFixed(0)} in ${normSrc})`)
     }
   }
 
@@ -526,13 +585,31 @@ function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlig
     }
   }
 
-  // ── 4. Phase transition anomaly ───────────────────────────────────────
+  // ── 4. Phase transition detection ──────────────────────────────────────
+  // Detect when the phase just changed. During a transition, the phase
+  // detector lags reality — the aircraft is already maneuvering but phase
+  // hasn't caught up. This is the #1 source of false positives: scoring a
+  // descent rate against cruise norms because the phase hasn't flipped yet.
+  let inPhaseTransition = false
   if (snapshots.length >= 5) {
     const olderPhase = detectPhase(snapshots.slice(0, -1))
-    if (olderPhase === PHASE.CRUISE && phase === PHASE.DESCENT) {
-      if (result.score > 10) {
-        addScore(CATEGORY.PHASE, 15, `phase transition: cruise → descent`)
+    if (olderPhase !== phase) {
+      inPhaseTransition = true
+      if (olderPhase === PHASE.CRUISE && phase === PHASE.DESCENT) {
+        if (result.score > 10) {
+          addScore(CATEGORY.PHASE, 15, `phase transition: cruise → descent`)
+        }
       }
+    }
+  }
+
+  // Dampen non-emergency scores during phase transitions — the aircraft is
+  // between states and kinematic norms from either phase may not apply.
+  if (inPhaseTransition && result.score > 0) {
+    const hasEmergency = result.categories.includes(CATEGORY.SQUAWK) || result.categories.includes(CATEGORY.EMERGENCY)
+    if (!hasEmergency) {
+      result.score = Math.round(result.score * 0.4)
+      result.reasons.push('(phase transition — dampened, norms may not apply)')
     }
   }
 
@@ -611,7 +688,7 @@ function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlig
     }
   }
 
-  // ── 9. Speed-only suppression ─────────────────────────────────────────
+  // ── 9a. Speed-only suppression ────────────────────────────────────────
   // Speed changes alone are too noisy (wind, ATC, turbulence). Only keep
   // speed score when another category is also present.
   if (result.categories.length === 1 && result.categories[0] === CATEGORY.SPEED) {
@@ -619,6 +696,23 @@ function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlig
     result.reasons = []
     result.categories = []
     for (const k of Object.keys(catScores)) catScores[k] = 0
+  }
+
+  // ── 9b. Correlated kinematic scoring ────────────────────────────────────
+  // When altitude, speed, heading, and phase all change simultaneously,
+  // it's almost certainly a single ATC instruction — not multiple independent
+  // anomalies. Use the MAX of kinematic categories instead of the SUM to
+  // avoid double/triple-counting the same event.
+  const KINEMATIC_CATS = [CATEGORY.ALTITUDE, CATEGORY.SPEED, CATEGORY.HEADING, CATEGORY.PHASE]
+  const kinematicScores = KINEMATIC_CATS.map(c => catScores[c] || 0).filter(s => s > 0)
+  if (kinematicScores.length >= 2) {
+    const kinematicSum = kinematicScores.reduce((a, b) => a + b, 0)
+    const kinematicMax = Math.max(...kinematicScores)
+    // Keep the strongest signal + 25% of the rest (some credit for multi-axis deviation)
+    const adjusted = kinematicMax + (kinematicSum - kinematicMax) * 0.25
+    const reduction = kinematicSum - adjusted
+    result.score -= reduction
+    result.reasons.push(`(correlated kinematic signals — reduced by ${Math.round(reduction)} pts)`)
   }
 
   // ── 10. Weather correlation ──────────────────────────────────────────
