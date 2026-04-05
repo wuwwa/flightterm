@@ -18,6 +18,8 @@ const RESOLVE_AFTER = 3   // consecutive misses before resolving
 const MAX_SNAPSHOTS = 30  // per aircraft
 const ENRICH_BATCH  = 50  // how many aircraft to background-enrich per cycle
 const ENRICH_DELAY  = 5000 // ms between enrichment requests
+const MAX_ENRICH_CACHE = 10_000  // cap enrichCache to prevent unbounded growth
+const ENRICH_CACHE_TTL = 60 * 60 * 1000 // 1 hour — evict stale entries
 
 const OS_BASE = 'https://opensky-network.org/api'
 const OS_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
@@ -44,6 +46,7 @@ let lastFetchAt = null             // timestamp of last successful fetch
 let weatherContext = null           // { sigmets, pireps } from last cycle
 let baselineCache = new Map()      // "KJFK→KLAX" → baseline object
 let pollTimer = null
+let baselineTimer = null
 let running = false
 
 // ── OpenSky dual-key auth ───────────────────────────────────────────────────
@@ -380,6 +383,14 @@ function updateTrackHistory(flights) {
       trackHistory.delete(icao)
     }
   }
+
+  // Prune stale enrichment cache entries (older than TTL)
+  const enrichCutoff = now - ENRICH_CACHE_TTL
+  for (const [icao, entry] of enrichCache) {
+    if (entry._ts && entry._ts < enrichCutoff) {
+      enrichCache.delete(icao)
+    }
+  }
 }
 
 // ── Route enrichment ─────────────────────────────────────────────────────────
@@ -526,7 +537,14 @@ async function pollCycle() {
           // Store in enrichment cache for future cycles
           const existing = enrichCache.get(f.icao) || {}
           existing.apl = apl
+          existing._ts = Date.now()
           enrichCache.set(f.icao, existing)
+
+          // Evict oldest entries if cache exceeds cap
+          if (enrichCache.size > MAX_ENRICH_CACHE) {
+            const first = enrichCache.keys().next().value
+            enrichCache.delete(first)
+          }
 
           // Re-score with enrichment
           const hist = trackHistory.get(f.icao)
@@ -708,7 +726,7 @@ function start() {
   refreshBaselines()
 
   // Rebuild baselines every 6 hours (non-blocking)
-  setInterval(() => {
+  baselineTimer = setInterval(() => {
     try {
       const count = db.buildRouteBaselines()
       if (count > 0) {
@@ -731,6 +749,7 @@ function stop() {
   if (!running) return
   running = false
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  if (baselineTimer) { clearInterval(baselineTimer); baselineTimer = null }
   console.log('poller: stopped')
 }
 

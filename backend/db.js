@@ -2176,13 +2176,19 @@ function forcePurge() {
 }
 
 // Schedule purge cycle every 6 hours (matches 6-hour retention window)
-setInterval(async () => {
+const _purgeTimer = setInterval(async () => {
   try {
     await runPurgeCycle()
   } catch (err) {
     console.error('purge cycle error:', err.message)
   }
 }, 6 * 3600 * 1000)
+
+// Graceful close: stop purge timer + close database connection
+function close() {
+  clearInterval(_purgeTimer)
+  try { db.close() } catch {}
+}
 
 // ── exports ─────────────────────────────────────────────────────────────────
 
@@ -2270,4 +2276,5 @@ module.exports = {
   getTerminalWeatherByAirport,
   getTerminalWeatherStats,
   purgeOldTerminalWeather,
+  close,
 }

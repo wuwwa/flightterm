@@ -17,6 +17,7 @@ const {
   getRoutesBulk,
   upsertRoutesBatch,
   getRouteCount,
+  close: closeDb,
 } = require('./db')
 const { getStatus: getS3Status, isEnabled: s3IsEnabled } = require('./s3archive')
 const rateLimit = require('express-rate-limit')
@@ -53,6 +54,21 @@ app.use('/api/', rateLimit({
   legacyHeaders: false,
   message: { error: 'rate limit exceeded — try again shortly' },
 }))
+
+// ── Cache control (default-deny) ─────────────────────────────────────────────
+// Every API response defaults to no-store. Individual routes opt in below.
+app.use('/api/', (_req, res, next) => {
+  res.set('Cache-Control', 'no-store, private')
+  next()
+})
+
+function cachePublic(res, maxAge) {
+  res.set('Cache-Control', `public, max-age=${maxAge}`)
+}
+
+function cachePrivate(res, maxAge) {
+  res.set('Cache-Control', `private, max-age=${maxAge}`)
+}
 
 // ── OpenSky OAuth2 token cache ────────────────────────────────────────────────
 // Separate caches for server (.env) and user-provided credentials
@@ -157,7 +173,22 @@ const COST_MAP = {
 const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'dist')
 console.log(`looking for frontend at ${STATIC_DIR} — exists: ${require('fs').existsSync(STATIC_DIR)}`)
 if (require('fs').existsSync(STATIC_DIR)) {
-  app.use(express.static(STATIC_DIR))
+  // Hashed assets (JS/CSS): cache aggressively — filename changes on rebuild
+  app.use('/assets', express.static(path.join(STATIC_DIR, 'assets'), {
+    maxAge: '1y',
+    immutable: true,
+  }))
+  // Everything else (index.html): always revalidate to pick up new deploys
+  app.use(express.static(STATIC_DIR, {
+    maxAge: 0,
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.set('Cache-Control', 'no-cache')
+      }
+    },
+  }))
   console.log(`serving frontend from ${STATIC_DIR}`)
 }
 
@@ -165,6 +196,7 @@ if (require('fs').existsSync(STATIC_DIR)) {
 
 // Health check
 app.get('/api/health', (_req, res) => {
+  cachePublic(res, 10)
   const ps = poller.getStatus()
   res.json({
     status: 'ok',
@@ -180,15 +212,46 @@ app.get('/api/health', (_req, res) => {
   })
 })
 
-// ── Passive service health — tracks success/failure of actual proxy calls ────
-// No active probing. Status is derived from real traffic through our proxy routes.
+// Liveness — is the process alive and able to serve HTTP? Always returns 200
+// unless the event loop is completely frozen (in which case it won't respond).
+// Fly.io uses this to decide whether to restart the machine.
+app.get('/api/health/live', (_req, res) => {
+  res.json({ status: 'ok' })
+})
+
+// Readiness — is the service ready to handle real traffic?
+// Checks DB connectivity and (if enabled) that the poller has fetched at least once.
+app.get('/api/health/ready', (_req, res) => {
+  const checks = {}
+  // DB: can we execute a trivial query?
+  try {
+    rawDb.prepare('SELECT 1').get()
+    checks.db = 'ok'
+  } catch {
+    checks.db = 'fail'
+  }
+  // Poller: if enabled, has it completed at least one cycle?
+  if (process.env.POLLER_ENABLED === 'true') {
+    const ps = poller.getStatus()
+    checks.poller = ps.running && ps.trackedAircraft > 0 ? 'ok' : 'waiting'
+  }
+  const ready = checks.db === 'ok' && (!checks.poller || checks.poller === 'ok')
+  res.status(ready ? 200 : 503).json({ ready, checks })
+})
+
+// ── Service health + circuit breaker ─────────────────────────────────────────
+// Passive tracking from real traffic. Circuit breaker trips after consecutive
+// failures and reopens after a cooldown period.
+const CB_FAIL_THRESHOLD = 3            // consecutive failures before tripping
+const CB_COOLDOWN_MS    = 30_000       // 30s cooldown before retrying
+
 const _serviceHealth = {
-  opensky:         { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
-  adsbfi:          { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
-  aviationweather: { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
-  aeroapi:         { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
-  faa_notam:       { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
-  airplaneslive:   { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null },
+  opensky:         { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null, failures: 0, openAt: null },
+  adsbfi:          { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null, failures: 0, openAt: null },
+  aviationweather: { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null, failures: 0, openAt: null },
+  aeroapi:         { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null, failures: 0, openAt: null },
+  faa_notam:       { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null, failures: 0, openAt: null },
+  airplaneslive:   { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null, failures: 0, openAt: null },
   // adsbdb + hexdb are called directly from the browser (CORS-enabled), not proxied
 }
 
@@ -199,6 +262,8 @@ function recordServiceOk(name, latency) {
   svc.lastOk = Date.now()
   svc.lastLatency = latency
   svc.error = null
+  svc.failures = 0
+  svc.openAt = null
 }
 
 function recordServiceError(name, latency, error) {
@@ -208,6 +273,23 @@ function recordServiceError(name, latency, error) {
   svc.lastError = Date.now()
   svc.lastLatency = latency
   svc.error = (error || '').substring(0, 120)
+  svc.failures++
+  if (svc.failures >= CB_FAIL_THRESHOLD) {
+    svc.openAt = Date.now() + CB_COOLDOWN_MS
+    console.warn(`circuit-breaker: ${name} tripped after ${svc.failures} failures, cooldown ${CB_COOLDOWN_MS / 1000}s`)
+  }
+}
+
+// Returns true if the service is available (circuit closed or cooldown expired)
+function serviceAvailable(name) {
+  const svc = _serviceHealth[name]
+  if (!svc || !svc.openAt) return true
+  if (Date.now() >= svc.openAt) {
+    // Cooldown expired — allow one request through (half-open)
+    svc.openAt = null
+    return true
+  }
+  return false
 }
 
 // Mark unconfigured services
@@ -216,6 +298,7 @@ if (!process.env.FAA_CLIENT_ID) _serviceHealth.faa_notam.status = 'unconfigured'
 
 // GET /api/health/services — returns passive health derived from real traffic
 app.get('/api/health/services', (_req, res) => {
+  cachePublic(res, 15)
   const services = Object.entries(_serviceHealth).map(([name, svc]) => ({
     name,
     status: svc.status,
@@ -223,6 +306,8 @@ app.get('/api/health/services', (_req, res) => {
     lastOk: svc.lastOk ? new Date(svc.lastOk).toISOString() : null,
     lastError: svc.lastError ? new Date(svc.lastError).toISOString() : null,
     error: svc.error,
+    circuitBreaker: svc.failures >= CB_FAIL_THRESHOLD ? 'open' : 'closed',
+    consecutiveFailures: svc.failures,
   }))
   const healthy = services.filter(s => s.status === 'ok' || s.status === 'unconfigured').length
   res.json({
@@ -235,6 +320,7 @@ app.get('/api/health/services', (_req, res) => {
 
 // GET /api/health/archive — S3 archival status
 app.get('/api/health/archive', (_req, res) => {
+  cachePublic(res, 60)
   const status = getS3Status()
   res.json({
     ...status,
@@ -264,6 +350,7 @@ app.get('/api/keys', (_req, res) => {
 
 // Expose cost map to frontend (no key needed)
 app.get('/api/aero/costs', (req, res) => {
+  cachePublic(res, 86400)
   res.json(COST_MAP)
 })
 
@@ -271,6 +358,10 @@ app.get('/api/aero/costs', (req, res) => {
 // User can override credentials via x-user-os-id / x-user-os-secret headers
 // GET /api/opensky/states?region=europe  (bbox params forwarded)
 app.get('/api/opensky/states', async (req, res) => {
+  res.set('Vary', 'x-user-os-id, x-user-os-secret')
+  if (!serviceAvailable('opensky')) {
+    return res.status(503).json({ error: 'opensky temporarily unavailable (circuit breaker)', retry_after: 30 })
+  }
   const headers = {}
   // prefer user-provided credentials, fall back to .env
   const osId = req.headers['x-user-os-id'] || process.env.OS_CLIENT_ID
@@ -319,6 +410,10 @@ app.get('/api/opensky/states', async (req, res) => {
 // User can override key via x-user-aero-key header (bypasses cap — their key, their bill)
 // GET /api/aero/flights/:ident
 app.get('/api/aero/flights/:ident', async (req, res) => {
+  res.set('Vary', 'x-user-aero-key')
+  if (!serviceAvailable('aeroapi')) {
+    return res.status(503).json({ error: 'aeroapi temporarily unavailable (circuit breaker)', retry_after: 30 })
+  }
   const userAeroKey = req.headers['x-user-aero-key']
   const activeKey = userAeroKey || process.env.AEROAPI_KEY
   if (!activeKey) {
@@ -411,6 +506,10 @@ const NOTAM_CACHE_TTL = 15 * 60 * 1000
 
 // GET /api/notams?locations=KJFK,KLAX&pageSize=50
 app.get('/api/notams', async (req, res) => {
+  cachePublic(res, 300)
+  if (!serviceAvailable('faa_notam')) {
+    return res.status(503).json({ error: 'FAA NOTAM API temporarily unavailable (circuit breaker)', retry_after: 30 })
+  }
   const clientId = process.env.FAA_CLIENT_ID
   const clientSecret = process.env.FAA_CLIENT_SECRET
   if (!clientId || !clientSecret) {
@@ -484,6 +583,37 @@ app.get('/api/notams', async (req, res) => {
   res.json({ notams: results, cached: codes.length - toFetch.length, fetched: toFetch.length })
 })
 
+// ── Input validation helpers ────────────────────────────────────────────────
+function isValidIcao(v)     { return typeof v === 'string' && v.length >= 4 && v.length <= 6 }
+function isValidLat(v)      { return v == null || (typeof v === 'number' && v >= -90  && v <= 90) }
+function isValidLon(v)      { return v == null || (typeof v === 'number' && v >= -180 && v <= 180) }
+function isValidAlt(v)      { return v == null || (typeof v === 'number' && v >= -2000 && v <= 100000) }
+function isValidStr(v, max) { return v == null || (typeof v === 'string' && v.length <= max) }
+
+function validateFlight(f) {
+  if (!f || typeof f !== 'object') return 'not an object'
+  if (!isValidIcao(f.icao))        return 'invalid icao'
+  if (!isValidLat(f.lat))          return 'lat out of range'
+  if (!isValidLon(f.lon))          return 'lon out of range'
+  if (!isValidAlt(f.alt))          return 'alt out of range'
+  if (!isValidStr(f.callsign, 10)) return 'callsign too long'
+  if (!isValidStr(f.country, 50))  return 'country too long'
+  if (!isValidStr(f.squawk, 4))    return 'squawk too long'
+  return null
+}
+
+function validateRoute(r) {
+  if (!r || typeof r !== 'object')         return 'not an object'
+  if (!isValidStr(r.callsign, 10))         return 'callsign too long'
+  if (!isValidStr(r.origin_icao, 4))       return 'origin_icao invalid'
+  if (!isValidStr(r.destination_icao, 4))  return 'destination_icao invalid'
+  if (!isValidLat(r.origin_lat))           return 'origin_lat out of range'
+  if (!isValidLon(r.origin_lon))           return 'origin_lon out of range'
+  if (!isValidLat(r.destination_lat))      return 'destination_lat out of range'
+  if (!isValidLon(r.destination_lon))      return 'destination_lon out of range'
+  return null
+}
+
 // ── Sightings DB routes ─────────────────────────────────────────────────────
 
 // Record a batch of sightings (called by frontend after each fetch)
@@ -495,6 +625,11 @@ app.post('/api/sightings', (req, res) => {
   }
   if (flights.length > POST_MAX_ITEMS) {
     return res.status(400).json({ error: `max ${POST_MAX_ITEMS} items per request` })
+  }
+  // Validate individual flight objects
+  for (let i = 0; i < flights.length; i++) {
+    const err = validateFlight(flights[i])
+    if (err) return res.status(400).json({ error: `flights[${i}]: ${err}` })
   }
   try {
     const count = recordSightings(flights, source || 'unknown', region || 'global')
@@ -508,6 +643,7 @@ app.post('/api/sightings', (req, res) => {
 // Aircraft history — all sightings for a single ICAO
 // GET /api/sightings/aircraft/:icao?limit=100
 app.get('/api/sightings/aircraft/:icao', (req, res) => {
+  cachePublic(res, 30)
   const limit = Math.min(Number(req.query.limit) || 100, 1000)
   res.json(getAircraftHistory(req.params.icao, limit))
 })
@@ -515,6 +651,7 @@ app.get('/api/sightings/aircraft/:icao', (req, res) => {
 // Aircraft track — lightweight alt/vel/hdg history for sparkline charts
 // GET /api/sightings/track/:icao?limit=60
 app.get('/api/sightings/track/:icao', (req, res) => {
+  cachePublic(res, 15)
   const limit = Math.min(Number(req.query.limit) || 60, 200)
   res.json(getAircraftTrack(req.params.icao, limit))
 })
@@ -522,18 +659,21 @@ app.get('/api/sightings/track/:icao', (req, res) => {
 // Unique aircraft seen in a time range
 // GET /api/sightings/unique?since=2026-03-01&until=2026-03-22
 app.get('/api/sightings/unique', (req, res) => {
+  cachePublic(res, 60)
   res.json(getUniqueSeen(req.query.since, req.query.until))
 })
 
 // Aggregate stats
 // GET /api/sightings/stats
 app.get('/api/sightings/stats', (_req, res) => {
+  cachePublic(res, 30)
   res.json(getStats())
 })
 
 // Top aircraft by frequency
 // GET /api/sightings/top/aircraft?limit=20
 app.get('/api/sightings/top/aircraft', (req, res) => {
+  cachePublic(res, 60)
   const limit = Math.min(Number(req.query.limit) || 20, 100)
   res.json(getTopAircraft(limit))
 })
@@ -541,6 +681,7 @@ app.get('/api/sightings/top/aircraft', (req, res) => {
 // Top countries
 // GET /api/sightings/top/countries?limit=20
 app.get('/api/sightings/top/countries', (req, res) => {
+  cachePublic(res, 60)
   const limit = Math.min(Number(req.query.limit) || 20, 100)
   res.json(getTopCountries(limit))
 })
@@ -548,12 +689,14 @@ app.get('/api/sightings/top/countries', (req, res) => {
 // Hourly activity pattern
 // GET /api/sightings/activity/hourly
 app.get('/api/sightings/activity/hourly', (_req, res) => {
+  cachePublic(res, 60)
   res.json(getHourlyActivity())
 })
 
 // Recent fetch history
 // GET /api/sightings/fetches?limit=20
 app.get('/api/sightings/fetches', (req, res) => {
+  cachePublic(res, 15)
   const limit = Math.min(Number(req.query.limit) || 20, 100)
   res.json(getRecentFetches(limit))
 })
@@ -561,6 +704,7 @@ app.get('/api/sightings/fetches', (req, res) => {
 // Traffic heatmap — latest position per aircraft from last hour
 // GET /api/sightings/heatmap
 app.get('/api/sightings/heatmap', (_req, res) => {
+  cachePublic(res, 30)
   res.json(getTrafficHeatmap())
 })
 
@@ -593,6 +737,11 @@ app.post('/api/routes/save', (req, res) => {
   if (routes.length > POST_MAX_ITEMS) {
     return res.status(400).json({ error: `max ${POST_MAX_ITEMS} items per request` })
   }
+  // Validate individual route objects
+  for (let i = 0; i < routes.length; i++) {
+    const err = validateRoute(routes[i])
+    if (err) return res.status(400).json({ error: `routes[${i}]: ${err}` })
+  }
   try {
     upsertRoutesBatch(routes)
     console.log(`routes: cached ${routes.length} new route(s) (total: ${getRouteCount()})`)
@@ -604,6 +753,7 @@ app.post('/api/routes/save', (req, res) => {
 
 // GET /api/routes/stats
 app.get('/api/routes/stats', (_req, res) => {
+  cachePublic(res, 60)
   res.json({ total: getRouteCount() })
 })
 
@@ -613,6 +763,10 @@ const APL_BASE = 'https://api.airplanes.live/v2'
 let _aplLastReq = 0  // timestamp of last request — enforce 1 req/sec server-side
 
 async function aplFetch(path, res) {
+  cachePrivate(res, 5)
+  if (!serviceAvailable('airplaneslive')) {
+    return res.status(503).json({ error: 'airplanes.live temporarily unavailable (circuit breaker)', retry_after: 30 })
+  }
   // Server-side rate limiting: wait if needed to respect 1 req/sec
   const now = Date.now()
   const wait = Math.max(0, 1050 - (now - _aplLastReq))
@@ -655,6 +809,10 @@ app.get('/api/apl/mil', (_req, res) => {
 
 // GET /api/adsbfi/hex/:hex — enrich by ICAO hex
 app.get('/api/adsbfi/hex/:hex', async (req, res) => {
+  cachePrivate(res, 5)
+  if (!serviceAvailable('adsbfi')) {
+    return res.status(503).json({ error: 'adsb.fi temporarily unavailable (circuit breaker)', retry_after: 30 })
+  }
   const t0 = Date.now()
   try {
     const hex = req.params.hex.trim().toLowerCase()
@@ -669,6 +827,10 @@ app.get('/api/adsbfi/hex/:hex', async (req, res) => {
 
 // GET /api/adsbfi/callsign/:cs — enrich by callsign
 app.get('/api/adsbfi/callsign/:cs', async (req, res) => {
+  cachePrivate(res, 5)
+  if (!serviceAvailable('adsbfi')) {
+    return res.status(503).json({ error: 'adsb.fi temporarily unavailable (circuit breaker)', retry_after: 30 })
+  }
   const t0 = Date.now()
   try {
     const cs = req.params.cs.trim()
@@ -685,6 +847,7 @@ app.get('/api/adsbfi/callsign/:cs', async (req, res) => {
 app.get('/api/hexdb/route/:callsign', async (req, res) => {
   const cs = req.params.callsign.trim().replace(/\s+/g, '')
   if (!cs) return res.status(400).json({ error: 'missing callsign' })
+  cachePublic(res, 3600)
   try {
     const routeRes = await axios.get(`https://hexdb.io/api/v1/route/icao/${cs}`, { timeout: 8000 })
     const routeStr = routeRes.data
@@ -715,6 +878,10 @@ const AWX_BASE = 'https://aviationweather.gov/api/data'
 
 // GET /api/weather/metar?ids=KJFK,KLAX  or  ?bbox=25,-130,50,-60
 app.get('/api/weather/metar', async (req, res) => {
+  cachePublic(res, 120)
+  if (!serviceAvailable('aviationweather')) {
+    return res.status(503).json({ error: 'aviationweather temporarily unavailable (circuit breaker)', retry_after: 30 })
+  }
   const t0 = Date.now()
   try {
     const params = { format: 'json', ...req.query }
@@ -729,6 +896,10 @@ app.get('/api/weather/metar', async (req, res) => {
 
 // GET /api/weather/pirep?bbox=25,-130,50,-60&age=2&inten=mod
 app.get('/api/weather/pirep', async (req, res) => {
+  cachePublic(res, 120)
+  if (!serviceAvailable('aviationweather')) {
+    return res.status(503).json({ error: 'aviationweather temporarily unavailable (circuit breaker)', retry_after: 30 })
+  }
   const t0 = Date.now()
   try {
     const params = { format: 'json', ...req.query }
@@ -743,6 +914,10 @@ app.get('/api/weather/pirep', async (req, res) => {
 
 // GET /api/weather/sigmet?hazard=conv
 app.get('/api/weather/sigmet', async (req, res) => {
+  cachePublic(res, 120)
+  if (!serviceAvailable('aviationweather')) {
+    return res.status(503).json({ error: 'aviationweather temporarily unavailable (circuit breaker)', retry_after: 30 })
+  }
   const t0 = Date.now()
   try {
     const params = { format: 'json', ...req.query }
@@ -759,6 +934,7 @@ app.get('/api/weather/sigmet', async (req, res) => {
 
 // GET /api/poller/status — current poller state
 app.get('/api/poller/status', (_req, res) => {
+  cachePublic(res, 10)
   res.json(poller.getStatus())
 })
 
@@ -793,17 +969,29 @@ app.get('/api/flights', (_req, res) => {
 
 // GET /api/anomalies/stream — SSE endpoint for real-time anomaly events
 const _sseConns = new Map() // ip → count
+
+function sseIncrement(ip) {
+  const current = _sseConns.get(ip) || 0
+  if (current >= SSE_MAX_PER_IP) return false
+  _sseConns.set(ip, current + 1)
+  return true
+}
+
+function sseDecrement(ip) {
+  const current = _sseConns.get(ip) || 1
+  if (current <= 1) _sseConns.delete(ip)
+  else _sseConns.set(ip, current - 1)
+}
+
 app.get('/api/anomalies/stream', (req, res) => {
   const ip = req.ip
-  const current = _sseConns.get(ip) || 0
-  if (current >= SSE_MAX_PER_IP) {
+  if (!sseIncrement(ip)) {
     return res.status(429).json({ error: 'too many SSE connections' })
   }
-  _sseConns.set(ip, current + 1)
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
+    'Cache-Control': 'no-store',
     Connection: 'keep-alive',
   })
 
@@ -831,17 +1019,20 @@ app.get('/api/anomalies/stream', (req, res) => {
     res.end()
   }, SSE_TIMEOUT_MS)
 
+  let cleaned = false
   function cleanup() {
+    if (cleaned) return
+    cleaned = true
     clearInterval(heartbeat)
     clearTimeout(timeout)
-    _sseConns.set(ip, (_sseConns.get(ip) || 1) - 1)
-    if (_sseConns.get(ip) <= 0) _sseConns.delete(ip)
+    sseDecrement(ip)
     poller.anomalyEvents.off('anomaly:new', onNew)
     poller.anomalyEvents.off('anomaly:critical', onCritical)
     poller.anomalyEvents.off('anomaly:resolved', onResolved)
   }
 
   req.on('close', cleanup)
+  res.on('error', cleanup)
 })
 
 // ── Anomaly routes ──────────────────────────────────────────────────────────
@@ -852,6 +1043,7 @@ app.get('/api/anomalies/stream', (req, res) => {
 // Recent anomalies
 // GET /api/anomalies?limit=50
 app.get('/api/anomalies', (req, res) => {
+  cachePublic(res, 15)
   const limit = Math.min(Number(req.query.limit) || 50, 200)
   res.json(getRecentAnomalies(limit))
 })
@@ -865,6 +1057,7 @@ app.get('/api/anomalies/active', (_req, res) => {
 // Anomaly history for a specific aircraft
 // GET /api/anomalies/aircraft/:icao?limit=20
 app.get('/api/anomalies/aircraft/:icao', (req, res) => {
+  cachePublic(res, 30)
   const limit = Math.min(Number(req.query.limit) || 20, 100)
   res.json(getAnomaliesByIcao(req.params.icao, limit))
 })
@@ -872,12 +1065,14 @@ app.get('/api/anomalies/aircraft/:icao', (req, res) => {
 // Anomaly stats (last 24h)
 // GET /api/anomalies/stats
 app.get('/api/anomalies/stats', (_req, res) => {
+  cachePublic(res, 30)
   res.json(getAnomalyStats())
 })
 
 // Anomaly hotspots — geographic clusters where anomalies recur
 // GET /api/anomalies/hotspots?hours=168&min=2
 app.get('/api/anomalies/hotspots', (req, res) => {
+  cachePublic(res, 120)
   const hours = Math.min(Number(req.query.hours) || 168, 720) // default 7 days, max 30
   const min = Math.max(Number(req.query.min) || 2, 2) // minimum 2 events per cluster
   res.json(getAnomalyHotspots(hours, min))
@@ -886,6 +1081,7 @@ app.get('/api/anomalies/hotspots', (req, res) => {
 // Anomalies in a specific zone (grid cell) for zone drilldown
 // GET /api/anomalies/zone?lat=40.5&lon=-74.0&hours=168&limit=30
 app.get('/api/anomalies/zone', (req, res) => {
+  cachePublic(res, 60)
   const lat = Number(req.query.lat)
   const lon = Number(req.query.lon)
   if (isNaN(lat) || isNaN(lon)) return res.status(400).json({ error: 'lat and lon required' })
@@ -916,18 +1112,21 @@ app.put('/api/anomalies/:id/feedback', (req, res) => {
 // Feedback stats — false positive rate over last 7 days
 // GET /api/anomalies/feedback/stats
 app.get('/api/anomalies/feedback/stats', (_req, res) => {
+  cachePublic(res, 120)
   res.json(getFeedbackStats())
 })
 
 // SWIM feed status
 // GET /api/swim/status
 app.get('/api/swim/status', (_req, res) => {
+  cachePublic(res, 15)
   res.json(swim.getStatus())
 })
 
 // Active TFRs from SWIM FNS
 // GET /api/swim/tfrs
 app.get('/api/swim/tfrs', (_req, res) => {
+  cachePublic(res, 60)
   try {
     const { getActiveTfrs } = require('./db')
     res.json(getActiveTfrs())
@@ -939,6 +1138,7 @@ app.get('/api/swim/tfrs', (_req, res) => {
 // NOTAMs grouped by airport
 // GET /api/swim/notams/airports?limit=20
 app.get('/api/swim/notams/airports', (req, res) => {
+  cachePublic(res, 60)
   try {
     const { getNotamsByAirport } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 20, 50)
@@ -951,6 +1151,7 @@ app.get('/api/swim/notams/airports', (req, res) => {
 // Recent NOTAM activity feed
 // GET /api/swim/notams/recent?limit=15
 app.get('/api/swim/notams/recent', (req, res) => {
+  cachePublic(res, 60)
   try {
     const { getRecentNotams } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 15, 50)
@@ -963,6 +1164,7 @@ app.get('/api/swim/notams/recent', (req, res) => {
 // TFMS — active flight plans
 // GET /api/swim/flights?limit=50
 app.get('/api/swim/flights', (req, res) => {
+  cachePublic(res, 15)
   try {
     const { getActiveFlightPlans } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 50, 200)
@@ -975,6 +1177,7 @@ app.get('/api/swim/flights', (req, res) => {
 // TFMS — single flight plan by callsign
 // GET /api/swim/flights/:acid
 app.get('/api/swim/flights/:acid', (req, res) => {
+  cachePublic(res, 15)
   try {
     const { getFlightPlan } = require('./db')
     const plan = getFlightPlan(req.params.acid.toUpperCase())
@@ -988,6 +1191,7 @@ app.get('/api/swim/flights/:acid', (req, res) => {
 // TFMS — active flow events (GDPs, ground stops, reroutes)
 // GET /api/swim/flow?limit=20
 app.get('/api/swim/flow', (req, res) => {
+  cachePublic(res, 30)
   try {
     const { getActiveFlowEvents } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 20, 100)
@@ -1000,6 +1204,7 @@ app.get('/api/swim/flow', (req, res) => {
 // TFMS — flow events for a specific airport
 // GET /api/swim/flow/:airport
 app.get('/api/swim/flow/:airport', (req, res) => {
+  cachePublic(res, 30)
   try {
     const { getFlowEventsByAirport } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 10, 50)
@@ -1012,6 +1217,7 @@ app.get('/api/swim/flow/:airport', (req, res) => {
 // ITWS — recent terminal weather events
 // GET /api/swim/weather?limit=20
 app.get('/api/swim/weather', (req, res) => {
+  cachePublic(res, 60)
   try {
     const { getRecentTerminalWeather } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 20, 100)
@@ -1024,6 +1230,7 @@ app.get('/api/swim/weather', (req, res) => {
 // ITWS — terminal weather for specific airport
 // GET /api/swim/weather/:airport
 app.get('/api/swim/weather/:airport', (req, res) => {
+  cachePublic(res, 60)
   try {
     const { getTerminalWeatherByAirport } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 10, 50)
@@ -1036,6 +1243,7 @@ app.get('/api/swim/weather/:airport', (req, res) => {
 // STDDS — recent surface events (OOOI, taxi, departures, RVR)
 // GET /api/swim/surface?limit=30
 app.get('/api/swim/surface', (req, res) => {
+  cachePublic(res, 15)
   try {
     const { getRecentSurfaceEvents } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 30, 100)
@@ -1046,6 +1254,7 @@ app.get('/api/swim/surface', (req, res) => {
 // STDDS — OOOI events (gate out, wheels off, wheels on, gate in)
 // GET /api/swim/oooi?limit=30
 app.get('/api/swim/oooi', (req, res) => {
+  cachePublic(res, 15)
   try {
     const { getOooi } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 30, 100)
@@ -1056,6 +1265,7 @@ app.get('/api/swim/oooi', (req, res) => {
 // STDDS — surface events by airport
 // GET /api/swim/surface/:airport
 app.get('/api/swim/surface/:airport', (req, res) => {
+  cachePublic(res, 15)
   try {
     const { getSurfaceEventsByAirport } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 20, 100)
@@ -1066,6 +1276,7 @@ app.get('/api/swim/surface/:airport', (req, res) => {
 // TFMS — real-time airport configurations (runways, rates, weather)
 // GET /api/swim/airports
 app.get('/api/swim/airports', (_req, res) => {
+  cachePublic(res, 30)
   try {
     const { getAirportConfigs } = require('./db')
     res.json(getAirportConfigs())
@@ -1077,6 +1288,7 @@ app.get('/api/swim/airports', (_req, res) => {
 // Database metrics
 // GET /api/db/metrics
 app.get('/api/db/metrics', (_req, res) => {
+  cachePublic(res, 30)
   const sightings = rawDb.prepare('SELECT COUNT(*) as c FROM sightings').get().c
   const daily = rawDb.prepare('SELECT COUNT(*) as c FROM sightings_daily').get().c
   const anomalies = rawDb.prepare('SELECT COUNT(*) as c FROM anomalies WHERE resolved = 0').get().c
@@ -1211,8 +1423,15 @@ if (require('fs').existsSync(STATIC_DIR)) {
 
 // ── start ─────────────────────────────────────────────────────────────────────
 
+// ── Centralized error handler (catches unhandled route errors) ───────────────
+app.use((err, _req, res, _next) => {
+  console.error('unhandled route error:', err.stack || err.message)
+  res.status(err.status || 500).json({ error: err.message || 'internal server error' })
+})
+
 // Skip listening when imported by vitest (tests use supertest directly)
-if (!process.env.VITEST) app.listen(PORT, () => {
+let _server = null
+if (!process.env.VITEST) _server = app.listen(PORT, () => {
   console.log(`\n═══ flightterm backend ═══════════════════════════════════════`)
   console.log(`  port:           ${PORT}`)
   console.log(`  node:           ${process.version}`)
@@ -1275,5 +1494,34 @@ if (!process.env.VITEST) app.listen(PORT, () => {
     console.log('  ℹ  SWIM feeds disabled — set SWIM_USERNAME + SWIM_PASSWORD to enable')
   }
 })
+
+// ── Graceful shutdown ────────────────────────────────────────────────────────
+function shutdown(signal) {
+  console.log(`\n${signal} received — shutting down gracefully...`)
+
+  // Stop accepting new requests
+  poller.stop()
+  swim.stopAll()
+
+  if (_server) {
+    _server.close(() => {
+      console.log('http server closed')
+      closeDb()
+      process.exit(0)
+    })
+  } else {
+    closeDb()
+    process.exit(0)
+  }
+
+  // Force exit after 30s if connections don't drain
+  setTimeout(() => {
+    console.error('forced shutdown after 30s timeout')
+    process.exit(1)
+  }, 30_000).unref()
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
 
 module.exports = { app }
