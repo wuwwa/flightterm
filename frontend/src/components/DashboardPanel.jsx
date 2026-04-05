@@ -2,17 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import AnomalyFeed from './dashboard/AnomalyFeed'
 import StatsCards from './dashboard/StatsCards'
 import WeatherStatus from './dashboard/WeatherStatus'
-import NotamPanel from './dashboard/NotamPanel'
-import ItwsPanel from './dashboard/ItwsPanel'
 import DocsPanel from './dashboard/DocsPanel'
 import HeatMap from './dashboard/HeatMap'
 import AnomalyDrilldown from './dashboard/AnomalyDrilldown'
 import ZoneMetrics from './dashboard/ZoneMetrics'
 import ZoneDrilldown from './dashboard/ZoneDrilldown'
 import ActivityChart from './dashboard/ActivityChart'
-import NasStatus from './dashboard/NasStatus'
-import FlightLookup from './dashboard/FlightLookup'
-import SurfaceOps from './dashboard/SurfaceOps'
 import {
   fetchAnomalyFeed,
   fetchAnomalyStats,
@@ -83,39 +78,14 @@ export default function DashboardPanel({ backendOk, region: appRegion, lastFetch
     <div className="min-h-screen bg-bg1 border-t border-border">
       {/* Header */}
       <div className="bg-bg2 border-b border-border py-1.5 px-3 flex items-center gap-2">
-        <span className="text-acc text-[11px] font-bold tracking-wider uppercase">dashboard</span>
-        <span className="text-fg3 text-[10px]">NAS operations · anomaly analytics</span>
+        <span className="text-red text-[11px] font-bold tracking-wider uppercase">anomaly analytics</span>
+        <span className="text-fg3 text-[10px]">weather · detection · 24h window</span>
         <button
           onClick={() => setShowDocs(true)}
           className="ml-auto text-[10px] text-fg3 hover:text-acc border border-border hover:border-acc/50 px-2 py-0.5 rounded transition-colors"
         >
           DOCS
         </button>
-      </div>
-
-      {/* ═══ FAA SWIM DATA ═══════════════════════════════════════════════════ */}
-      <div className="bg-bg2 border-b border-border py-1 px-3">
-        <span className="text-grn text-[9px] tracking-wider uppercase font-bold">FAA SWIM</span>
-        <span className="text-fg3 text-[9px] ml-2">real-time NAS data</span>
-      </div>
-
-      {/* Row 1: NAS Status + NOTAMs + Terminal Weather — compact, scrollable */}
-      <div className="grid grid-cols-1 md:grid-cols-3 md:grid-rows-1 gap-px bg-border md:h-52">
-        <NasStatus backendOk={backendOk} />
-        <NotamPanel backendOk={backendOk} />
-        <ItwsPanel backendOk={backendOk} />
-      </div>
-
-      {/* Row 2: Flight Lookup + Surface Ops — compact, scrollable */}
-      <div className="grid grid-cols-1 md:grid-cols-2 md:grid-rows-1 gap-px bg-border md:h-64">
-        <FlightLookup backendOk={backendOk} />
-        <SurfaceOps backendOk={backendOk} />
-      </div>
-
-      {/* ═══ ANOMALY ANALYTICS ═══════════════════════════════════════════════ */}
-      <div className="bg-bg2 border-t-2 border-t-border2 border-b border-border py-1 px-3 mt-1">
-        <span className="text-red text-[9px] tracking-wider uppercase font-bold">anomaly analytics</span>
-        <span className="text-fg3 text-[9px] ml-2">weather · detection · 24h window</span>
       </div>
 
       {/* Weather hazards (aviationweather.gov) */}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
-import axios from 'axios'
+import { useSwim } from '../contexts/SwimContext'
 
 const REGIONS = ['global', 'usa', 'europe', 'asia', 'atlantic']
 
@@ -25,8 +25,8 @@ export default function CommandBar({
   region, onRegionChange,
 }) {
   const [time, setTime] = useState('')
-  const [swimStatus, setSwimStatus] = useState(null)
   const [remaining, setRemaining] = useState(null)
+  const { status: swimStatus } = useSwim()
 
   // UTC clock
   useEffect(() => {
@@ -45,15 +45,6 @@ export default function CommandBar({
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [lastFetchAt, pollInterval])
-
-  // SWIM status (light poll)
-  useEffect(() => {
-    if (!backendOk) return
-    const refresh = () => axios.get('/api/swim/status').then(r => setSwimStatus(r.data)).catch(() => {})
-    refresh()
-    const id = setInterval(refresh, 30_000)
-    return () => clearInterval(id)
-  }, [backendOk])
 
   const tfms = swimStatus?.tfms
   const notams = swimStatus?.notams

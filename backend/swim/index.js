@@ -184,11 +184,14 @@ function flushTfms() {
     }
   }
 
-  // Flush flow events
+  // Flush flow events (wrapped in transaction to avoid blocking event loop)
   if (tfmsFlowBuffer.length > 0) {
     const batch = tfmsFlowBuffer.splice(0)
     try {
-      for (const event of batch) db.insertFlowEvent(event)
+      const insertBatch = db.db.transaction((events) => {
+        for (const event of events) db.insertFlowEvent(event)
+      })
+      insertBatch(batch)
       const types = [...new Set(batch.map(e => e.eventType).filter(Boolean))]
       if (types.length > 0) {
         console.log(`swim/TFMS: stored ${batch.length} flow events (${types.join(', ')})`)
@@ -314,7 +317,10 @@ function flushItws() {
   if (itwsWeatherBuffer.length === 0) return
   const batch = itwsWeatherBuffer.splice(0)
   try {
-    for (const event of batch) db.insertTerminalWeather(event)
+    const insertBatch = db.db.transaction((events) => {
+      for (const event of events) db.insertTerminalWeather(event)
+    })
+    insertBatch(batch)
     const types = [...new Set(batch.map(e => e.eventType).filter(Boolean))]
     if (types.length > 0) {
       console.log(`swim/ITWS: stored ${batch.length} weather events (${types.join(', ')})`)
@@ -372,7 +378,10 @@ function flushStdds() {
   if (stddsSurfaceBuffer.length === 0) return
   const batch = stddsSurfaceBuffer.splice(0)
   try {
-    for (const event of batch) db.insertSurfaceEvent(event)
+    const insertBatch = db.db.transaction((events) => {
+      for (const event of events) db.insertSurfaceEvent(event)
+    })
+    insertBatch(batch)
   } catch (err) {
     console.error('swim/STDDS: batch error:', err.message)
   }

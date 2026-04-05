@@ -7,7 +7,10 @@ import DetailPanel from './components/DetailPanel'
 import SettingsModal from './components/SettingsModal'
 import UsagePanel from './components/UsagePanel'
 import NotamPanel from './components/NotamPanel'
+import NasPanel from './components/NasPanel'
+import TfmsPanel from './components/tfms/TfmsPanel'
 import DashboardPanel from './components/DashboardPanel'
+import { SwimProvider } from './contexts/SwimContext'
 
 import axios from 'axios'
 import { fetchStates } from './services/opensky'
@@ -564,6 +567,7 @@ export default function App() {
 
   // ── render ────────────────────────────────────────────────────────────────────
   return (
+    <SwimProvider backendOk={backendOk}>
     <>
       {/* Boot loading bar */}
       {booting && (
@@ -580,7 +584,7 @@ export default function App() {
 
       {/* Page 1: flight tracker — fills one viewport */}
       <div
-        className="grid grid-rows-[auto_auto_1fr] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
+        className="grid grid-rows-[auto_auto_auto_auto_1fr] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
         style={{ '--sidebar-w': `${sidebarW}px` }}
       >
         {/* Combined command bar: branding, stats, filter, region, controls, SWIM indicators, clock */}
@@ -605,8 +609,18 @@ export default function App() {
           <LogPanel entries={logEntries} />
         </div>
 
+        {/* FAA SWIM / NAS section */}
+        <div className="col-span-full row-start-3">
+          <NasPanel backendOk={backendOk} />
+        </div>
+
+        {/* TFMS — flight plans, map, airport board, delays */}
+        <div className="col-span-full row-start-4">
+          <TfmsPanel backendOk={backendOk} />
+        </div>
+
         {/* Flight table */}
-        <div className="row-start-3 min-h-0 flex flex-col">
+        <div className="row-start-5 min-h-0 flex flex-col">
           <FlightTable
             flights={flights}
             filter={filter}
@@ -623,7 +637,7 @@ export default function App() {
         </div>
 
         {/* Detail panel — desktop sidebar */}
-        <div className="row-start-3 overflow-y-auto min-h-0 hidden md:block relative">
+        <div className="row-start-5 overflow-y-auto min-h-0 hidden md:block relative">
           {/* Resize handle */}
           <div
             className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-acc/30 active:bg-acc/50 transition-colors"
@@ -672,7 +686,7 @@ export default function App() {
         )}
       </div>
 
-      {/* Page 2: dashboard — always visible, scroll down to see */}
+      {/* Dashboard: anomaly analytics */}
       <div id="dashboard" className="pb-8">
         <DashboardPanel backendOk={backendOk} region={region} lastFetchAt={lastFetchAt} />
       </div>
@@ -703,5 +717,6 @@ export default function App() {
         <NotamPanel region={region} onClose={() => setShowNotams(false)} />
       )}
     </>
+    </SwimProvider>
   )
 }
