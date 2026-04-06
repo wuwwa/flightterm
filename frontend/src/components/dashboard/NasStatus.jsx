@@ -1,94 +1,163 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import clsx from 'clsx'
-import axios from 'axios'
 import { useSwim } from '../../contexts/SwimContext'
+import { FlowEventPopup } from './SwimPopup'
 
-const EVENT_COLORS = {
-  GDP: 'text-ylw', GS: 'text-red', AFP: 'text-ylw', REROUTE: 'text-mag',
-  GADV: 'text-cyn', RSTR: 'text-ylw', FXA: 'text-mag', CTOP: 'text-ylw',
-  APTC: 'text-grn', TMI_LIST: 'text-fg3',
+// ── Health assessment from NAS analytics ─────────────────────────────────────
+function deriveHealth(nasSummary, flowEvents) {
+  if (!nasSummary) return null
+  const gs = nasSummary.groundStops || 0
+  const gdp = nasSummary.gdps || 0
+  const congested = nasSummary.congestionBuilding || 0
+  const elevated = nasSummary.elevated || 0
+
+  if (gs >= 3 || (gs >= 1 && gdp >= 3))
+    return { level: 'SEVERE', color: 'text-red', bg: 'bg-red/10', border: 'border-red/30', desc: 'Major disruptions — multiple ground stops active' }
+  if (gs >= 1)
+    return { level: 'DEGRADED', color: 'text-red', bg: 'bg-red/5', border: 'border-red/20', desc: 'Ground stops active — expect significant delays' }
+  if (gdp >= 3 || congested >= 3)
+    return { level: 'IMPACTED', color: 'text-ylw', bg: 'bg-ylw/5', border: 'border-ylw/20', desc: 'Widespread delays — multiple programs active' }
+  if (gdp >= 1 || congested >= 1)
+    return { level: 'MODERATE', color: 'text-ylw', bg: 'bg-ylw/5', border: 'border-ylw/20', desc: 'Some delays — flow programs in effect' }
+  if (elevated >= 2)
+    return { level: 'ELEVATED', color: 'text-cyn', bg: 'bg-cyn/5', border: 'border-cyn/20', desc: 'Elevated traffic — monitor for developing delays' }
+  return { level: 'NORMAL', color: 'text-grn', bg: 'bg-grn/5', border: 'border-grn/20', desc: 'NAS operating normally' }
 }
 
-const EVENT_LABELS = {
-  GDP: 'Ground Delay', GS: 'Ground Stop', AFP: 'Arrival Flow', REROUTE: 'Reroute',
-  GADV: 'Advisory', RSTR: 'Restriction', FXA: 'Flow Area', CTOP: 'CTOP',
-  APTC: 'Apt Config', TMI_LIST: 'TMI List',
+// Event type to human-readable label
+const EVENT_DESC = {
+  GS: 'Ground Stop',
+  GDP: 'Ground Delay Program',
+  AFP: 'Airspace Flow Program',
+  REROUTE: 'Reroute',
+  RSTR: 'Restriction',
+  CTOP: 'Collaborative Trajectory',
+  FXA: 'Flow Constraint Area',
 }
 
-function FeedDot({ feed, label }) {
-  if (!feed) return <span className="text-fg3/40 text-[8px]">{label}</span>
-  return (
-    <span className="flex items-center gap-0.5 text-[8px]" title={`${label}: ${feed.connected ? 'connected' : 'disconnected'}${feed.received ? `, ${feed.received} msgs` : ''}`}>
-      <span className={clsx('inline-block w-1 h-1 rounded-full', feed.connected ? 'bg-grn' : 'bg-red')} />
-      <span className={feed.connected ? 'text-grn' : 'text-fg3/40'}>{label}</span>
-    </span>
-  )
+// Reason to short human label
+function reasonLabel(reason) {
+  if (!reason) return null
+  const r = reason.toLowerCase()
+  if (r.includes('weather') || r.includes('wx') || r.includes('wind') || r.includes('thunder') || r.includes('fog') || r.includes('snow') || r.includes('ice') || r.includes('ceil'))
+    return 'weather'
+  if (r.includes('volume') || r.includes('demand') || r.includes('capacity'))
+    return 'volume'
+  if (r.includes('equip') || r.includes('staff'))
+    return 'equipment'
+  if (r.includes('runway') || r.includes('rwy'))
+    return 'runway'
+  return reason.toLowerCase().substring(0, 16)
 }
 
 export default function NasStatus({ backendOk }) {
-  const { status, flowEvents } = useSwim()
+  const { status, flowEvents, nasSummary } = useSwim()
+  const [selectedAirport, setSelectedAirport] = useState(null)
 
   const feeds = status?.feeds || {}
   const tfmsStats = status?.tfms
-  const activeFlights = tfmsStats?.active_flights || 0
-  const totalPlans = tfmsStats?.recent_plans || 0
-  const gdps = tfmsStats?.active_gdps || 0
-  const groundStops = tfmsStats?.active_gs || 0
   const connectedCount = Object.values(feeds).filter(f => f?.connected).length
+  const health = deriveHealth(nasSummary, flowEvents)
+
+  // Split flow events into active restrictions vs advisories
+  const restrictions = flowEvents.filter(e => ['GS', 'GDP', 'AFP', 'CTOP', 'RSTR', 'FXA'].includes(e.event_type))
+  const gs = restrictions.filter(e => e.event_type === 'GS')
+  const gdps = restrictions.filter(e => e.event_type === 'GDP')
+  const other = restrictions.filter(e => !['GS', 'GDP'].includes(e.event_type))
 
   return (
     <div className="bg-bg1 h-full min-h-0 flex flex-col">
-      <div className="py-0.5 px-2 text-[9px] text-fg3 bg-bg2 border-b border-border flex justify-between shrink-0">
-        <span>NAS status</span>
-        <span>{connectedCount}/5</span>
+      {/* Header with health assessment */}
+      <div className="py-0.5 px-2 text-[9px] bg-bg2 border-b border-border flex justify-between items-center shrink-0">
+        <span className="text-fg3">NAS status</span>
+        <span className="flex items-center gap-1.5">
+          {connectedCount > 0 ? (
+            <span className="text-grn text-[8px]">{connectedCount} feed{connectedCount !== 1 ? 's' : ''}</span>
+          ) : (
+            <span className="text-fg3/40 text-[8px]">no feeds</span>
+          )}
+        </span>
       </div>
 
-      <div className="flex gap-2 px-2 py-0.5 border-b border-white/5 shrink-0">
-        <FeedDot feed={feeds.fns} label="FNS" />
-        <FeedDot feed={feeds.tfms} label="TFMS" />
-        <FeedDot feed={feeds.sfdps} label="SFDPS" />
-        <FeedDot feed={feeds.itws} label="ITWS" />
-        <FeedDot feed={feeds.stdds} label="STDDS" />
-      </div>
+      {/* Health banner */}
+      {health && (
+        <div className={clsx('px-2 py-1 border-b', health.bg, health.border)}>
+          <div className="flex items-center gap-1.5">
+            <span className={clsx('text-[10px] font-bold', health.color)}>{health.level}</span>
+            {nasSummary && (
+              <span className="text-fg3 text-[8px] ml-auto">
+                {nasSummary.totalAirports || 0} airports tracked
+              </span>
+            )}
+          </div>
+          <div className="text-[8px] text-fg3 mt-0.5">{health.desc}</div>
+        </div>
+      )}
 
+      {/* Key metrics */}
       {tfmsStats && (
         <div className="grid grid-cols-4 gap-px bg-border shrink-0">
-          <div className="bg-bg1 py-0.5 px-1.5 text-center">
-            <div className="text-[11px] font-medium text-acc">{activeFlights.toLocaleString()}</div>
-            <div className="text-[7px] text-fg3">flights</div>
+          <div className="bg-bg1 py-0.5 px-1.5 text-center" title="Active IFR flight plans tracked by TFMS">
+            <div className="text-[11px] font-medium text-acc">{(tfmsStats.active_flights || 0).toLocaleString()}</div>
+            <div className="text-[7px] text-fg3">IFR flights</div>
           </div>
-          <div className="bg-bg1 py-0.5 px-1.5 text-center">
-            <div className="text-[11px] font-medium text-fg2">{totalPlans.toLocaleString()}</div>
-            <div className="text-[7px] text-fg3">plans/1h</div>
+          <div className="bg-bg1 py-0.5 px-1.5 text-center" title="Flight plan updates received in the last hour">
+            <div className="text-[11px] font-medium text-fg2">{(tfmsStats.recent_plans || 0).toLocaleString()}</div>
+            <div className="text-[7px] text-fg3">updates/hr</div>
           </div>
-          <div className="bg-bg1 py-0.5 px-1.5 text-center">
-            <div className={clsx('text-[11px] font-medium', groundStops > 0 ? 'text-red' : 'text-grn')}>{groundStops}</div>
-            <div className="text-[7px] text-fg3">gnd stop</div>
+          <div className="bg-bg1 py-0.5 px-1.5 text-center" title="Airports where NO departures are allowed">
+            <div className={clsx('text-[11px] font-medium', (tfmsStats.active_gs || 0) > 0 ? 'text-red font-bold' : 'text-grn')}>{tfmsStats.active_gs || 0}</div>
+            <div className="text-[7px] text-fg3">ground stops</div>
           </div>
-          <div className="bg-bg1 py-0.5 px-1.5 text-center">
-            <div className={clsx('text-[11px] font-medium', gdps > 0 ? 'text-ylw' : 'text-grn')}>{gdps}</div>
-            <div className="text-[7px] text-fg3">GDPs</div>
+          <div className="bg-bg1 py-0.5 px-1.5 text-center" title="Airports where departures are delayed to manage arrival rate">
+            <div className={clsx('text-[11px] font-medium', (tfmsStats.active_gdps || 0) > 0 ? 'text-ylw' : 'text-grn')}>{tfmsStats.active_gdps || 0}</div>
+            <div className="text-[7px] text-fg3">delay pgms</div>
           </div>
         </div>
       )}
 
+      {/* Active restrictions — the important stuff */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {flowEvents.length > 0 ? flowEvents.map((ev, i) => {
-          const fullText = `${EVENT_LABELS[ev.event_type] || ev.event_type}${ev.airport ? ' ' + ev.airport : ''}${ev.reason ? ' — ' + ev.reason : ''}: ${ev.text || ''}`
-          return (
-            <div key={ev.id || i} className="flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-white/3" title={fullText}>
-              <span className={clsx('font-bold shrink-0 w-8', EVENT_COLORS[ev.event_type] || 'text-fg3')}>
-                {ev.event_type || '?'}
-              </span>
-              {ev.airport && <span className="text-acc font-bold shrink-0">{ev.airport}</span>}
-              <span className="text-fg2 truncate flex-1">{ev.text?.substring(0, 40) || '—'}</span>
-              {ev.delay_minutes && <span className="text-ylw shrink-0">{Math.round(ev.delay_minutes)}m</span>}
+        {gs.length > 0 && gs.map((ev, i) => (
+          <div key={ev.id || `gs-${i}`} className="flex items-start gap-1 py-0.5 px-2 text-[8px] border-b border-red/10 bg-red/5 cursor-pointer hover:bg-red/10" onClick={() => ev.airport && setSelectedAirport(ev.airport)}>
+            <span className="text-red font-bold shrink-0 w-4">GS</span>
+            <span className="text-acc font-bold shrink-0">{ev.airport || '—'}</span>
+            <div className="flex-1 min-w-0">
+              <span className="text-fg2">No departures</span>
+              {ev.reason && <span className="text-fg3"> — {reasonLabel(ev.reason)}</span>}
+              {ev.delay_minutes > 0 && <span className="text-ylw ml-1">{Math.round(ev.delay_minutes)}min</span>}
             </div>
-          )
-        }) : connectedCount === 0 ? (
-          <div className="px-2 py-1 text-[8px] text-fg3/60">SWIM not configured</div>
-        ) : null}
+          </div>
+        ))}
+        {gdps.length > 0 && gdps.map((ev, i) => (
+          <div key={ev.id || `gdp-${i}`} className="flex items-start gap-1 py-0.5 px-2 text-[8px] border-b border-ylw/10 bg-ylw/3 cursor-pointer hover:bg-ylw/8" onClick={() => ev.airport && setSelectedAirport(ev.airport)}>
+            <span className="text-ylw font-bold shrink-0 w-4">GDP</span>
+            <span className="text-acc font-bold shrink-0">{ev.airport || '—'}</span>
+            <div className="flex-1 min-w-0">
+              <span className="text-fg2">Arrivals delayed</span>
+              {ev.reason && <span className="text-fg3"> — {reasonLabel(ev.reason)}</span>}
+              {ev.delay_minutes > 0 && <span className="text-ylw ml-1">{Math.round(ev.delay_minutes)}min avg</span>}
+            </div>
+          </div>
+        ))}
+        {other.length > 0 && other.map((ev, i) => (
+          <div key={ev.id || `oth-${i}`} className="flex items-start gap-1 py-0.5 px-2 text-[8px] border-b border-white/3 cursor-pointer hover:bg-bg2" onClick={() => (ev.airport || ev.facility) && setSelectedAirport(ev.airport || ev.facility)}>
+            <span className="text-fg3 font-bold shrink-0 w-4">{ev.event_type}</span>
+            <span className="text-acc shrink-0">{ev.airport || ev.facility || '—'}</span>
+            <span className="text-fg3 truncate flex-1">{EVENT_DESC[ev.event_type] || ev.event_type}{ev.reason ? ` — ${reasonLabel(ev.reason)}` : ''}</span>
+          </div>
+        ))}
+        {restrictions.length === 0 && connectedCount > 0 && (
+          <div className="py-1.5 px-2 text-[8px] text-grn/80">No active restrictions</div>
+        )}
+        {connectedCount === 0 && (
+          <div className="py-1.5 px-2 text-[8px] text-fg3/50">SWIM feeds not connected — configure in .env</div>
+        )}
       </div>
+
+      {selectedAirport && (
+        <FlowEventPopup airport={selectedAirport} onClose={() => setSelectedAirport(null)} />
+      )}
     </div>
   )
 }

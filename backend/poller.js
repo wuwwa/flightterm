@@ -445,9 +445,25 @@ function buildEnrichment(f) {
     try {
       const plan = db.getFlightPlan(f.callsign)
       if (plan) {
+        // Get coordinates from callsign_routes (14K+ routes with coords) or AIRPORTS fallback
+        let depLat = null, depLon = null, arrLat = null, arrLon = null
+        if (enrich.flightroute) {
+          depLat = enrich.flightroute.origin?.latitude
+          depLon = enrich.flightroute.origin?.longitude
+          arrLat = enrich.flightroute.destination?.latitude
+          arrLon = enrich.flightroute.destination?.longitude
+        }
+        if ((!depLat || !arrLat) && plan.dep_arpt && plan.arr_arpt) {
+          const { AIRPORTS } = require('./anomaly')
+          if (!depLat) { const a = AIRPORTS.find(a => a.icao === plan.dep_arpt); if (a) { depLat = a.lat; depLon = a.lon } }
+          if (!arrLat) { const a = AIRPORTS.find(a => a.icao === plan.arr_arpt); if (a) { arrLat = a.lat; arrLon = a.lon } }
+        }
+
         enrich.tfms = {
           dep_arpt: plan.dep_arpt,
           arr_arpt: plan.arr_arpt,
+          dep_lat: depLat, dep_lon: depLon,
+          arr_lat: arrLat, arr_lon: arrLon,
           route: plan.route,
           etd: plan.etd,
           eta: plan.eta,
@@ -459,16 +475,11 @@ function buildEnrichment(f) {
           aircraft_type: plan.aircraft_type,
           flight_status: plan.flight_status,
         }
-        // Backfill route from TFMS if callsign_routes didn't have it
-        if (!enrich.flightroute && plan.dep_arpt && plan.arr_arpt) {
-          const { AIRPORTS } = require('./anomaly')
-          const orig = AIRPORTS.find(a => a.icao === plan.dep_arpt)
-          const dest = AIRPORTS.find(a => a.icao === plan.arr_arpt)
-          if (orig && dest) {
-            enrich.flightroute = {
-              destination: { latitude: dest.lat, longitude: dest.lon, icao_code: plan.arr_arpt },
-              origin: { latitude: orig.lat, longitude: orig.lon, icao_code: plan.dep_arpt },
-            }
+        // Backfill flightroute if we have coords
+        if (!enrich.flightroute && depLat && arrLat) {
+          enrich.flightroute = {
+            origin: { latitude: depLat, longitude: depLon, icao_code: plan.dep_arpt },
+            destination: { latitude: arrLat, longitude: arrLon, icao_code: plan.arr_arpt },
           }
         }
       }
@@ -601,6 +612,24 @@ async function pollCycle() {
     if (enrich?.apl) enrichStats.withApl++
     if (enrich?.adsbfi) enrichStats.withAdsbfi++
     if (enrich) enrichStats.withAny++
+
+    // Inject destination flow events + weather for TFMS-aware scoring (steps 17-18)
+    if (enrich?.tfms?.arr_arpt) {
+      try {
+        const destArpt = enrich.tfms.arr_arpt
+        const flowEvts = db.getFlowEventsByAirport(destArpt, 5)
+        if (flowEvts.length > 0) {
+          enrich._destFlowEvents = {
+            hasGS: flowEvts.some(e => e.event_type === 'GS'),
+            hasGDP: flowEvts.some(e => e.event_type === 'GDP'),
+          }
+        }
+        const wxEvts = db.getTerminalWeatherByAirport ? db.getTerminalWeatherByAirport(destArpt, 5) : []
+        if (wxEvts.length > 0) {
+          enrich._destWeather = wxEvts
+        }
+      } catch {}
+    }
 
     // Look up per-route baseline if route is known
     let baseline = null
@@ -809,7 +838,21 @@ async function pollCycle() {
     console.log(`poller: ${flights.length} flights, 0 anomalies (${resolvedIcaos.length} resolved) | enrichment: ${enrichStats.scored} scored, ${enrichStats.withRoute} route (${enrichStats.scored > 0 ? Math.round(enrichStats.withRoute / enrichStats.scored * 100) : 0}%)`)
   }
 
-  // 8. Background aircraft enrichment (non-blocking, runs between cycles)
+  // 8. Persist route deviations to flight_plans table (for analytics aggregation)
+  try {
+    const updateDev = db.db.prepare('UPDATE flight_plans SET route_deviation = ? WHERE acid = ?')
+    const batch = db.db.transaction((items) => { for (const [dev, acid] of items) updateDev.run(dev, acid) })
+    const deviations = []
+    for (const f of flights) {
+      const enrich = enrichCache.get(f.icao)
+      if (enrich?.routeDeviation != null && f.callsign) {
+        deviations.push([enrich.routeDeviation, f.callsign])
+      }
+    }
+    if (deviations.length > 0) batch(deviations)
+  } catch {}
+
+  // 9. Background aircraft enrichment (non-blocking, runs between cycles)
   enrichAircraftBackground(flights).catch(err =>
     console.warn('poller: background enrichment error:', err.message)
   )

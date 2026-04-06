@@ -816,6 +816,76 @@ function scoreAnomaly(snapshots, current, enrich = null, weather = null, allFlig
     }
   }
 
+  // ── 15. TFMS route deviation scoring ───────────────────────────────────
+  // If the enrichment includes a computed route deviation (cross-track distance
+  // from filed route), use it as a direct anomaly signal. This is more precise
+  // than the heading-based diversion check (#7) because it compares actual
+  // position against the planned path, not just heading toward destination.
+  const tfms = enrich?.tfms || null
+  const routeDevKm = enrich?.routeDeviation ?? null
+
+  if (routeDevKm != null && phase === PHASE.CRUISE) {
+    const hasEmergency = result.categories.includes(CATEGORY.SQUAWK) || result.categories.includes(CATEGORY.EMERGENCY)
+    if (!hasEmergency) {
+      if (routeDevKm > 100) {
+        addScore(CATEGORY.DIVERSION, Math.min(40, (routeDevKm - 50) * 0.3),
+          `${routeDevKm}km off filed route (${tfms?.dep_arpt || '?'}→${tfms?.arr_arpt || '?'})`)
+      } else if (routeDevKm > 50) {
+        addScore(CATEGORY.DIVERSION, Math.min(20, (routeDevKm - 30) * 0.2),
+          `${routeDevKm}km off filed route`)
+      }
+    }
+  }
+
+  // ── 16. TFMS beacon code mismatch ─────────────────────────────────────
+  // If TFMS assigned a beacon code and the aircraft is squawking something
+  // different (excluding emergency codes), flag it. This could indicate
+  // a reassignment, wrong transponder setting, or identity confusion.
+  if (tfms?.beacon_code && current.squawk
+    && current.squawk !== '7700' && current.squawk !== '7600' && current.squawk !== '7500'
+    && tfms.beacon_code !== current.squawk) {
+    addScore(CATEGORY.SQUAWK, 10,
+      `beacon mismatch: squawking ${current.squawk}, TFMS assigned ${tfms.beacon_code}`)
+  }
+
+  // ── 17. Flow event suppression ────────────────────────────────────────
+  // If the aircraft's destination has an active ground stop or GDP, holding
+  // patterns and heading deviations are EXPECTED — not anomalous.
+  // The poller passes active flow events for the destination airport.
+  if (tfms?.arr_arpt && enrich?._destFlowEvents) {
+    const destFlow = enrich._destFlowEvents
+    const hasEmergency = result.categories.includes(CATEGORY.SQUAWK) || result.categories.includes(CATEGORY.EMERGENCY)
+    if (!hasEmergency && (destFlow.hasGS || destFlow.hasGDP)) {
+      // Suppress heading/diversion/phase scores — aircraft is likely holding
+      const suppressCats = [CATEGORY.HEADING, CATEGORY.DIVERSION, CATEGORY.PHASE]
+      let suppressed = 0
+      for (const cat of suppressCats) {
+        if (catScores[cat]) {
+          suppressed += catScores[cat]
+          result.score -= catScores[cat]
+          catScores[cat] = 0
+        }
+      }
+      if (suppressed > 0) {
+        result.reasons.push(`(dest ${tfms.arr_arpt} has ${destFlow.hasGS ? 'ground stop' : 'GDP'} — heading/diversion suppressed)`)
+      }
+    }
+  }
+
+  // ── 18. ITWS terminal weather at destination ──────────────────────────
+  // If there's active severe weather (windshear, microburst) at the destination
+  // airport, go-arounds and missed approaches are expected — dampen approach
+  // anomalies but NOT emergency squawks.
+  if (tfms?.arr_arpt && enrich?._destWeather?.length > 0) {
+    const hasEmergency = result.categories.includes(CATEGORY.SQUAWK) || result.categories.includes(CATEGORY.EMERGENCY)
+    const severeWx = enrich._destWeather.filter(w => w.severity === 'CRITICAL' || w.severity === 'HIGH')
+    if (!hasEmergency && severeWx.length > 0 && (phase === PHASE.APPROACH || phase === PHASE.DESCENT)) {
+      result.score = Math.round(result.score * 0.4)
+      const wxTypes = [...new Set(severeWx.map(w => w.event_type))].join(', ')
+      result.reasons.push(`(${wxTypes} at ${tfms.arr_arpt} — approach deviations expected)`)
+    }
+  }
+
   // clamp
   result.score = Math.round(Math.min(100, Math.max(0, result.score)))
 

@@ -15,12 +15,12 @@ export default function NasPanel({ backendOk }) {
         onClick={() => setCollapsed(c => !c)}
       >
         <span className="text-grn text-[9px] tracking-wider uppercase font-bold">FAA SWIM</span>
-        <span className="text-fg3 text-[9px]">NAS · NOTAMs · surface ops · terminal weather</span>
+        <span className="text-fg3 text-[9px]">NAS health · NOTAMs · surface ops · terminal weather</span>
         <span className="ml-auto text-fg3 text-[9px]">{collapsed ? '▸' : '▾'}</span>
       </div>
 
       {!collapsed && (
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1.5fr] md:grid-rows-1 gap-px bg-border md:h-44">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1.5fr] md:grid-rows-1 gap-px bg-border md:h-48">
           <NasStatus backendOk={backendOk} />
           <NotamPanel backendOk={backendOk} />
           <SurfaceOps backendOk={backendOk} />

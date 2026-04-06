@@ -1161,6 +1161,18 @@ app.get('/api/swim/notams/recent', (req, res) => {
   }
 })
 
+// NOTAMs for a specific airport/location
+// GET /api/swim/notams/:location
+app.get('/api/swim/notams/:location', (req, res) => {
+  cachePublic(res, 60)
+  try {
+    const { getNotamsForLocation } = require('./db')
+    res.json(getNotamsForLocation(req.params.location.toUpperCase()))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // TFMS — active flight plans
 // GET /api/swim/flights?limit=50
 app.get('/api/swim/flights', (req, res) => {
@@ -1293,6 +1305,40 @@ app.get('/api/swim/airport/:icao/ops', (req, res) => {
   try {
     const { getAirportOps } = require('./db')
     res.json(getAirportOps(req.params.icao.toUpperCase()))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/swim/flight/:callsign/lifecycle — stitched TFMS + STDDS flight lifecycle
+app.get('/api/swim/flight/:callsign/lifecycle', (req, res) => {
+  cachePublic(res, 10)
+  try {
+    const { getFlightLifecycle } = require('./db')
+    res.json(getFlightLifecycle(req.params.callsign.toUpperCase()))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/swim/routes/deviations — route corridors with unusual off-route deviation
+app.get('/api/swim/routes/deviations', (req, res) => {
+  cachePublic(res, 30)
+  try {
+    const { getRouteDeviations } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 20, 50)
+    res.json(getRouteDeviations(limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/swim/nas/analytics — full NAS-wide analytics (all airports, scored and ranked)
+app.get('/api/swim/nas/analytics', (_req, res) => {
+  cachePublic(res, 15)
+  try {
+    const { getNasAnalytics } = require('./db')
+    res.json(getNasAnalytics())
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

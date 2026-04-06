@@ -29,7 +29,7 @@ export function SwimProvider({ backendOk, children }) {
       axios.get('/api/swim/status'),
       axios.get('/api/swim/flights', { params: { limit: 200 } }),
       axios.get('/api/swim/oooi', { params: { limit: 30 } }),
-      axios.get('/api/swim/nas'),
+      axios.get('/api/swim/nas/analytics'),
     ])
     const val = (i) => results[i].status === 'fulfilled' ? results[i].value.data : null
     const arr = (i) => { const v = val(i); return Array.isArray(v) ? v : [] }

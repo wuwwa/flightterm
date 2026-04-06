@@ -421,6 +421,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_fp_arr ON flight_plans(arr_arpt);
   CREATE INDEX IF NOT EXISTS idx_fp_status ON flight_plans(flight_status);
   CREATE INDEX IF NOT EXISTS idx_fp_updated ON flight_plans(updated_at);
+  -- Compound indexes for analytics
+  CREATE INDEX IF NOT EXISTS idx_fp_arr_status ON flight_plans(arr_arpt, flight_status);
+  CREATE INDEX IF NOT EXISTS idx_fp_dep_arr ON flight_plans(dep_arpt, arr_arpt);
 `)
 
 // ── SWIM TFMS flow events ───────────────────────────────────────────────────
@@ -454,6 +457,14 @@ db.exec(`
     db.exec(`ALTER TABLE flow_events ADD COLUMN floor TEXT`)
     db.exec(`ALTER TABLE flow_events ADD COLUMN restriction_type TEXT`)
     db.exec(`ALTER TABLE flow_events ADD COLUMN restriction_value TEXT`)
+  }
+}
+
+// v8 migration: add route_deviation to flight_plans for analytics
+{
+  const cols = db.pragma('table_info(flight_plans)').map(c => c.name)
+  if (!cols.includes('route_deviation')) {
+    db.exec(`ALTER TABLE flight_plans ADD COLUMN route_deviation INTEGER`)
   }
 }
 
@@ -529,6 +540,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_se_service ON surface_events(service);
   CREATE INDEX IF NOT EXISTS idx_se_received ON surface_events(received_at);
   CREATE INDEX IF NOT EXISTS idx_se_type ON surface_events(event_type);
+  -- Compound indexes for analytics joins (taxi times, airline perf, turnarounds)
+  CREATE INDEX IF NOT EXISTS idx_se_airport_type_received ON surface_events(airport, event_type, received_at);
+  CREATE INDEX IF NOT EXISTS idx_se_callsign_type_received ON surface_events(callsign, event_type, received_at);
 `)
 
 // ── prepared statements (pre-compiled once) ─────────────────────────────────
@@ -881,7 +895,8 @@ const _stmts = {
       MAX(received_at) as latest
     FROM notams
     WHERE location IS NOT NULL
-      AND text NOT LIKE 'CANCELLED%'
+      AND (text IS NULL OR text NOT LIKE 'CANCELLED%')
+      AND (expiration IS NULL OR expiration > datetime('now'))
     GROUP BY location
     ORDER BY count DESC
     LIMIT ?
@@ -893,6 +908,25 @@ const _stmts = {
     FROM notams
     ORDER BY received_at DESC
     LIMIT ?
+  `),
+
+  // Individual NOTAMs for a specific airport
+  notamsForLocation: db.prepare(`
+    SELECT id, location, keyword, classification, text, full_text, is_tfr,
+           effective, expiration, permanent, lat, lon, alt_lower, alt_upper,
+           received_at
+    FROM notams
+    WHERE location = ?
+      AND (text IS NULL OR text NOT LIKE 'CANCELLED%')
+      AND (expiration IS NULL OR expiration > datetime('now'))
+    ORDER BY
+      CASE WHEN keyword = 'AIRSPACE' THEN 0
+           WHEN keyword = 'RWY' THEN 1
+           WHEN keyword = 'TWY' THEN 2
+           WHEN keyword = 'SVC' OR keyword = 'NAV' THEN 3
+           ELSE 4 END,
+      received_at DESC
+    LIMIT 50
   `),
 
   // ── TFMS statements ─────────────────────────────────────────────────────
@@ -1035,7 +1069,16 @@ const _stmts = {
   getActiveFlowEvents: db.prepare(`
     SELECT * FROM flow_events
     WHERE received_at > datetime('now', '-6 hours')
+      AND event_type NOT IN ('TMI_LIST', 'TMI_UPDATE')
     ORDER BY received_at DESC LIMIT ?
+  `),
+
+  // Flow control programs only (GS, GDP, AFP, CTOP, REROUTE) — never drowned by RSTR/FXA noise
+  getActiveFlowPrograms: db.prepare(`
+    SELECT * FROM flow_events
+    WHERE received_at > datetime('now', '-6 hours')
+      AND event_type IN ('GS', 'GDP', 'AFP', 'CTOP', 'REROUTE')
+    ORDER BY received_at DESC LIMIT 200
   `),
 
   getFlowEventsByAirport: db.prepare(`
@@ -1564,6 +1607,10 @@ function purgeExpiredNotams() {
 
 function getNotamsByAirport(limit = 20) {
   return _stmts.notamsByAirport.all(limit)
+}
+
+function getNotamsForLocation(location) {
+  return _stmts.notamsForLocation.all(location)
 }
 
 function getRecentNotams(limit = 15) {
@@ -2241,35 +2288,37 @@ const _stmtArrDelay = db.prepare(`
 `)
 
 // Taxi-out time: SPOT_OUT to OFF for an airport (minutes)
+// Filters: same airport, > 1 min (eliminates radar noise), < 60 min, dedup by callsign
 const _stmtTaxiOut = db.prepare(`
-  SELECT
-    a.callsign,
-    a.received_at AS push_time,
-    b.received_at AS off_time,
-    CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL) AS taxi_min
-  FROM surface_events a
-  JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'OFF'
-  WHERE a.airport = ? AND a.event_type = 'SPOT_OUT'
-    AND a.received_at > datetime('now', '-2 hours')
-    AND b.received_at > a.received_at
-    AND b.received_at < datetime(a.received_at, '+60 minutes')
-  ORDER BY a.received_at DESC LIMIT ?
+  SELECT callsign, MIN(taxi_min) AS taxi_min FROM (
+    SELECT
+      a.callsign,
+      CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL) AS taxi_min
+    FROM surface_events a
+    JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'OFF' AND b.airport = a.airport
+    WHERE a.airport = ? AND a.event_type = 'SPOT_OUT'
+      AND a.received_at > datetime('now', '-2 hours')
+      AND b.received_at > a.received_at
+      AND (julianday(b.received_at) - julianday(a.received_at)) * 1440 > 1
+      AND b.received_at < datetime(a.received_at, '+60 minutes')
+  ) GROUP BY callsign ORDER BY taxi_min DESC LIMIT ?
 `)
 
 // Taxi-in time: ON to SPOT_IN for an airport (minutes)
+// Filters: same airport, > 1 min (eliminates radar noise), < 60 min, dedup by callsign
 const _stmtTaxiIn = db.prepare(`
-  SELECT
-    a.callsign,
-    a.received_at AS on_time,
-    b.received_at AS gate_time,
-    CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL) AS taxi_min
-  FROM surface_events a
-  JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'SPOT_IN'
-  WHERE a.airport = ? AND a.event_type = 'ON'
-    AND a.received_at > datetime('now', '-2 hours')
-    AND b.received_at > a.received_at
-    AND b.received_at < datetime(a.received_at, '+60 minutes')
-  ORDER BY a.received_at DESC LIMIT ?
+  SELECT callsign, MIN(taxi_min) AS taxi_min FROM (
+    SELECT
+      a.callsign,
+      CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL) AS taxi_min
+    FROM surface_events a
+    JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'SPOT_IN' AND b.airport = a.airport
+    WHERE a.airport = ? AND a.event_type = 'ON'
+      AND a.received_at > datetime('now', '-2 hours')
+      AND b.received_at > a.received_at
+      AND (julianday(b.received_at) - julianday(a.received_at)) * 1440 > 1
+      AND b.received_at < datetime(a.received_at, '+60 minutes')
+  ) GROUP BY callsign ORDER BY taxi_min DESC LIMIT ?
 `)
 
 // Inbound count: flights with arr_arpt = airport and active status
@@ -2322,6 +2371,104 @@ const _stmtAirportWeather = db.prepare(`
   ORDER BY received_at DESC LIMIT ?
 `)
 
+// ── Analytics: Feature 1 — Congestion Prediction ────────────────────────────
+const _stmtTaxiOut30 = db.prepare(`
+  SELECT AVG(taxi_min) AS avg, COUNT(*) AS cnt FROM (
+    SELECT MIN(CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL)) AS taxi_min
+    FROM surface_events a
+    JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'OFF' AND b.airport = a.airport
+    WHERE a.airport = ? AND a.event_type = 'SPOT_OUT'
+      AND a.received_at > datetime('now', '-30 minutes')
+      AND b.received_at > a.received_at
+      AND (julianday(b.received_at) - julianday(a.received_at)) * 1440 BETWEEN 1 AND 60
+    GROUP BY a.callsign
+  )
+`)
+
+// ── Analytics: Feature 2 — Cascade Impact ───────────────────────────────────
+const _stmtCascadeImpact = db.prepare(`
+  SELECT
+    COUNT(*) AS affected_flights,
+    COUNT(DISTINCT dep_arpt) AS origin_airports,
+    GROUP_CONCAT(DISTINCT dep_arpt) AS origins_list
+  FROM flight_plans
+  WHERE arr_arpt = ?
+    AND flight_status IN ('ACTIVE', 'ASCENDING', 'CRUISING')
+    AND updated_at > datetime('now', '-2 hours')
+`)
+
+// ── Analytics: Feature 3 — Airline Performance ──────────────────────────────
+const _stmtAirlineTaxiOut = db.prepare(`
+  SELECT airline, COUNT(*) AS flights, ROUND(AVG(taxi_min), 1) AS avg_taxi_out FROM (
+    SELECT SUBSTR(a.callsign, 1, 3) AS airline, MIN(CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL)) AS taxi_min
+    FROM surface_events a
+    JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'OFF' AND b.airport = a.airport
+    WHERE a.airport = ? AND a.event_type = 'SPOT_OUT'
+      AND a.received_at > datetime('now', '-2 hours')
+      AND b.received_at > a.received_at
+      AND (julianday(b.received_at) - julianday(a.received_at)) * 1440 BETWEEN 1 AND 60
+    GROUP BY a.callsign
+  ) GROUP BY airline HAVING flights >= 2 ORDER BY avg_taxi_out ASC
+`)
+
+const _stmtAirlineTaxiIn = db.prepare(`
+  SELECT airline, COUNT(*) AS flights, ROUND(AVG(taxi_min), 1) AS avg_taxi_in FROM (
+    SELECT SUBSTR(a.callsign, 1, 3) AS airline, MIN(CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL)) AS taxi_min
+    FROM surface_events a
+    JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'SPOT_IN' AND b.airport = a.airport
+    WHERE a.airport = ? AND a.event_type = 'ON'
+      AND a.received_at > datetime('now', '-2 hours')
+      AND b.received_at > a.received_at
+      AND (julianday(b.received_at) - julianday(a.received_at)) * 1440 BETWEEN 1 AND 60
+    GROUP BY a.callsign
+  ) GROUP BY airline HAVING flights >= 2 ORDER BY avg_taxi_in ASC
+`)
+
+// ── Analytics: Feature 5 — Turnaround Time ──────────────────────────────────
+const _stmtTurnaroundsByAirline = db.prepare(`
+  SELECT airline, COUNT(*) AS turns, ROUND(AVG(turnaround_min), 0) AS avg, MIN(turnaround_min) AS min_turn, MAX(turnaround_min) AS max_turn FROM (
+    SELECT SUBSTR(a.callsign, 1, 3) AS airline,
+      MIN(CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS INTEGER)) AS turnaround_min
+    FROM surface_events a
+    JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'SPOT_OUT' AND b.airport = a.airport
+    WHERE a.airport = ? AND a.event_type = 'SPOT_IN'
+      AND a.received_at > datetime('now', '-6 hours')
+      AND b.received_at > a.received_at
+      AND (julianday(b.received_at) - julianday(a.received_at)) * 1440 BETWEEN 15 AND 300
+    GROUP BY a.callsign, a.received_at
+  ) GROUP BY airline HAVING turns >= 2 ORDER BY avg ASC
+`)
+
+// ── Analytics: Feature 6 — Weather Causation ────────────────────────────────
+const _stmtWeatherCausation = db.prepare(`
+  SELECT
+    fe.id AS flow_id, fe.event_type AS flow_type, fe.airport,
+    fe.received_at AS flow_start, fe.end_time AS flow_end, fe.delay_minutes,
+    tw.event_type AS weather_type, tw.severity, tw.received_at AS weather_time,
+    tw.expiry_time AS weather_expiry, tw.text AS weather_text
+  FROM flow_events fe
+  LEFT JOIN terminal_weather tw
+    ON tw.airport = fe.airport
+    AND tw.received_at BETWEEN datetime(fe.received_at, '-15 minutes') AND fe.received_at
+  WHERE fe.airport = ?
+    AND fe.event_type IN ('GS', 'GDP')
+    AND fe.received_at > datetime('now', '-12 hours')
+  ORDER BY fe.received_at DESC
+`)
+
+// ── Analytics: Feature 4 — Route Deviation Aggregation ──────────────────────
+const _stmtRouteDeviations = db.prepare(`
+  SELECT dep_arpt, arr_arpt, COUNT(*) AS flights,
+    ROUND(AVG(route_deviation), 1) AS avg_km, MAX(route_deviation) AS max_km
+  FROM flight_plans
+  WHERE route_deviation IS NOT NULL AND route_deviation > 0
+    AND flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING')
+    AND updated_at > datetime('now', '-2 hours')
+  GROUP BY dep_arpt, arr_arpt
+  HAVING flights >= 3
+  ORDER BY avg_km DESC LIMIT ?
+`)
+
 function getAirportOps(airport) {
   const config = getAirportConfig(airport)
   const flowEvents = getFlowEventsByAirport(airport, 10)
@@ -2356,6 +2503,74 @@ function getAirportOps(airport) {
   const groundStop = flowEvents.find(e => e.event_type === 'GS')
   const gdp = flowEvents.find(e => e.event_type === 'GDP')
 
+  // Feature 1: Congestion prediction — 30-min taxi-out vs 2-hr baseline
+  let congestion = null
+  if (avgTaxiOut != null) {
+    const cur = _stmtTaxiOut30.get(airport)
+    if (cur?.avg != null && cur.cnt >= 2) {
+      const ratio = +(cur.avg / avgTaxiOut).toFixed(2)
+      congestion = {
+        current: +cur.avg.toFixed(1),
+        baseline: avgTaxiOut,
+        ratio,
+        signal: ratio > 1.5 ? 'CONGESTION_BUILDING' : ratio > 1.2 ? 'ELEVATED' : 'NORMAL',
+        samples: cur.cnt,
+      }
+    }
+  }
+
+  // Feature 2: Cascade impact — only when GS or GDP active
+  let cascade = null
+  if (groundStop || gdp) {
+    const impact = _stmtCascadeImpact.get(airport)
+    if (impact?.affected_flights > 0) {
+      cascade = {
+        affectedFlights: impact.affected_flights,
+        originAirports: impact.origin_airports,
+        origins: impact.origins_list?.split(',') || [],
+        estimatedDelayMin: impact.affected_flights * ((gdp?.delay_minutes) || 30),
+      }
+    }
+  }
+
+  // Feature 3: Airline performance
+  const airlineTaxiOut = _stmtAirlineTaxiOut.all(airport)
+  const airlineTaxiIn = _stmtAirlineTaxiIn.all(airport)
+  const airlineMap = {}
+  for (const r of airlineTaxiOut) airlineMap[r.airline] = { airline: r.airline, flights: r.flights, avgTaxiOut: r.avg_taxi_out }
+  for (const r of airlineTaxiIn) {
+    if (!airlineMap[r.airline]) airlineMap[r.airline] = { airline: r.airline, flights: r.flights }
+    airlineMap[r.airline].avgTaxiIn = r.avg_taxi_in
+  }
+  const airlinePerformance = Object.values(airlineMap).sort((a, b) => (a.avgTaxiOut || 99) - (b.avgTaxiOut || 99))
+
+  // Feature 5: Turnaround times by airline
+  const turnarounds = _stmtTurnaroundsByAirline.all(airport)
+
+  // Feature 6: Weather causation — only when flow events exist
+  let causation = []
+  if (groundStop || gdp) {
+    const raw = _stmtWeatherCausation.all(airport)
+    // Group by flow event, pick earliest weather as probable cause
+    const byFlow = {}
+    for (const r of raw) {
+      if (!byFlow[r.flow_id]) {
+        byFlow[r.flow_id] = {
+          flowType: r.flow_type, airport: r.airport,
+          flowStart: r.flow_start, flowEnd: r.flow_end, delay: r.delay_minutes,
+          weather: null,
+        }
+      }
+      if (r.weather_type && !byFlow[r.flow_id].weather) {
+        byFlow[r.flow_id].weather = {
+          type: r.weather_type, severity: r.severity,
+          time: r.weather_time, expiry: r.weather_expiry, text: r.weather_text,
+        }
+      }
+    }
+    causation = Object.values(byFlow)
+  }
+
   return {
     airport,
     config: config || null,
@@ -2366,6 +2581,8 @@ function getAirportOps(airport) {
       events: flowEvents,
       groundStop: groundStop || null,
       gdp: gdp || null,
+      cascade,
+      causation,
     },
     delays: {
       departures: { avg: avgDepDelay, recent: depDelays.slice(0, 5), count: depDelays.length },
@@ -2375,6 +2592,7 @@ function getAirportOps(airport) {
       out: { avg: avgTaxiOut, recent: taxiOuts.slice(0, 5), count: taxiOuts.length },
       in: { avg: avgTaxiIn, recent: taxiIns.slice(0, 5), count: taxiIns.length },
     },
+    congestion,
     capacity: {
       inbound,
       outbound,
@@ -2383,19 +2601,31 @@ function getAirportOps(airport) {
       arrOverflow: arrRate ? Math.max(0, inbound - arrRate) : null,
       depOverflow: depRate ? Math.max(0, outbound - depRate) : null,
     },
+    airlinePerformance,
+    turnarounds,
     weather,
   }
 }
 
 // NAS-wide summary: all airports with active issues
+function getRouteDeviations(limit = 20) {
+  return _stmtRouteDeviations.all(limit)
+}
+
 function getNasSummary() {
+  const flowPrograms = _stmts.getActiveFlowPrograms.all()
   const flowEvents = getActiveFlowEvents(100)
+  const allEvents = [...flowPrograms, ...flowEvents]
   const configs = getAirportConfigs()
 
-  // Aggregate by airport
+  // Aggregate by airport (programs + other events, deduplicated)
   const airports = {}
-  for (const e of flowEvents) {
+  const seen = new Set()
+  for (const e of allEvents) {
     if (!e.airport) continue
+    const key = `${e.id}`
+    if (seen.has(key)) continue
+    seen.add(key)
     if (!airports[e.airport]) airports[e.airport] = { airport: e.airport, events: [], maxDelay: 0 }
     airports[e.airport].events.push(e)
     if (e.delay_minutes > airports[e.airport].maxDelay) airports[e.airport].maxDelay = e.delay_minutes
@@ -2412,9 +2642,9 @@ function getNasSummary() {
   }
 
   // NAS health score (0-100, 100 = healthy)
-  const totalGS = flowEvents.filter(e => e.event_type === 'GS').length
-  const totalGDP = flowEvents.filter(e => e.event_type === 'GDP').length
-  const totalDelay = flowEvents.reduce((s, e) => s + (e.delay_minutes || 0), 0)
+  const totalGS = flowPrograms.filter(e => e.event_type === 'GS').length
+  const totalGDP = flowPrograms.filter(e => e.event_type === 'GDP').length
+  const totalDelay = flowPrograms.reduce((s, e) => s + (e.delay_minutes || 0), 0)
   const affectedAirports = Object.keys(airports).length
 
   let health = 100
@@ -2437,6 +2667,311 @@ function getNasSummary() {
       return b.maxDelay - a.maxDelay
     }),
     flowEvents,
+  }
+}
+
+// ── NAS-wide analytics (batch queries for all airports) ─────────────────────
+
+function getNasAnalytics() {
+  const flowPrograms = _stmts.getActiveFlowPrograms.all()
+  const flowEvents = [...flowPrograms, ...getActiveFlowEvents(100)]
+  const configs = getAirportConfigs()
+
+  // Batch: traffic counts per airport (all airports in one query)
+  const trafficRows = db.prepare(`
+    SELECT airport, direction, COUNT(*) as cnt FROM (
+      SELECT arr_arpt AS airport, 'in' AS direction FROM flight_plans
+        WHERE flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING') AND updated_at > datetime('now', '-2 hours')
+      UNION ALL
+      SELECT dep_arpt AS airport, 'out' AS direction FROM flight_plans
+        WHERE flight_status IN ('ACTIVE','ASCENDING','FILED') AND updated_at > datetime('now', '-2 hours')
+    ) GROUP BY airport, direction
+  `).all()
+  const traffic = {}
+  for (const r of trafficRows) {
+    if (!traffic[r.airport]) traffic[r.airport] = { inbound: 0, outbound: 0 }
+    traffic[r.airport][r.direction === 'in' ? 'inbound' : 'outbound'] = r.cnt
+  }
+
+  // Batch: avg taxi-out per airport (2hr baseline)
+  const taxiOutRows = db.prepare(`
+    SELECT airport, ROUND(AVG(taxi_min), 1) AS avg, COUNT(*) AS cnt FROM (
+      SELECT a.airport, MIN(CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL)) AS taxi_min
+      FROM surface_events a
+      JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'OFF' AND b.airport = a.airport
+      WHERE a.event_type = 'SPOT_OUT'
+        AND a.received_at > datetime('now', '-2 hours')
+        AND b.received_at > a.received_at
+        AND (julianday(b.received_at) - julianday(a.received_at)) * 1440 BETWEEN 1 AND 60
+      GROUP BY a.airport, a.callsign
+    ) GROUP BY airport HAVING cnt >= 2
+  `).all()
+  const taxiBaseline = {}
+  for (const r of taxiOutRows) taxiBaseline[r.airport] = { avg: r.avg, cnt: r.cnt }
+
+  // Batch: avg taxi-out per airport (30-min current)
+  const taxiOut30Rows = db.prepare(`
+    SELECT airport, ROUND(AVG(taxi_min), 1) AS avg, COUNT(*) AS cnt FROM (
+      SELECT a.airport, MIN(CAST((julianday(b.received_at) - julianday(a.received_at)) * 1440 AS REAL)) AS taxi_min
+      FROM surface_events a
+      JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'OFF' AND b.airport = a.airport
+      WHERE a.event_type = 'SPOT_OUT'
+        AND a.received_at > datetime('now', '-30 minutes')
+        AND b.received_at > a.received_at
+        AND (julianday(b.received_at) - julianday(a.received_at)) * 1440 BETWEEN 1 AND 60
+      GROUP BY a.airport, a.callsign
+    ) GROUP BY airport HAVING cnt >= 2
+  `).all()
+  const taxiCurrent = {}
+  for (const r of taxiOut30Rows) taxiCurrent[r.airport] = { avg: r.avg, cnt: r.cnt }
+
+  // Batch: avg dep/arr delay per airport
+  const depDelayRows = db.prepare(`
+    SELECT fp.dep_arpt AS airport,
+      ROUND(AVG(CAST((julianday(se.received_at) - julianday(fp.etd)) * 1440 AS REAL)), 0) AS avg_delay,
+      COUNT(*) AS cnt
+    FROM flight_plans fp
+    JOIN surface_events se ON se.callsign = fp.acid AND se.event_type = 'OFF'
+    WHERE fp.etd IS NOT NULL
+      AND se.received_at > datetime('now', '-2 hours')
+      AND fp.updated_at > datetime('now', '-2 hours')
+    GROUP BY fp.dep_arpt HAVING cnt >= 2
+  `).all()
+  const depDelays = {}
+  for (const r of depDelayRows) depDelays[r.airport] = { avg: Math.round(r.avg_delay), cnt: r.cnt }
+
+  const arrDelayRows = db.prepare(`
+    SELECT fp.arr_arpt AS airport,
+      ROUND(AVG(CAST((julianday(se.received_at) - julianday(fp.eta)) * 1440 AS REAL)), 0) AS avg_delay,
+      COUNT(*) AS cnt
+    FROM flight_plans fp
+    JOIN surface_events se ON se.callsign = fp.acid AND se.event_type = 'ON'
+    WHERE fp.eta IS NOT NULL
+      AND se.received_at > datetime('now', '-2 hours')
+      AND fp.updated_at > datetime('now', '-2 hours')
+    GROUP BY fp.arr_arpt HAVING cnt >= 2
+  `).all()
+  const arrDelays = {}
+  for (const r of arrDelayRows) arrDelays[r.airport] = { avg: Math.round(r.avg_delay), cnt: r.cnt }
+
+  // Build per-airport flow event map (deduplicated)
+  const flowMap = {}
+  const seenIds = new Set()
+  for (const e of flowEvents) {
+    if (!e.airport || seenIds.has(e.id)) continue
+    seenIds.add(e.id)
+    if (!flowMap[e.airport]) flowMap[e.airport] = { events: [], hasGS: false, hasGDP: false, maxDelay: 0 }
+    flowMap[e.airport].events.push(e)
+    if (e.event_type === 'GS') flowMap[e.airport].hasGS = true
+    if (e.event_type === 'GDP') flowMap[e.airport].hasGDP = true
+    if (e.delay_minutes > flowMap[e.airport].maxDelay) flowMap[e.airport].maxDelay = e.delay_minutes
+  }
+
+  // Build config map
+  const configMap = {}
+  for (const c of configs) configMap[c.airport] = c
+
+  // Collect all airports that have any data
+  const allAirports = new Set([
+    ...Object.keys(traffic),
+    ...Object.keys(taxiBaseline),
+    ...Object.keys(flowMap),
+    ...Object.keys(depDelays),
+    ...Object.keys(arrDelays),
+  ])
+
+  // Score and build each airport entry
+  const airports = []
+  for (const airport of allAirports) {
+    const t = traffic[airport] || { inbound: 0, outbound: 0 }
+    const tb = taxiBaseline[airport]
+    const tc = taxiCurrent[airport]
+    const dd = depDelays[airport]
+    const ad = arrDelays[airport]
+    const fl = flowMap[airport]
+    const cfg = configMap[airport]
+
+    // Congestion signal
+    let congestion = 'NORMAL'
+    let congestionRatio = null
+    if (tb && tc) {
+      congestionRatio = +(tc.avg / tb.avg).toFixed(2)
+      congestion = congestionRatio > 1.5 ? 'CONGESTION_BUILDING' : congestionRatio > 1.2 ? 'ELEVATED' : 'NORMAL'
+    }
+
+    // Cascade impact (only for GS/GDP airports)
+    let cascade = null
+    if (fl?.hasGS || fl?.hasGDP) {
+      const impact = _stmtCascadeImpact.get(airport)
+      if (impact?.affected_flights > 0) {
+        cascade = {
+          affectedFlights: impact.affected_flights,
+          originAirports: impact.origin_airports,
+          origins: impact.origins_list?.split(',') || [],
+        }
+      }
+    }
+
+    // Severity score for sorting (higher = worse)
+    let severity = 0
+    if (fl?.hasGS) severity += 100
+    if (fl?.hasGDP) severity += 50
+    if (congestion === 'CONGESTION_BUILDING') severity += 30
+    else if (congestion === 'ELEVATED') severity += 10
+    if (dd?.avg > 15) severity += 20
+    else if (dd?.avg > 5) severity += 5
+    if (ad?.avg > 15) severity += 20
+    else if (ad?.avg > 5) severity += 5
+    if (cascade) severity += cascade.affectedFlights
+
+    airports.push({
+      airport,
+      inbound: t.inbound,
+      outbound: t.outbound,
+      arrRate: cfg?.arr_rate || null,
+      depRate: cfg?.dep_rate || null,
+      taxiOut: tb?.avg || null,
+      taxiOutCurrent: tc?.avg || null,
+      congestion,
+      congestionRatio,
+      depDelay: dd?.avg || null,
+      depDelaySamples: dd?.cnt || 0,
+      arrDelay: ad?.avg || null,
+      arrDelaySamples: ad?.cnt || 0,
+      hasGS: fl?.hasGS || false,
+      hasGDP: fl?.hasGDP || false,
+      maxFlowDelay: fl?.maxDelay || 0,
+      cascade,
+      severity,
+    })
+  }
+
+  // Sort by severity descending
+  airports.sort((a, b) => b.severity - a.severity)
+
+  // NAS health score
+  const totalGS = Object.values(flowMap).filter(f => f.hasGS).length
+  const totalGDP = Object.values(flowMap).filter(f => f.hasGDP).length
+  const congestionCount = airports.filter(a => a.congestion === 'CONGESTION_BUILDING').length
+  const elevatedCount = airports.filter(a => a.congestion === 'ELEVATED').length
+
+  let health = 100
+  health -= totalGS * 15
+  health -= totalGDP * 5
+  health -= congestionCount * 10
+  health -= elevatedCount * 3
+  health = Math.max(0, Math.min(100, Math.round(health)))
+
+  return {
+    health,
+    groundStops: totalGS,
+    gdps: totalGDP,
+    congestionBuilding: congestionCount,
+    elevated: elevatedCount,
+    totalAirports: airports.length,
+    airports,
+  }
+}
+
+// ── Flight lifecycle stitching (TFMS + STDDS cross-reference) ───────────────
+
+const _stmtLifecycleEvents = db.prepare(`
+  SELECT event_type, airport, runway, received_at
+  FROM surface_events
+  WHERE callsign = ?
+    AND event_type IN ('SPOT_OUT','OFF','ON','SPOT_IN')
+    AND received_at > datetime('now', '-6 hours')
+  ORDER BY received_at ASC
+`)
+
+function getFlightLifecycle(callsign) {
+  // 1. Get TFMS flight plan
+  const plan = getFlightPlan(callsign)
+
+  // 2. Get all STDDS surface events for this callsign
+  const rawEvents = _stmtLifecycleEvents.all(callsign)
+
+  // 3. Deduplicate — take first occurrence of each event type per airport
+  // (STDDS often sends duplicate ON/OFF from multiple radar sources)
+  const seen = new Set()
+  const events = []
+  for (const e of rawEvents) {
+    const key = `${e.event_type}:${e.airport}:${e.received_at.substring(0, 16)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    events.push(e)
+  }
+
+  // 4. Build timeline phases
+  const phases = []
+  let gateOut = null, wheelsOff = null, wheelsOn = null, gateIn = null
+
+  for (const e of events) {
+    if (e.event_type === 'SPOT_OUT' && !gateOut) gateOut = e
+    if (e.event_type === 'OFF' && !wheelsOff) wheelsOff = e
+    // For ON/SPOT_IN, take the LAST one (arrival airport, not departure taxi wiggle)
+    if (e.event_type === 'ON') wheelsOn = e
+    if (e.event_type === 'SPOT_IN') gateIn = e
+  }
+
+  // 5. Compute derived times
+  const taxiOut = gateOut && wheelsOff
+    ? +((new Date(wheelsOff.received_at) - new Date(gateOut.received_at)) / 60000).toFixed(1)
+    : null
+  const taxiIn = wheelsOn && gateIn
+    ? +((new Date(gateIn.received_at) - new Date(wheelsOn.received_at)) / 60000).toFixed(1)
+    : null
+  const flightTime = wheelsOff && wheelsOn
+    ? +((new Date(wheelsOn.received_at) - new Date(wheelsOff.received_at)) / 60000).toFixed(1)
+    : null
+  const gateToGate = gateOut && (gateIn || wheelsOn)
+    ? +((new Date((gateIn || wheelsOn).received_at) - new Date(gateOut.received_at)) / 60000).toFixed(1)
+    : null
+
+  // 6. Compute delays vs TFMS plan
+  let depDelay = null, arrDelay = null
+  if (plan?.etd && (wheelsOff || gateOut)) {
+    const actual = new Date((wheelsOff || gateOut).received_at)
+    const planned = new Date(plan.etd)
+    if (!isNaN(actual) && !isNaN(planned)) depDelay = Math.round((actual - planned) / 60000)
+  }
+  if (plan?.eta && wheelsOn) {
+    const actual = new Date(wheelsOn.received_at)
+    const planned = new Date(plan.eta)
+    if (!isNaN(actual) && !isNaN(planned)) arrDelay = Math.round((actual - planned) / 60000)
+  }
+
+  return {
+    callsign,
+    plan: plan ? {
+      dep_arpt: plan.dep_arpt,
+      arr_arpt: plan.arr_arpt,
+      aircraft_type: plan.aircraft_type,
+      flight_status: plan.flight_status,
+      etd: plan.etd,
+      eta: plan.eta,
+      atd: plan.atd,
+      ata: plan.ata,
+      route: plan.route,
+      beacon_code: plan.beacon_code,
+    } : null,
+    events,
+    milestones: {
+      gateOut: gateOut ? { airport: gateOut.airport, time: gateOut.received_at, runway: gateOut.runway } : null,
+      wheelsOff: wheelsOff ? { airport: wheelsOff.airport, time: wheelsOff.received_at, runway: wheelsOff.runway } : null,
+      wheelsOn: wheelsOn ? { airport: wheelsOn.airport, time: wheelsOn.received_at, runway: wheelsOn.runway } : null,
+      gateIn: gateIn ? { airport: gateIn.airport, time: gateIn.received_at, runway: gateIn.runway } : null,
+    },
+    times: {
+      taxiOut,
+      taxiIn,
+      flightTime,
+      gateToGate,
+    },
+    delays: {
+      departure: depDelay,
+      arrival: arrDelay,
+    },
   }
 }
 
@@ -2502,6 +3037,7 @@ module.exports = {
   getActiveNotamsByLocation,
   getNotamStats,
   getNotamsByAirport,
+  getNotamsForLocation,
   getRecentNotams,
   purgeExpiredNotams,
   upsertFlightPlan,
@@ -2528,5 +3064,8 @@ module.exports = {
   purgeOldTerminalWeather,
   getAirportOps,
   getNasSummary,
+  getFlightLifecycle,
+  getRouteDeviations,
+  getNasAnalytics,
   close,
 }

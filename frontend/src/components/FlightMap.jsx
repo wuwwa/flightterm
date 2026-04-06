@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from 'react'
-import { MapContainer, TileLayer, Polyline, Marker, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Polyline, Marker, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { getAirportCoords } from '../data/airports'
 
 // ── recenter map + invalidate size on container resize ──────────────────────
 function MapUpdater({ center, fitBounds }) {
@@ -92,11 +93,54 @@ function dedup(pts) {
 // ── shared map content ──────────────────────────────────────────────────────
 function MapContent({ center, fullPath, startPos, currentPos, flight, others, large, fitBounds }) {
   const lg = !!large
+
+  // TFMS route: dep airport → arr airport planned path
+  // Uses coordinates from TFMS enrichment (sourced from callsign_routes DB or AIRPORTS list)
+  const tfms = flight?.tfms
+  const depPos = tfms?.dep_lat != null ? [tfms.dep_lat, tfms.dep_lon] : null
+  const arrPos = tfms?.arr_lat != null ? [tfms.arr_lat, tfms.arr_lon] : null
+  // Fallback to frontend airport list if backend didn't have coords
+  const depFallback = !depPos && tfms?.dep_arpt ? getAirportCoords(tfms.dep_arpt) : null
+  const arrFallback = !arrPos && tfms?.arr_arpt ? getAirportCoords(tfms.arr_arpt) : null
+  const depCoords = depPos || (depFallback ? [depFallback.lat, depFallback.lon] : null)
+  const arrCoords = arrPos || (arrFallback ? [arrFallback.lat, arrFallback.lon] : null)
+  const plannedRoute = depCoords && arrCoords ? [depCoords, arrCoords] : null
+
   return (
     <>
       <MapUpdater center={center} fitBounds={fitBounds} />
       <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
 
+      {/* TFMS planned route — dashed line from dep to arr */}
+      {plannedRoute && (
+        <Polyline
+          positions={plannedRoute}
+          pathOptions={{ color: '#555', weight: lg ? 2 : 1.5, opacity: 0.5, dashArray: '6 4' }}
+        />
+      )}
+
+      {/* Departure airport marker */}
+      {depCoords && (
+        <CircleMarker center={depCoords} radius={lg ? 5 : 4}
+          pathOptions={{ color: '#b5bd68', fillColor: '#b5bd68', fillOpacity: 0.8, weight: 1 }}>
+          <Tooltip direction="bottom" offset={[0, 4]} className="flight-map-tooltip">
+            {(tfms?.dep_arpt || '').replace(/^K/, '')} (dep)
+          </Tooltip>
+        </CircleMarker>
+      )}
+
+      {/* Arrival airport marker */}
+      {arrCoords && (
+        <CircleMarker center={arrCoords} radius={lg ? 5 : 4}
+          pathOptions={{ color: '#cc6666', fillColor: '#cc6666', fillOpacity: 0.8, weight: 1 }}>
+          <Tooltip direction="bottom" offset={[0, 4]} className="flight-map-tooltip">
+            {(tfms?.arr_arpt || '').replace(/^K/, '')} (arr)
+            {tfms?.eta && <><br />{new Date(tfms.eta).toISOString().substring(11, 16)}z</>}
+          </Tooltip>
+        </CircleMarker>
+      )}
+
+      {/* ADS-B actual track */}
       {fullPath.length >= 2 && (
         <Polyline
           positions={fullPath}
@@ -116,7 +160,8 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, others, la
         <Marker position={currentPos} icon={planeIcon(flight?.hdg ?? 0, lg)}>
           <Tooltip direction="top" offset={[0, lg ? -18 : -12]} permanent className="flight-map-tooltip">
             {flight.callsign || flight.icao}
-            {flight.alt != null ? ` · ${Math.round(flight.alt)}m` : ''}
+            {flight.alt != null ? ` · ${Math.round(flight.alt * 3.281).toLocaleString()}ft` : ''}
+            {flight.routeDeviation > 50 && ` · ${flight.routeDeviation}km off-route`}
           </Tooltip>
         </Marker>
       )}
@@ -125,7 +170,7 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, others, la
         <Marker key={f.icao} position={[f.lat, f.lon]} icon={nearbyIcon(f.hdg ?? 0, lg)}>
           <Tooltip direction="top" offset={[0, lg ? -12 : -8]} className="flight-map-tooltip">
             {f.callsign || f.icao}
-            {f.alt != null ? ` · ${Math.round(f.alt)}m` : ''}
+            {f.alt != null ? ` · ${Math.round(f.alt * 3.281).toLocaleString()}ft` : ''}
           </Tooltip>
         </Marker>
       ))}
@@ -151,7 +196,7 @@ function MapBtn({ active, onClick, children, large }) {
 }
 
 export default function FlightMap({ snapshots, flight, flights, fullscreen, onToggleFullscreen }) {
-  const [viewMode, setViewMode] = useState('default') // 'default' | 'nearby' | 'all'
+  const [viewMode, setViewMode] = useState('nearby') // 'default' | 'nearby' | 'all'
 
   // Esc to close expanded map
   useEffect(() => {
@@ -308,7 +353,7 @@ export default function FlightMap({ snapshots, flight, flights, fullscreen, onTo
 
       <MapContainer
         center={center}
-        zoom={8}
+        zoom={12}
         className="h-full w-full"
         zoomControl={false}
         attributionControl={false}

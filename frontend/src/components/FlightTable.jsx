@@ -2,20 +2,23 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import clsx from 'clsx'
 import { squawkLabel, squawkColor } from '../utils/squawk'
 import { detectPhase, PHASE } from '../utils/anomaly'
+import FilterBar, { emptyFilters, isFiltersActive, applyFilters, computeFilterCounts } from './FilterBar'
 
 const COLS = [
   { key: 'icao',     label: 'icao24' },
   { key: 'callsign', label: 'callsign' },
+  { key: 'operator', label: 'operator', hideMobile: true },
   { key: 'type',     label: 'type', hideMobile: true },
-  { key: 'reg',      label: 'reg', hideMobile: true },
   { key: 'country',  label: 'ctry', hideMobile: true },
-  { key: 'pos',      label: 'pos', hideMobile: true },
-  { key: 'alt',      label: 'alt (m)' },
+  { key: 'route',    label: 'route', hideMobile: true },
+  { key: 'alt',      label: 'alt (ft)' },
+  { key: 'vel',      label: 'spd (kt)' },
   { key: 'vrate',    label: 'vrate', hideMobile: true },
   { key: 'phase',    label: 'phase' },
+  { key: 'eta',      label: 'eta', hideMobile: true },
   { key: 'squawk',   label: 'squawk', hide: true },
-  { key: 'vel',      label: 'spd (m/s)', hide: true },
   { key: 'hdg',      label: 'hdg', hide: true },
+  { key: 'src',      label: 'src', hide: true },
 ]
 
 // Abbreviate common country names to 2-3 chars
@@ -66,14 +69,29 @@ const TAKEOFF_RANK = {
   [PHASE.GROUND]:   5,
 }
 
+// ── ADS-B emitter category labels ────────────────────────────────────────────
+const CAT_LABEL = {
+  A1: 'Light', A2: 'Small', A3: 'Large', A4: 'B757', A5: 'Heavy',
+  A6: 'HiPerf', A7: 'Rotor', B1: 'Glider', B2: 'Balloon', B4: 'Ultra',
+  B6: 'UAV', C1: 'EmVeh', C2: 'SvcVeh',
+}
+
+// ── Data source indicator ────────────────────────────────────────────────────
+function srcIndicator(f, enrichCache) {
+  const parts = []
+  if (f.tfms) parts.push('T')
+  if (enrichCache[f.icao]?.adsbfi || enrichCache[f.icao]?.apl) parts.push('E')
+  if (f.routeDeviation != null) parts.push('R')
+  return parts.join('') || '—'
+}
+
 export default function FlightTable({ flights, filter, selectedIcao, enrichCache, anomalies = {}, trackHistory = {}, openskyUsage, aeroSpend, onSelect, onArrived, onDeparted }) {
   const PAGE_SIZE = 50
   const [sortKey, setSortKey] = useState('takeoff')
   const [sortDir, setSortDir] = useState(1)
   const [page, setPage] = useState(0)
   const [showAll, setShowAll] = useState(false)
-  const [anomalyHighlight, setAnomalyHighlight] = useState(false)
-  const [squawkHighlight, setSquawkHighlight] = useState(null) // null | '7700' | '7600' | '7500' | '1200'
+  const [filters, setFilters] = useState(emptyFilters)
   const [newIcaos, setNewIcaos] = useState(new Set())
   const prevIcaosRef = useRef(new Set())
   const prevFlightsRef = useRef(new Map())
@@ -142,23 +160,36 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
 
   const q = filter.toLowerCase()
 
+  // ── compute filter counts for badges ──────────────────────────────────────
+  const filterCtx = { anomalies, trackHistory, enrichCache, detectPhase, PHASE }
+  const filterCounts = useMemo(
+    () => computeFilterCounts(flights, filterCtx),
+    [flights, anomalies, trackHistory, enrichCache]
+  )
+
+  // ── apply text filter + dimension filters ─────────────────────────────────
   const filtered = useMemo(() => {
     setPage(0) // reset to first page on filter change
     let list = flights.filter(f =>
       f.callsign.toLowerCase().includes(q) ||
       f.country.toLowerCase().includes(q) ||
-      f.icao.toLowerCase().includes(q)
+      f.icao.toLowerCase().includes(q) ||
+      (f.acOperator || '').toLowerCase().includes(q) ||
+      (f.acType || '').toLowerCase().includes(q) ||
+      (f.tfms?.dep_arpt || '').toLowerCase().includes(q) ||
+      (f.tfms?.arr_arpt || '').toLowerCase().includes(q)
     )
+
+    // Apply structured filters
+    if (isFiltersActive(filters)) {
+      list = list.filter(f => applyFilters(f, filters, filterCtx))
+    }
+
     return list
-  }, [flights, q])
+  }, [flights, q, filters, anomalies, trackHistory, enrichCache])
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
-      // highlighted rows float to top
-      const aHl = (anomalyHighlight && anomalies[a.icao] ? 1 : 0) + (squawkHighlight && a.squawk === squawkHighlight ? 1 : 0)
-      const bHl = (anomalyHighlight && anomalies[b.icao] ? 1 : 0) + (squawkHighlight && b.squawk === squawkHighlight ? 1 : 0)
-      if (aHl !== bHl) return bHl - aHl
-
       // special takeoff sort: ground/climb first, then by altitude ascending
       if (sortKey === 'takeoff') {
         const aHist = trackHistory[a.icao]
@@ -186,12 +217,21 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
       } else if (sortKey === 'type') {
         va = enrichCache[a.icao]?.adsbfi?.type || enrichCache[a.icao]?.aircraft?.icao_type || a.acType || ''
         vb = enrichCache[b.icao]?.adsbfi?.type || enrichCache[b.icao]?.aircraft?.icao_type || b.acType || ''
-      } else if (sortKey === 'reg') {
-        va = enrichCache[a.icao]?.adsbfi?.reg || enrichCache[a.icao]?.aircraft?.registration || a.acReg || ''
-        vb = enrichCache[b.icao]?.adsbfi?.reg || enrichCache[b.icao]?.aircraft?.registration || b.acReg || ''
+      } else if (sortKey === 'operator') {
+        va = a.acOperator || a.country || ''
+        vb = b.acOperator || b.country || ''
       } else if (sortKey === 'country') {
-        va = a.country || ''
-        vb = b.country || ''
+        va = shortCountry(a.country)
+        vb = shortCountry(b.country)
+      } else if (sortKey === 'route') {
+        va = (a.tfms?.dep_arpt || '') + (a.tfms?.arr_arpt || '')
+        vb = (b.tfms?.dep_arpt || '') + (b.tfms?.arr_arpt || '')
+      } else if (sortKey === 'eta') {
+        va = a.tfms?.eta || ''
+        vb = b.tfms?.eta || ''
+      } else if (sortKey === 'src') {
+        va = srcIndicator(a, enrichCache)
+        vb = srcIndicator(b, enrichCache)
       } else {
         va = a[sortKey]; vb = b[sortKey]
       }
@@ -199,25 +239,18 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
       if (vb == null) vb = sortDir > 0 ? Infinity : -Infinity
       return va < vb ? -sortDir : va > vb ? sortDir : 0
     })
-  }, [filtered, sortKey, sortDir, anomalies, trackHistory, enrichCache, anomalyHighlight, squawkHighlight])
+  }, [filtered, sortKey, sortDir, anomalies, trackHistory, enrichCache])
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages - 1)
   const displayed = showAll ? sorted : sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
-
-  const anomalyCount = Object.keys(anomalies).length
-  const squawkCounts = useMemo(() => {
-    const counts = {}
-    for (const f of filtered) { if (f.squawk) counts[f.squawk] = (counts[f.squawk] || 0) + 1 }
-    return counts
-  }, [filtered])
 
   const handleSort = key => {
     if (sortKey === key) setSortDir(d => d * -1)
     else { setSortKey(key); setSortDir(1) }
   }
 
-  if (!displayed.length) {
+  if (!flights.length) {
     return (
       <div className="flex flex-col bg-bg flex-1 min-h-0">
         <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 shrink-0">
@@ -226,7 +259,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
           </span>
         </div>
         <div className="p-8 text-center text-fg3">
-          {flights.length ? 'no matches' : 'no data — press fetch'}
+          no data — press fetch
         </div>
       </div>
     )
@@ -234,12 +267,24 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
 
   return (
     <div className="flex flex-col bg-bg flex-1 min-h-0">
+      {/* Filter bar */}
+      <FilterBar
+        filters={filters}
+        onChange={setFilters}
+        counts={filterCounts}
+        totalFiltered={filtered.length}
+        totalFlights={flights.length}
+      />
+
       <div className="shrink-0 bg-bg2 border-b border-border text-[10px] sm:text-[11px] text-fg3">
-        {/* Row 1: records, filters, squawk */}
+        {/* Row 1: records, pagination, sort */}
         <div className="flex flex-wrap justify-between items-center py-0.5 px-1.5 sm:px-2.5 gap-y-0.5">
           <span className="flex items-center gap-1 sm:gap-1.5 min-w-0 shrink-0">
             <span className="text-fg">{filtered.length}</span>
             <span>records</span>
+            {isFiltersActive(filters) && (
+              <span className="text-acc text-[9px]">filtered</span>
+            )}
             {!showAll && totalPages > 1 && (
               <>
                 <button
@@ -285,44 +330,6 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
             >
               {sortKey === 'takeoff' ? `takeoff ${sortDir > 0 ? '▲' : '▼'}` : 'takeoff'}
             </button>
-            <button
-              className={clsx(
-                'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 rounded border flex-1 sm:flex-none text-center',
-                anomalyHighlight
-                  ? 'bg-red/15 border-red/40 text-red'
-                  : anomalyCount > 0
-                    ? 'bg-transparent border-border text-red hover:border-red/40'
-                    : 'bg-transparent border-border text-fg3 hover:text-fg2 hover:border-fg3'
-              )}
-              onClick={() => setAnomalyHighlight(h => !h)}
-              title={anomalyHighlight ? 'Stop highlighting anomalies' : 'Highlight anomalies'}
-            >
-              anomaly ({anomalyCount})
-            </button>
-          </div>
-          <div className="flex gap-0 items-center w-full sm:w-auto border border-border sm:ml-0.5 rounded overflow-hidden">
-            <span className="text-[9px] text-fg3 px-1 border-r border-border shrink-0">squawk</span>
-            {[
-              { id: '7700', label: '7700', on: 'bg-red/20 text-red', title: 'Emergency' },
-              { id: '7600', label: '7600', on: 'bg-ylw/20 text-ylw', title: 'Radio failure' },
-              { id: '7500', label: '7500', on: 'bg-red/20 text-red', title: 'Hijack' },
-              { id: '1200', label: 'VFR',  on: 'bg-cyn/20 text-cyn', title: 'VFR traffic' },
-            ].map(f => {
-              const cnt = squawkCounts[f.id] || 0
-              return (
-                <button
-                  key={f.id}
-                  className={clsx(
-                    'text-[10px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 border-none flex-1 text-center',
-                    squawkHighlight === f.id ? f.on : 'bg-transparent text-fg3 hover:text-fg2'
-                  )}
-                  onClick={() => setSquawkHighlight(prev => prev === f.id ? null : f.id)}
-                  title={f.title}
-                >
-                  {f.label} ({cnt})
-                </button>
-              )
-            })}
           </div>
         </div>
         {/* Row 2: API usage */}
@@ -382,9 +389,9 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
           {displayed.length === 0 && (
             <tr>
               <td colSpan={COLS.length} className="text-center py-8 text-fg3 text-[11px]">
-                {flights.length === 0
-                  ? 'waiting for poller — first data arrives in ~45s'
-                  : 'no flights match current filters'}
+                {isFiltersActive(filters)
+                  ? 'no flights match current filters'
+                  : 'waiting for poller — first data arrives in ~45s'}
               </td>
             </tr>
           )}
@@ -393,32 +400,28 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
             const enrich = enrichCache[f.icao]
             const isNew = newIcaos.has(f.icao)
             const anomaly = anomalies[f.icao]
-            const hlAnomaly = anomalyHighlight && anomaly
-            const hlSquawk = squawkHighlight && f.squawk === squawkHighlight
-            const dimmed = (anomalyHighlight || squawkHighlight) && !hlAnomaly && !hlSquawk
             const hist = trackHistory[f.icao]
             const phase = hist?.length >= 2 ? detectPhase(hist) : (f.grounded ? PHASE.GROUND : PHASE.UNKNOWN)
             const acType = enrich?.adsbfi?.type || enrich?.aircraft?.icao_type || f.acType || null
             const acReg = enrich?.adsbfi?.reg || enrich?.aircraft?.registration || f.acReg || null
             const vr = f.vertRate != null ? Math.round(f.vertRate * 196.85) : (enrich?.adsbfi?.baroRate ?? null) // m/s → ft/min
+            const cat = f.category || enrich?.adsbfi?.category || enrich?.apl?.category || null
             return (
               <tr
                 key={f.icao + f.callsign}
                 className={clsx(
                   'border-b cursor-pointer',
-                  dimmed && 'opacity-30',
-                  hlAnomaly
+                  anomaly
                     ? 'bg-red/8 border-b-red/20 border-l-2 border-l-red'
-                    : hlSquawk
-                      ? 'bg-ylw/8 border-b-ylw/20 border-l-2 border-l-ylw'
-                      : isNew
-                        ? 'animate-row-arrive border-white/3'
-                        : isSel
-                          ? 'bg-acc/8 border-l-2 border-l-acc border-white/3'
-                          : 'hover:bg-bg2 border-white/3'
+                    : isNew
+                      ? 'animate-row-arrive border-white/3'
+                      : isSel
+                        ? 'bg-acc/8 border-l-2 border-l-acc border-white/3'
+                        : 'hover:bg-bg2 border-white/3'
                 )}
                 onClick={() => onSelect(f)}
               >
+                {/* icao24 + anomaly indicator */}
                 <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3">
                   {anomaly && (
                     <span
@@ -430,39 +433,78 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                   )}
                   {f.icao}
                 </td>
+                {/* callsign */}
                 <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-ylw">
                   {f.callsign}
                   {f.mil && <span className="text-red text-[10px]"> [mil]</span>}
                 </td>
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell">
+                {/* operator */}
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell" title={f.acReg ? `${f.acOperator || '—'} (${acReg})` : f.acOperator || f.country}>
+                  {f.acOperator?.substring(0, 12) || shortCountry(f.country)}
+                </td>
+                {/* type + class badge */}
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell" title={[f.acDesc || acType, cat ? `Cat ${cat} (${CAT_LABEL[cat?.toUpperCase()] || cat})` : null].filter(Boolean).join(' · ')}>
                   {acType || '—'}
+                  {cat && <span className="text-fg3/50 text-[8px] ml-0.5">{CAT_LABEL[cat?.toUpperCase()] || cat}</span>}
                 </td>
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-ylw hidden sm:table-cell">
-                  {acReg || '—'}
-                </td>
+                {/* country */}
                 <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell" title={f.country}>
                   {shortCountry(f.country)}
                 </td>
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell">
-                  {f.lat != null ? `${f.lat.toFixed(1)},${f.lon.toFixed(1)}` : '—'}
+                {/* route (from TFMS) + off-route indicator */}
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell" title={f.tfms?.route || ''}>
+                  {f.tfms?.dep_arpt && f.tfms?.arr_arpt ? (
+                    <span className="text-fg2">
+                      {f.tfms.dep_arpt.replace(/^K/, '')}
+                      <span className="text-fg3/40">→</span>
+                      {f.tfms.arr_arpt.replace(/^K/, '')}
+                      {f.routeDeviation > 50 && (
+                        <span className={clsx('ml-1 text-[8px]', f.routeDeviation > 100 ? 'text-red' : 'text-ylw')} title={`${f.routeDeviation}km off filed route`}>
+                          {f.routeDeviation}km
+                        </span>
+                      )}
+                    </span>
+                  ) : enrich?.flightroute ? (
+                    <span className="text-fg3">
+                      {enrich.flightroute.origin?.icao_code?.replace(/^K/, '') || '?'}
+                      <span className="text-fg3/40">→</span>
+                      {enrich.flightroute.destination?.icao_code?.replace(/^K/, '') || '?'}
+                    </span>
+                  ) : '—'}
                 </td>
-                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs', f.grounded ? 'text-ylw' : 'text-cyn')}>
-                  {f.alt ?? '—'}
+                {/* altitude in feet */}
+                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs tabular-nums', f.grounded ? 'text-ylw' : 'text-cyn')}>
+                  {f.alt != null ? Math.round(f.alt * 3.281).toLocaleString() : '—'}
                 </td>
-                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell',
+                {/* speed in knots */}
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg2 tabular-nums">
+                  {f.vel != null ? Math.round(f.vel * 1.944) : '—'}
+                </td>
+                {/* vertical rate in ft/min */}
+                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell tabular-nums',
                   vr == null ? 'text-fg3' : Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg3'
                 )}>
                   {vr != null ? `${vr > 0 ? '+' : ''}${vr}` : '—'}
                 </td>
+                {/* phase */}
                 <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs', PHASE_COLOR[phase])}>
                   {PHASE_LABEL[phase]}
                 </td>
+                {/* ETA from TFMS */}
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell tabular-nums">
+                  {f.tfms?.eta ? new Date(f.tfms.eta).toISOString().substring(11, 16) + 'z' : '—'}
+                </td>
+                {/* squawk (hidden by default) */}
                 <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell', squawkColor(f.squawk))}>
                   {squawkLabel(f.squawk)}
                 </td>
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg2 hidden sm:table-cell">{f.vel ?? '—'}</td>
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell">
+                {/* heading (hidden by default) */}
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell tabular-nums">
                   {f.hdg != null ? `${f.hdg}°` : '—'}
+                </td>
+                {/* data source indicators (hidden by default) */}
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3/50 hidden sm:table-cell" title="T=TFMS E=Enriched R=Route">
+                  {srcIndicator(f, enrichCache)}
                 </td>
               </tr>
             )

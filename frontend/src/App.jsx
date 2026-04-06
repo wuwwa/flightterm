@@ -584,7 +584,7 @@ export default function App() {
 
       {/* Page 1: flight tracker — fills one viewport */}
       <div
-        className="grid grid-rows-[auto_auto_auto_auto_1fr] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
+        className="grid grid-rows-[auto_auto_minmax(0,1fr)_auto_auto] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
         style={{ '--sidebar-w': `${sidebarW}px` }}
       >
         {/* Combined command bar: branding, stats, filter, region, controls, SWIM indicators, clock */}
@@ -609,18 +609,8 @@ export default function App() {
           <LogPanel entries={logEntries} />
         </div>
 
-        {/* FAA SWIM / NAS section */}
-        <div className="col-span-full row-start-3">
-          <NasPanel backendOk={backendOk} />
-        </div>
-
-        {/* TFMS — flight plans, map, airport board, delays */}
-        <div className="col-span-full row-start-4">
-          <TfmsPanel backendOk={backendOk} />
-        </div>
-
         {/* Flight table */}
-        <div className="row-start-5 min-h-0 flex flex-col">
+        <div className="row-start-3 min-h-0 flex flex-col">
           <FlightTable
             flights={flights}
             filter={filter}
@@ -637,7 +627,7 @@ export default function App() {
         </div>
 
         {/* Detail panel — desktop sidebar */}
-        <div className="row-start-5 overflow-y-auto min-h-0 hidden md:block relative">
+        <div className="row-start-3 overflow-y-auto min-h-0 hidden md:block relative">
           {/* Resize handle */}
           <div
             className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-acc/30 active:bg-acc/50 transition-colors"
@@ -684,6 +674,15 @@ export default function App() {
             </div>
           </div>
         )}
+        {/* FAA SWIM / NAS section */}
+        <div className="col-span-full row-start-4 overflow-y-auto">
+          <NasPanel backendOk={backendOk} />
+        </div>
+
+        {/* TFMS — flight plans, map, airport board, delays */}
+        <div className="col-span-full row-start-5 overflow-y-auto">
+          <TfmsPanel backendOk={backendOk} />
+        </div>
       </div>
 
       {/* Dashboard: anomaly analytics */}

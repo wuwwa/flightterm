@@ -285,6 +285,9 @@ function parseFlowData(xml, props) {
   const output = root.fiOutput || findNested(root, 'fiOutput') || root
   const fi = output.fiMessage || findNested(output, 'fiMessage') || output
 
+  // fiMessage often has airport/facility as XML attributes
+  result.airport = result.airport || fi?.['@_airport'] || fi?.['@_facility'] || null
+
   // ── APTC: Airport Configuration ─────────────────────────────────────
   const aptc = findNested(fi, 'airportConfigMessage')
   if (aptc) {
@@ -377,7 +380,14 @@ function parseFlowData(xml, props) {
     || findNested(fi, 'afpAdvisory') || findNested(fi, 'rerouteAdvisory')
     || findNested(fi, 'reroute') || fi
 
-  result.airport = result.airport || findVal(event, 'airport') || findVal(event, 'facility')
+  // Airport can be a text element OR an attribute on controlElement:
+  //   <controlElement airport="EWR"> (attribute — @_airport in fast-xml-parser)
+  //   <airport>EWR</airport>          (text element)
+  const controlEl = findNested(event, 'controlElement')
+  result.airport = result.airport
+    || findVal(event, 'airport') || findVal(event, 'facility')
+    || controlEl?.['@_airport'] || controlEl?.['@_facility']
+    || findAttr(event, 'airport') || findAttr(event, 'controlAirport')
   result.reason = result.reason || findVal(event, 'impactingCondition') || findVal(event, 'reason')
   result.text = result.text || findVal(event, 'advisoryText') || findVal(event, 'text') || findVal(event, 'remarks')
   result.startTime = result.startTime || findVal(event, 'startTime') || findVal(event, 'beginDate')
@@ -454,6 +464,20 @@ function findNested(obj, key) {
     if (k.startsWith('@_')) continue
     if (typeof obj[k] === 'object' && obj[k] !== null) {
       const found = findNested(obj[k], key)
+      if (found != null) return found
+    }
+  }
+  return null
+}
+
+/** Search for an XML attribute (@_key) recursively — findVal skips these */
+function findAttr(obj, key) {
+  if (!obj || typeof obj !== 'object') return null
+  const attrKey = `@_${key}`
+  if (obj[attrKey] != null) return obj[attrKey]
+  for (const k of Object.keys(obj)) {
+    if (typeof obj[k] === 'object' && obj[k] !== null) {
+      const found = findAttr(obj[k], key)
       if (found != null) return found
     }
   }

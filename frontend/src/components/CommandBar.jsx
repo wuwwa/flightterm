@@ -87,7 +87,7 @@ export default function CommandBar({
           className="bg-transparent border-none outline-none text-fg text-[11px] flex-1 caret-fg font-mono min-w-0"
           value={filter}
           onChange={e => onFilterChange(e.target.value)}
-          placeholder="filter"
+          placeholder="callsign, icao, airline, type, airport…"
         />
       </div>
 

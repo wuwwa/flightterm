@@ -23,6 +23,8 @@ db.recordAnomalies = mockRecordAnomalies
 db.resolveAnomalies = mockResolveAnomalies
 db.getRoutesBulk = mockGetRoutesBulk
 db.getFlightPlan = mockGetFlightPlan
+db.getFlowEventsByAirport = vi.fn(() => [])
+db.getTerminalWeatherByAirport = vi.fn(() => [])
 
 const poller = require('./poller')
 const { _internals } = poller

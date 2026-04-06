@@ -3,7 +3,7 @@ import AnomalyFeed from './dashboard/AnomalyFeed'
 import StatsCards from './dashboard/StatsCards'
 import WeatherStatus from './dashboard/WeatherStatus'
 import DocsPanel from './dashboard/DocsPanel'
-import HeatMap from './dashboard/HeatMap'
+import NasMap from './dashboard/NasMap'
 import AnomalyDrilldown from './dashboard/AnomalyDrilldown'
 import ZoneMetrics from './dashboard/ZoneMetrics'
 import ZoneDrilldown from './dashboard/ZoneDrilldown'
@@ -91,8 +91,8 @@ export default function DashboardPanel({ backendOk, region: appRegion, lastFetch
       {/* Weather hazards (aviationweather.gov) */}
       <WeatherStatus region={appRegion || 'usa'} backendOk={backendOk} />
 
-      {/* Heatmap */}
-      <HeatMap backendOk={backendOk} region={appRegion || 'usa'} lastFetchAt={lastFetchAt} onSelect={handleAnomalyClick} />
+      {/* US airspace map */}
+      <NasMap backendOk={backendOk} />
 
       {/* Anomaly feed + charts/stats */}
       <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] md:grid-rows-[1fr] gap-px bg-border">
