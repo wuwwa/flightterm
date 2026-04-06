@@ -676,7 +676,7 @@ export default function App() {
         )}
         {/* FAA SWIM / NAS section */}
         <div className="col-span-full row-start-4 overflow-y-auto">
-          <NasPanel backendOk={backendOk} />
+          <NasPanel backendOk={backendOk} region={region} />
         </div>
 
         {/* TFMS — flight plans, map, airport board, delays */}
@@ -686,8 +686,8 @@ export default function App() {
       </div>
 
       {/* Dashboard: anomaly analytics */}
-      <div id="dashboard" className="pb-8">
-        <DashboardPanel backendOk={backendOk} region={region} lastFetchAt={lastFetchAt} />
+      <div id="dashboard">
+        <DashboardPanel backendOk={backendOk} flights={flights} trackHistory={trackHistory} enrichCache={enrichCache} />
       </div>
 
       {/* Sticky status bar — always at bottom of viewport */}

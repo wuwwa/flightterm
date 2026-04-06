@@ -7,7 +7,15 @@ import { useSwim } from '../../contexts/SwimContext'
 import AIRPORTS from '../../data/airports'
 import axios from 'axios'
 import { fetchSigmets, fetchPireps } from '../../services/weather'
-import { fetchAnomalyFeed, fetchAnomalyHotspots } from '../../services/dashboard'
+import { fetchAnomalyFeed, fetchAnomalyHotspots, fetchFlightPositions, fetchSurfacePositions } from '../../services/dashboard'
+
+// Resolve FAA 3-letter or ICAO 4-letter codes to AIRPORTS lookup
+function resolveAirport(code) {
+  if (!code) return null
+  if (AIRPORTS[code]) return { code, ...AIRPORTS[code] }
+  if (AIRPORTS['K' + code]) return { code: 'K' + code, ...AIRPORTS['K' + code] }
+  return null
+}
 
 // ── Map utilities ───────────────────────────────────────────────────────────
 
@@ -42,7 +50,33 @@ function anomalyIcon(severity, hdg = 0) {
   })
 }
 
-// ── Style constants ─────────────────────────────────────────────────────────
+function notamIcon(count, hasRwy) {
+  const c = hasRwy ? '#ff6633' : '#cc9933'
+  const sz = count > 10 ? 12 : count > 5 ? 10 : 8
+  return L.divIcon({
+    html: `<svg width="${sz}" height="${sz}" viewBox="0 0 16 16">
+      <rect x="1" y="1" width="14" height="14" rx="2" fill="${c}" fill-opacity="0.7" stroke="#0d0d0d" stroke-width="0.8"/>
+      <text x="8" y="12" text-anchor="middle" font-size="9" font-weight="bold" fill="#0d0d0d">N</text>
+    </svg>`,
+    className: '', iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2],
+  })
+}
+
+function flowIcon(eventType) {
+  const colors = { GS: '#ff3333', GDP: '#f0c674', REROUTE: '#b294bb', AFP: '#f0c674', CTOP: '#de935f', RSTR: '#de935f', GADV: '#b294bb' }
+  const labels = { GS: 'S', GDP: 'D', REROUTE: 'R', AFP: 'A', CTOP: 'C', RSTR: 'M', GADV: 'A' }
+  const c = colors[eventType] || '#888'
+  const lbl = labels[eventType] || '?'
+  return L.divIcon({
+    html: `<svg width="14" height="14" viewBox="0 0 16 16">
+      <polygon points="8,1 15,8 8,15 1,8" fill="${c}" fill-opacity="0.8" stroke="#0d0d0d" stroke-width="0.8"/>
+      <text x="8" y="11.5" text-anchor="middle" font-size="7" font-weight="bold" fill="#0d0d0d">${lbl}</text>
+    </svg>`,
+    className: '', iconSize: [14, 14], iconAnchor: [7, 7],
+  })
+}
+
+// ── Style constants ──────────────────────────────���──────────────────────────
 
 const SIGMET_STYLE = {
   CONVECTIVE: { color: '#ff3333', fillColor: '#ff3333', fillOpacity: 0.10, weight: 1.5, dashArray: '4 3' },
@@ -68,7 +102,7 @@ function airportRadius(a) {
   return t > 100 ? 8 : t > 50 ? 6 : t > 20 ? 5 : t > 5 ? 4 : 3
 }
 
-// ── Layer toggle button ─────────────────────────────────────────────────────
+// ── Layer toggle button ──────────────────────────────���──────────────────────
 
 function LayerBtn({ active, onClick, color, children, count }) {
   return (
@@ -83,12 +117,13 @@ function LayerBtn({ active, onClick, color, children, count }) {
   )
 }
 
-// ── Main component ──────────────────────────────────────────────────────────
+// ── Main component ───────────��───────────────────────────────────��──────────
 
 export default function NasMap({ backendOk, onSelectAirport }) {
-  const { nasSummary, flights, flowEvents } = useSwim()
+  const { nasSummary, flights, flowEvents, notamAirports } = useSwim()
 
-  // Layer toggles
+  // Layer toggles — default OFF for busy layers, ON for key operational layers
+  const [showIfrPositions, setShowIfrPositions] = useState(false)
   const [showFlights, setShowFlights] = useState(false)
   const [showCascades, setShowCascades] = useState(true)
   const [showSigmets, setShowSigmets] = useState(true)
@@ -96,8 +131,12 @@ export default function NasMap({ backendOk, onSelectAirport }) {
   const [showTfrs, setShowTfrs] = useState(true)
   const [showAnomalies, setShowAnomalies] = useState(true)
   const [showWxCells, setShowWxCells] = useState(false)
+  const [showNotams, setShowNotams] = useState(false)
+  const [showFlowPrograms, setShowFlowPrograms] = useState(true)
+  const [showTracon, setShowTracon] = useState(false)
+  const [showRouteDevs, setShowRouteDevs] = useState(true)
 
-  // Fetched data
+  // Fetched data (map-specific, not from SwimContext)
   const [sigmets, setSigmets] = useState([])
   const [pireps, setPireps] = useState([])
   const [tfrs, setTfrs] = useState([])
@@ -105,8 +144,10 @@ export default function NasMap({ backendOk, onSelectAirport }) {
   const [hotspots, setHotspots] = useState([])
   const [terminalWx, setTerminalWx] = useState([])
   const [routeDeviations, setRouteDeviations] = useState([])
+  const [ifrPositions, setIfrPositions] = useState([])
+  const [surfacePositions, setSurfacePositions] = useState([])
 
-  // Fetch layers data (60s for weather, 30s for anomalies, 60s for TFRs)
+  // Fetch all map layer data (staggered refresh)
   useEffect(() => {
     if (!backendOk) return
     let cancelled = false
@@ -116,9 +157,11 @@ export default function NasMap({ backendOk, onSelectAirport }) {
         fetchPireps(24, -125, 50, -66, { age: 2 }),
         axios.get('/api/swim/tfrs').then(r => r.data),
         fetchAnomalyFeed(100),
-        fetchAnomalyHotspots(168, 2),
-        axios.get('/api/swim/weather', { params: { limit: 100 } }).then(r => r.data),
-        axios.get('/api/swim/routes/deviations', { params: { limit: 15 } }).then(r => r.data),
+        fetchAnomalyHotspots(24, 2),
+        axios.get('/api/swim/weather', { params: { limit: 200 } }).then(r => r.data),
+        axios.get('/api/swim/routes/deviations', { params: { limit: 25 } }).then(r => r.data),
+        fetchFlightPositions(1000),
+        fetchSurfacePositions(500),
       ]).then(results => {
         if (cancelled) return
         const val = (i) => results[i].status === 'fulfilled' ? results[i].value : []
@@ -129,21 +172,29 @@ export default function NasMap({ backendOk, onSelectAirport }) {
         setHotspots(val(4) || [])
         setTerminalWx(val(5) || [])
         setRouteDeviations(val(6) || [])
+        setIfrPositions(val(7) || [])
+        setSurfacePositions(val(8) || [])
       })
     }
     refresh()
-    const id = setInterval(refresh, 60_000)
+    const id = setInterval(refresh, 30_000)
     return () => { cancelled = true; clearInterval(id) }
   }, [backendOk])
 
   const airports = nasSummary?.airports || []
 
-  // ── Computed map data ─────────────────────────────────────────────────────
+  // ── Computed map data ────��──────────────────────────��─────────────────────
 
   const airportMarkers = useMemo(() =>
     airports.filter(a => AIRPORTS[a.airport]).map(a => ({ ...a, ...AIRPORTS[a.airport] })),
     [airports]
   )
+
+  // IFR flight positions (TFMS — FAA-tracked IFR flights with radar positions)
+  const ifrDots = useMemo(() => {
+    if (!showIfrPositions) return []
+    return ifrPositions.filter(f => f.lat != null && f.lon != null)
+  }, [ifrPositions, showIfrPositions])
 
   // Cascade lines
   const cascadeLines = useMemo(() => {
@@ -195,6 +246,25 @@ export default function NasMap({ backendOk, onSelectAirport }) {
     [flowEvents]
   )
 
+  // Flow programs (GDP, GS, REROUTE, RSTR, GADV — airport markers)
+  const flowProgramMarkers = useMemo(() => {
+    if (!showFlowPrograms) return []
+    const types = ['GS', 'GDP', 'REROUTE', 'AFP', 'CTOP', 'RSTR', 'GADV']
+    const seen = new Set()
+    return (flowEvents || [])
+      .filter(e => types.includes(e.event_type) && e.airport)
+      .map(e => {
+        const ap = resolveAirport(e.airport)
+        if (!ap) return null
+        // Dedup by type+airport
+        const key = `${e.event_type}-${ap.code}`
+        if (seen.has(key)) return null
+        seen.add(key)
+        return { ...e, resolvedAirport: ap.code, lat: ap.lat, lon: ap.lon }
+      })
+      .filter(Boolean)
+  }, [flowEvents, showFlowPrograms])
+
   // PIREP points
   const pirepPoints = useMemo(() =>
     pireps.filter(p => p.lat != null && p.lon != null).map(p => ({
@@ -221,16 +291,34 @@ export default function NasMap({ backendOk, onSelectAirport }) {
     [terminalWx]
   )
 
+  // NOTAM airport markers (field is `location`, may be 3-letter FAA or 4-letter ICAO)
+  const notamMarkers = useMemo(() => {
+    if (!showNotams) return []
+    return (notamAirports || [])
+      .map(n => {
+        const ap = resolveAirport(n.location)
+        if (!ap) return null
+        return { ...n, airport: ap.code, lat: ap.lat, lon: ap.lon, hasRwy: (n.rwy || 0) > 0 }
+      })
+      .filter(Boolean)
+  }, [notamAirports, showNotams])
+
   // Route deviation lines
-  const devLines = useMemo(() =>
-    routeDeviations.filter(d => d.avg_km > 30 && AIRPORTS[d.dep_arpt] && AIRPORTS[d.arr_arpt]).map(d => ({
+  const devLines = useMemo(() => {
+    if (!showRouteDevs) return []
+    return routeDeviations.filter(d => d.avg_km > 30 && AIRPORTS[d.dep_arpt] && AIRPORTS[d.arr_arpt]).map(d => ({
       positions: [[AIRPORTS[d.dep_arpt].lat, AIRPORTS[d.dep_arpt].lon], [AIRPORTS[d.arr_arpt].lat, AIRPORTS[d.arr_arpt].lon]],
       ...d,
-    })),
-    [routeDeviations]
-  )
+    }))
+  }, [routeDeviations, showRouteDevs])
 
-  // Flight dots
+  // Surface/TRACON markers
+  const traconDots = useMemo(() => {
+    if (!showTracon) return []
+    return surfacePositions.filter(s => s.lat != null && s.lon != null)
+  }, [surfacePositions, showTracon])
+
+  // Flight dots (ADS-B from SwimContext)
   const flightDots = useMemo(() => {
     if (!showFlights) return []
     return flights.filter(f => f.lat != null && f.lon != null).slice(0, 800)
@@ -255,17 +343,22 @@ export default function NasMap({ backendOk, onSelectAirport }) {
           <LayerBtn active={showPireps} onClick={() => setShowPireps(v => !v)} color="cyn" count={pirepPoints.length}>PIREPs</LayerBtn>
           <LayerBtn active={showAnomalies} onClick={() => setShowAnomalies(v => !v)} color="red" count={anomalyPoints.length}>anomalies</LayerBtn>
           <LayerBtn active={showWxCells} onClick={() => setShowWxCells(v => !v)} color="mag" count={wxPoints.length}>ITWS</LayerBtn>
+          <LayerBtn active={showRouteDevs} onClick={() => setShowRouteDevs(v => !v)} color="ylw" count={devLines.length}>off-route</LayerBtn>
+          <LayerBtn active={showFlowPrograms} onClick={() => setShowFlowPrograms(v => !v)} color="ylw" count={flowProgramMarkers.length}>flow</LayerBtn>
+          <LayerBtn active={showNotams} onClick={() => setShowNotams(v => !v)} color="org" count={(notamAirports || []).length}>NOTAMs</LayerBtn>
           <LayerBtn active={showCascades} onClick={() => setShowCascades(v => !v)} color="red">cascades</LayerBtn>
-          <LayerBtn active={showFlights} onClick={() => setShowFlights(v => !v)} color="acc">flights</LayerBtn>
+          <LayerBtn active={showIfrPositions} onClick={() => setShowIfrPositions(v => !v)} color="grn" count={ifrPositions.length}>IFR</LayerBtn>
+          <LayerBtn active={showTracon} onClick={() => setShowTracon(v => !v)} color="cyn" count={surfacePositions.length}>TRACON</LayerBtn>
+          <LayerBtn active={showFlights} onClick={() => setShowFlights(v => !v)} color="acc">ADS-B</LayerBtn>
         </span>
       </div>
 
       <div style={{ height: '340px' }}>
-        <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={false}>
+        <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={false} attributionControl={false}>
           <MapInvalidator />
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
 
-          {/* ── Layer 1: SIGMET polygons (weather hazards) ──────────────────── */}
+          {/* ── SIGMET polygons (weather hazards) ─────────────────────────── */}
           {showSigmets && sigmetPolys.map((s, i) => (
             <Polygon key={`sig-${i}`} positions={s.coords}
               pathOptions={SIGMET_STYLE[s.hazard] || SIGMET_STYLE.TURB}>
@@ -275,7 +368,7 @@ export default function NasMap({ backendOk, onSelectAirport }) {
             </Polygon>
           ))}
 
-          {/* ── Layer 2: TFR polygons (airspace restrictions) ───────────────── */}
+          {/* ── TFR polygons (airspace restrictions) ──────────────────────── */}
           {showTfrs && tfrPolys.map((t, i) => (
             <Polygon key={`tfr-${i}`} positions={t.coords} pathOptions={TFR_STYLE}>
               <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
@@ -296,7 +389,7 @@ export default function NasMap({ backendOk, onSelectAirport }) {
             </CircleMarker>
           ))}
 
-          {/* ── Layer 3: Flow restriction geometry (FXA, RSTR areas) ────────── */}
+          {/* ── Flow restriction geometry (FXA, RSTR areas) ────��──────────── */}
           {flowPolys.map((p, i) => (
             <Polygon key={`flow-${i}`} positions={p.coords} pathOptions={FLOW_GEOM_STYLE}>
               <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
@@ -307,10 +400,23 @@ export default function NasMap({ backendOk, onSelectAirport }) {
             </Polygon>
           ))}
 
-          {/* ── Layer 4: Route deviation corridors ──────────────────────────── */}
+          {/* ── Flow program markers (GDP / GS / REROUTE / RSTR at airports) */}
+          {flowProgramMarkers.map((f, i) => (
+            <Marker key={`fp-${i}`} position={[f.lat, f.lon]} icon={flowIcon(f.event_type)}>
+              <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                <b>{f.event_type}</b> {(f.resolvedAirport || f.airport || '').replace(/^K/, '')}<br />
+                {f.delay_minutes > 0 && `delay: ${Math.round(f.delay_minutes)}m `}
+                {f.restriction_type && `${f.restriction_type} ${f.restriction_value || ''} `}
+                {f.reason ? f.reason.substring(0, 60) : ''}<br />
+                {f.text?.substring(0, 100) || ''}
+              </span></Tooltip>
+            </Marker>
+          ))}
+
+          {/* ── Route deviation corridors ─────────────────────────────────── */}
           {devLines.map((d, i) => (
             <Polyline key={`dev-${i}`} positions={d.positions}
-              pathOptions={{ color: '#f0c674', weight: 2, opacity: 0.4, dashArray: '8 4' }}>
+              pathOptions={{ color: '#f0c674', weight: 2, opacity: 0.5, dashArray: '8 4' }}>
               <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
                 {d.dep_arpt?.replace(/^K/, '')} → {d.arr_arpt?.replace(/^K/, '')}<br />
                 {d.flights} flights, avg {d.avg_km}km off-route
@@ -318,7 +424,7 @@ export default function NasMap({ backendOk, onSelectAirport }) {
             </Polyline>
           ))}
 
-          {/* ── Layer 5: Cascade impact lines ────────────────────────────────── */}
+          {/* ── Cascade impact lines ──────────────────────────────���──────── */}
           {cascadeLines.map((line, i) => (
             <Polyline key={`cas-${i}`} positions={line.positions}
               pathOptions={{ color: '#cc6666', weight: 1.5, opacity: 0.3 }}>
@@ -328,7 +434,7 @@ export default function NasMap({ backendOk, onSelectAirport }) {
             </Polyline>
           ))}
 
-          {/* ── Layer 6: PIREPs (turbulence/icing reports) ──────────────────── */}
+          {/* ── PIREPs (turbulence/icing reports) ─��─────────────────────���─── */}
           {showPireps && pirepPoints.map((p, i) => (
             <Marker key={`pirep-${i}`} position={[p.lat, p.lon]} icon={pirepIcon(p.turb || p.ice)}>
               <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
@@ -338,7 +444,7 @@ export default function NasMap({ backendOk, onSelectAirport }) {
             </Marker>
           ))}
 
-          {/* ── Layer 7: Terminal weather (ITWS cells) ───────────────────────── */}
+          {/* ── Terminal weather (ITWS cells) ─────────────────────────────── */}
           {showWxCells && wxPoints.map((w, i) => (
             <CircleMarker key={`wx-${i}`} center={[w.lat, w.lon]} radius={5}
               pathOptions={{
@@ -353,18 +459,34 @@ export default function NasMap({ backendOk, onSelectAirport }) {
             </CircleMarker>
           ))}
 
-          {/* ── Layer 8: Anomaly hotspot circles ─────────────────────────────── */}
+          {/* ── NOTAM markers at airports ──────────────────────���──────────── */}
+          {notamMarkers.map((n, i) => (
+            <Marker key={`notam-${i}`} position={[n.lat, n.lon]} icon={notamIcon(n.count, n.hasRwy)}>
+              <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                <b>NOTAMs</b> {n.airport?.replace(/^K/, '')} — {n.count} active<br />
+                {n.rwy > 0 && <span style={{ color: '#ff6633' }}>RWY:{n.rwy} </span>}
+                {n.twy > 0 && `TWY:${n.twy} `}
+                {n.apron > 0 && `APRON:${n.apron} `}
+                {n.svc > 0 && `SVC:${n.svc} `}
+                {n.obst > 0 && `OBST:${n.obst} `}
+                {n.airspace > 0 && <span style={{ color: '#ff3333' }}>AIRSPACE:{n.airspace}</span>}
+              </span></Tooltip>
+            </Marker>
+          ))}
+
+          {/* ── Anomaly hotspot circles (24h) ──────────────────────────��──── */}
           {showAnomalies && hotspotCircles.map((h, i) => (
             <CircleMarker key={`hs-${i}`} center={[h.lat, h.lon]}
               radius={Math.min(20, 6 + (h.count || 1) * 2)}
               pathOptions={{ color: '#cc6666', fillColor: '#cc6666', fillOpacity: 0.08, weight: 1, dashArray: '3 3' }}>
               <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                hotspot: {h.count} anomalies in 7d
+                hotspot: {h.count} anomalies in 24h
+                {h.deviation != null && <><br />{h.deviation > 1 ? `${h.deviation.toFixed(1)}x above` : `${(1/h.deviation).toFixed(1)}x below`} baseline</>}
               </span></Tooltip>
             </CircleMarker>
           ))}
 
-          {/* ── Layer 9: Anomaly aircraft markers ────────────────────────────── */}
+          {/* ── Anomaly aircraft markers ────────────���─────────────────────── */}
           {showAnomalies && anomalyPoints.map((a, i) => (
             <Marker key={`anom-${i}`} position={[a.lat, a.lon]} icon={anomalyIcon(a.severity, a.hdg)}>
               <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
@@ -374,13 +496,40 @@ export default function NasMap({ backendOk, onSelectAirport }) {
             </Marker>
           ))}
 
-          {/* ── Layer 10: Flight positions ────────────────────────────────────── */}
+          {/* ── Surface/TRACON radar tracks ───────────────────────────────── */}
+          {traconDots.map((s, i) => (
+            <CircleMarker key={`trc-${i}`} center={[s.lat, s.lon]} radius={2}
+              pathOptions={{ color: '#8abeb7', fillColor: '#8abeb7', fillOpacity: 0.6, weight: 0 }}>
+              <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                {s.callsign || '—'} [{s.service}]<br />
+                {s.tracon && `TRACON: ${s.tracon} `}
+                {s.airport && `APT: ${s.airport.replace(/^K/, '')} `}
+                {s.altitude && `ALT: ${s.altitude} `}
+                {s.speed != null && `SPD: ${Math.round(s.speed)}kt`}
+              </span></Tooltip>
+            </CircleMarker>
+          ))}
+
+          {/* ── IFR flight positions (TFMS radar) ─────────────────────────── */}
+          {ifrDots.map((f, i) => (
+            <CircleMarker key={`ifr-${i}`} center={[f.lat, f.lon]} radius={1.5}
+              pathOptions={{ color: '#b5bd68', fillColor: '#b5bd68', fillOpacity: 0.6, weight: 0 }}>
+              <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                <b>{f.acid}</b> [{f.flight_status}]<br />
+                {f.dep_arpt?.replace(/^K/, '') || '?'} → {f.arr_arpt?.replace(/^K/, '') || '?'}<br />
+                {f.reported_alt && `FL${f.reported_alt} `}
+                {f.speed && `${f.speed}kt`}
+              </span></Tooltip>
+            </CircleMarker>
+          ))}
+
+          {/* ── ADS-B flight positions ────────────────────────────────────── */}
           {flightDots.map(f => (
-            <CircleMarker key={f.icao} center={[f.lat, f.lon]} radius={1.5}
+            <CircleMarker key={f.icao || f.acid} center={[f.lat, f.lon]} radius={1.5}
               pathOptions={{ color: '#81a2be', fillColor: '#81a2be', fillOpacity: 0.5, weight: 0 }} />
           ))}
 
-          {/* ── Layer 11: Airport markers (always on, top layer) ──────────────── */}
+          {/* ── Airport markers (always on, top layer) ─────────��─────────── */}
           {airportMarkers.map(a => (
             <CircleMarker key={a.airport} center={[a.lat, a.lon]} radius={airportRadius(a)}
               pathOptions={{

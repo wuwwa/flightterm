@@ -4,7 +4,7 @@ import NotamPanel from './dashboard/NotamPanel'
 import ItwsPanel from './dashboard/ItwsPanel'
 import SurfaceOps from './dashboard/SurfaceOps'
 
-export default function NasPanel({ backendOk }) {
+export default function NasPanel({ backendOk, region }) {
   const [collapsed, setCollapsed] = useState(false)
 
   return (

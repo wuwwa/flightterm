@@ -89,7 +89,7 @@ export default function ZoneMetrics({ hotspots, onSelectZone, selectedZone }) {
   return (
     <div className="bg-border">
       <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-t border-b border-border flex justify-between">
-        <span>zone activity (7d)</span>
+        <span>zone activity (24h)</span>
         <span>{sorted.length} zone{sorted.length !== 1 ? 's' : ''}</span>
       </div>
       <div className="bg-bg1 max-h-[200px] overflow-y-auto">

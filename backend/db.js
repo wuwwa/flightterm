@@ -1081,6 +1081,23 @@ const _stmts = {
     ORDER BY received_at DESC LIMIT 200
   `),
 
+  getFlightPositions: db.prepare(`
+    SELECT acid, lat, lon, reported_alt, speed, dep_arpt, arr_arpt, flight_status
+    FROM flight_plans
+    WHERE lat IS NOT NULL AND lon IS NOT NULL
+      AND updated_at > datetime('now', '-30 minutes')
+    ORDER BY updated_at DESC LIMIT ?
+  `),
+
+  getSurfacePositions: db.prepare(`
+    SELECT callsign, lat, lon, altitude, speed, heading, airport, tracon, service, event_type
+    FROM surface_events
+    WHERE lat IS NOT NULL AND lon IS NOT NULL
+      AND received_at > datetime('now', '-15 minutes')
+      AND service IN ('TAIS', 'SMES')
+    ORDER BY received_at DESC LIMIT ?
+  `),
+
   getFlowEventsByAirport: db.prepare(`
     SELECT * FROM flow_events
     WHERE airport = ? AND received_at > datetime('now', '-12 hours')
@@ -1764,6 +1781,8 @@ function purgeOldTerminalWeather() { return _stmts.purgeOldTerminalWeather.run()
 function getFlightPlan(acid) { return _stmts.getFlightPlan.get(acid) || null }
 function getActiveFlightPlans(limit = 50) { return _stmts.getActiveFlightPlans.all(limit) }
 function getActiveFlowEvents(limit = 20) { return _stmts.getActiveFlowEvents.all(limit) }
+function getFlightPositions(limit = 500) { return _stmts.getFlightPositions.all(limit) }
+function getSurfacePositions(limit = 300) { return _stmts.getSurfacePositions.all(limit) }
 function getFlowEventsByAirport(airport, limit = 10) { return _stmts.getFlowEventsByAirport.all(airport, limit) }
 function getTfmsStats() { return _stmts.getTfmsStats.get() }
 
@@ -3046,6 +3065,8 @@ module.exports = {
   getFlightPlan,
   getActiveFlightPlans,
   getActiveFlowEvents,
+  getFlightPositions,
+  getSurfacePositions,
   getFlowEventsByAirport,
   getTfmsStats,
   purgeOldTfms,

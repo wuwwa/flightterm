@@ -1186,6 +1186,32 @@ app.get('/api/swim/flights', (req, res) => {
   }
 })
 
+// TFMS — flight positions for map display (only flights with lat/lon)
+// GET /api/swim/flights/positions?limit=500
+app.get('/api/swim/flights/positions', (req, res) => {
+  cachePublic(res, 10)
+  try {
+    const { getFlightPositions } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 500, 2000)
+    res.json(getFlightPositions(limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// STDDS — surface/TRACON positions for map display
+// GET /api/swim/surface/positions?limit=300
+app.get('/api/swim/surface/positions', (req, res) => {
+  cachePublic(res, 10)
+  try {
+    const { getSurfacePositions } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 300, 1000)
+    res.json(getSurfacePositions(limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // TFMS — single flight plan by callsign
 // GET /api/swim/flights/:acid
 app.get('/api/swim/flights/:acid', (req, res) => {

@@ -38,7 +38,7 @@ export default function ZoneDrilldown({ zone, onSelectAnomaly, onClose }) {
   useEffect(() => {
     if (!zone) return
     setLoading(true)
-    fetchAnomaliesByZone(zone.lat, zone.lon, 168, 50)
+    fetchAnomaliesByZone(zone.lat, zone.lon, 24, 50)
       .then(setAnomalies)
       .catch(() => setAnomalies([]))
       .finally(() => setLoading(false))
@@ -114,7 +114,7 @@ export default function ZoneDrilldown({ zone, onSelectAnomaly, onClose }) {
           <div className="flex items-center gap-2">
             <span className="text-mag text-[11px] font-bold tracking-wider uppercase">zone</span>
             <span className="text-acc text-[11px] font-bold">{label}</span>
-            <span className="text-fg3 text-[10px]">{zone.count} events (7d)</span>
+            <span className="text-fg3 text-[10px]">{zone.count} events (24h)</span>
             {zone.deviation != null && (
               <span className={clsx(
                 'text-[10px] font-bold',

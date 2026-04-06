@@ -130,7 +130,7 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
     const bbox = REGION_BBOX[region] || REGION_BBOX.usa
     Promise.all([
       fetchAnomalyFeed(50).catch(() => []),
-      fetchAnomalyHotspots(168, 2).catch(() => []),
+      fetchAnomalyHotspots(24, 2).catch(() => []),
       fetchSigmets().catch(() => []),
       fetchPireps(bbox[0], bbox[1], bbox[2], bbox[3], { age: 2, inten: 'mod' }).catch(() => []),
     ]).then(([a, h, s, p]) => {
@@ -292,7 +292,7 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
               >
                 <Tooltip direction="top" sticky>
                   <div style={{ fontSize: '10px', lineHeight: '1.4', fontFamily: 'monospace' }}>
-                    <div><strong>HOTSPOT</strong> — {h.count} events (7d)</div>
+                    <div><strong>HOTSPOT</strong> — {h.count} events (24h)</div>
                     {h.airport_city && <div><strong>{h.airport_city}, {h.airport_state}</strong> · {h.nearest_airport} ({h.airport_dist_km}km)</div>}
                     {!h.airport_city && h.nearest_airport && <div>near <strong>{h.nearest_airport}</strong> ({h.airport_dist_km}km)</div>}
                     <div>{h.unique_aircraft} unique aircraft</div>
