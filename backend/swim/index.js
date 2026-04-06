@@ -192,10 +192,7 @@ function flushTfms() {
         for (const event of events) db.insertFlowEvent(event)
       })
       insertBatch(batch)
-      const types = [...new Set(batch.map(e => e.eventType).filter(Boolean))]
-      if (types.length > 0) {
-        console.log(`swim/TFMS: stored ${batch.length} flow events (${types.join(', ')})`)
-      }
+      // batch stored silently (was flooding logs in prod)
     } catch (err) {
       console.error('swim/TFMS: flow event batch error:', err.message)
     }
@@ -321,10 +318,7 @@ function flushItws() {
       for (const event of events) db.insertTerminalWeather(event)
     })
     insertBatch(batch)
-    const types = [...new Set(batch.map(e => e.eventType).filter(Boolean))]
-    if (types.length > 0) {
-      console.log(`swim/ITWS: stored ${batch.length} weather events (${types.join(', ')})`)
-    }
+    // batch stored silently (was flooding logs in prod)
   } catch (err) {
     console.error('swim/ITWS: batch error:', err.message)
   }
@@ -423,6 +417,8 @@ function stopStdds() {
 // Lifecycle
 // ═══════════════════════════════════════════════════════════════════════════
 
+const delay = (ms) => new Promise(r => setTimeout(r, ms))
+
 async function startAll() {
   const results = {}
 
@@ -431,20 +427,28 @@ async function startAll() {
     return false
   })
 
+  await delay(2000) // stagger connections to avoid memory spike
+
   results.tfms = await startTfms().catch(err => {
     console.error('swim: TFMS startup error:', err.message)
     return false
   })
+
+  await delay(2000)
 
   results.sfdps = await startSfdps().catch(err => {
     console.error('swim: SFDPS startup error:', err.message)
     return false
   })
 
+  await delay(2000)
+
   results.itws = await startItws().catch(err => {
     console.error('swim: ITWS startup error:', err.message)
     return false
   })
+
+  await delay(2000)
 
   results.stdds = await startStdds().catch(err => {
     console.error('swim: STDDS startup error:', err.message)

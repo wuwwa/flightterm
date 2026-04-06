@@ -7,11 +7,12 @@
 // Protocol: Solace SMF over TLS (tcps://)
 // Auth:     Username + password, scoped to a Message VPN
 
-const solace = require('solclientjs').debug
+const solace = require('solclientjs')
 
 // Initialize Solace factory once
 const factoryProps = new solace.SolclientFactoryProperties()
 factoryProps.profile = solace.SolclientFactoryProfiles.version10
+factoryProps.logLevel = solace.LogLevel.WARN
 solace.SolclientFactory.init(factoryProps)
 
 class ScdsConsumer {

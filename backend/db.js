@@ -2238,7 +2238,7 @@ function runDeferredMaintenance() {
     } catch (err) {
       console.error('deferred maintenance error:', err.message)
     }
-  }, 2000) // 2s delay — gives Express time to bind
+  }, 15000) // 15s delay — gives Express + SWIM connections time to stabilize
 }
 
 // Force purge — bypasses S3, deletes everything outside the retention window
