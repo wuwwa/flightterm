@@ -1191,22 +1191,20 @@ app.get('/api/swim/flights', (req, res) => {
 app.get('/api/swim/flights/positions', (req, res) => {
   cachePublic(res, 10)
   try {
-    const { getFlightPositions } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 500, 2000)
-    res.json(getFlightPositions(limit))
+    res.json(swim.getFlightPositions(limit))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-// STDDS — surface/TRACON positions for map display
+// STDDS — surface/TRACON positions for map display (in-memory)
 // GET /api/swim/surface/positions?limit=300
 app.get('/api/swim/surface/positions', (req, res) => {
   cachePublic(res, 10)
   try {
-    const { getSurfacePositions } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 300, 1000)
-    res.json(getSurfacePositions(limit))
+    res.json(swim.getSurfacePositions(limit))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1252,62 +1250,57 @@ app.get('/api/swim/flow/:airport', (req, res) => {
   }
 })
 
-// ITWS — recent terminal weather events
+// ITWS — recent terminal weather events (in-memory)
 // GET /api/swim/weather?limit=20
 app.get('/api/swim/weather', (req, res) => {
   cachePublic(res, 60)
   try {
-    const { getRecentTerminalWeather } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 20, 100)
-    res.json(getRecentTerminalWeather(limit))
+    res.json(swim.getRecentTerminalWeather(limit))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-// ITWS — terminal weather for specific airport
+// ITWS — terminal weather for specific airport (in-memory)
 // GET /api/swim/weather/:airport
 app.get('/api/swim/weather/:airport', (req, res) => {
   cachePublic(res, 60)
   try {
-    const { getTerminalWeatherByAirport } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 10, 50)
-    res.json(getTerminalWeatherByAirport(req.params.airport.toUpperCase(), limit))
+    res.json(swim.getTerminalWeatherByAirport(req.params.airport.toUpperCase(), limit))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-// STDDS — recent surface events (OOOI, taxi, departures, RVR)
+// STDDS — recent surface events (in-memory)
 // GET /api/swim/surface?limit=30
 app.get('/api/swim/surface', (req, res) => {
   cachePublic(res, 15)
   try {
-    const { getRecentSurfaceEvents } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 30, 100)
-    res.json(getRecentSurfaceEvents(limit))
+    res.json(swim.getRecentSurfaceEvents(limit))
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
-// STDDS — OOOI events (gate out, wheels off, wheels on, gate in)
+// STDDS — OOOI events (in-memory)
 // GET /api/swim/oooi?limit=30
 app.get('/api/swim/oooi', (req, res) => {
   cachePublic(res, 15)
   try {
-    const { getOooi } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 30, 100)
-    res.json(getOooi(limit))
+    res.json(swim.getOooi(limit))
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
-// STDDS — surface events by airport
+// STDDS — surface events by airport (in-memory)
 // GET /api/swim/surface/:airport
 app.get('/api/swim/surface/:airport', (req, res) => {
   cachePublic(res, 15)
   try {
-    const { getSurfaceEventsByAirport } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 20, 100)
-    res.json(getSurfaceEventsByAirport(req.params.airport.toUpperCase(), limit))
+    res.json(swim.getSurfaceEventsByAirport(req.params.airport.toUpperCase(), limit))
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
@@ -1601,6 +1594,19 @@ if (!process.env.VITEST) _server = app.listen(PORT, () => {
   } else {
     console.log('  ℹ  SWIM feeds disabled — set SWIM_USERNAME + SWIM_PASSWORD to enable')
   }
+
+  // ── Event loop lag monitor (diagnostic) ──────────────────────────────────
+  // Fires every 2s; if the callback is delayed by >1s, the event loop was blocked.
+  let _lagLast = Date.now()
+  setInterval(() => {
+    const now = Date.now()
+    const lag = now - _lagLast - 2000
+    _lagLast = now
+    if (lag > 1000) {
+      const mem = process.memoryUsage()
+      console.warn(`⚠ event-loop blocked ${lag}ms | rss=${(mem.rss/1048576).toFixed(0)}MB heap=${(mem.heapUsed/1048576).toFixed(0)}/${(mem.heapTotal/1048576).toFixed(0)}MB`)
+    }
+  }, 2000).unref()
 })
 
 // ── Graceful shutdown ────────────────────────────────────────────────────────

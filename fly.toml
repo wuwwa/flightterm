@@ -37,15 +37,15 @@ primary_region = 'iad'
     port = 3001
     path = '/api/health/live'
     interval = '15s'
-    timeout = '5s'
-    grace_period = '10s'
+    timeout = '10s'
+    grace_period = '30s'
 
   [checks.ready]
     type = 'http'
     port = 3001
     path = '/api/health/ready'
     interval = '30s'
-    timeout = '5s'
+    timeout = '10s'
     grace_period = '30s'
 
 [[vm]]

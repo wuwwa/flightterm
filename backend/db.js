@@ -2108,7 +2108,7 @@ function purgeOldDailySummaries() {
 
 // Full purge cycle: delete everything older than retention window.
 // S3 archival is disabled for now — just purge directly.
-async function runPurgeCycle() {
+async function runPurgeCycle({ vacuum = true } = {}) {
   const cutoff = getPurgeCutoff()
   console.log(`purge: starting cycle (cutoff: ${cutoff})`)
 
@@ -2146,7 +2146,7 @@ async function runPurgeCycle() {
   const zonePurged = purgeZoneDaily()
   if (zonePurged > 0) console.log(`  zone: purged ${zonePurged} zone records (>90d)`)
 
-  vacuumDb()
+  if (vacuum) vacuumDb()
 }
 
 function purgeStaleRoutes() {
@@ -2223,8 +2223,9 @@ function runDeferredMaintenance() {
     try {
       console.log('db: running deferred maintenance...')
       deduplicateExisting()
-      vacuumDb()
-      await runPurgeCycle()
+      // Skip VACUUM at startup — it blocks the event loop for seconds on large DBs
+      // and causes health check failures. VACUUM runs during daily purge cycle instead.
+      await runPurgeCycle({ vacuum: false })
 
       // Bootstrap zone baseline from historical anomalies if zone_daily is empty
       const zoneCount = db.prepare('SELECT COUNT(*) as c FROM zone_daily').get().c
