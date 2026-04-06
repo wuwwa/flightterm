@@ -2481,10 +2481,10 @@ const _stmtRouteDeviations = db.prepare(`
     ROUND(AVG(route_deviation), 1) AS avg_km, MAX(route_deviation) AS max_km
   FROM flight_plans
   WHERE route_deviation IS NOT NULL AND route_deviation > 0
-    AND flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING')
+    AND dep_arpt IS NOT NULL AND arr_arpt IS NOT NULL
     AND updated_at > datetime('now', '-2 hours')
   GROUP BY dep_arpt, arr_arpt
-  HAVING flights >= 3
+  HAVING flights >= 1
   ORDER BY avg_km DESC LIMIT ?
 `)
 

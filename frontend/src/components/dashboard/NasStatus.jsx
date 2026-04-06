@@ -96,7 +96,7 @@ export default function NasStatus({ backendOk }) {
 
       {/* Key metrics */}
       {tfmsStats && (
-        <div className="grid grid-cols-4 gap-px bg-border shrink-0">
+        <div className="grid grid-cols-4 gap-px bg-border border-b border-border shrink-0">
           <div className="bg-bg1 py-0.5 px-1.5 text-center" title="Active IFR flight plans tracked by TFMS">
             <div className="text-[11px] font-medium text-acc">{(tfmsStats.active_flights || 0).toLocaleString()}</div>
             <div className="text-[7px] text-fg3">IFR flights</div>

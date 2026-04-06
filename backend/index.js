@@ -1348,12 +1348,23 @@ app.get('/api/swim/flight/:callsign/lifecycle', (req, res) => {
 })
 
 // GET /api/swim/routes/deviations — route corridors with unusual off-route deviation
+// Blends live enrichment data (always available) with TFMS DB aggregation
 app.get('/api/swim/routes/deviations', (req, res) => {
   cachePublic(res, 30)
   try {
     const { getRouteDeviations } = require('./db')
+    const { getRouteDeviationsLive } = require('./poller')
     const limit = Math.min(Number(req.query.limit) || 20, 50)
-    res.json(getRouteDeviations(limit))
+    const dbResults = getRouteDeviations(limit)
+    const liveResults = getRouteDeviationsLive(20, limit)
+    // Merge: live data fills gaps where TFMS DB has nothing
+    const seen = new Set(dbResults.map(d => `${d.dep_arpt}→${d.arr_arpt}`))
+    const merged = [...dbResults]
+    for (const r of liveResults) {
+      if (!seen.has(`${r.dep_arpt}→${r.arr_arpt}`)) merged.push(r)
+    }
+    merged.sort((a, b) => b.avg_km - a.avg_km)
+    res.json(merged.slice(0, limit))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

@@ -25,6 +25,7 @@ RUN cd backend && npm ci --omit=dev
 
 # Copy backend source
 COPY backend/*.js backend/
+COPY backend/swim/ backend/swim/
 
 # Copy built frontend from stage 1
 COPY --from=frontend-build /app/frontend/dist frontend/dist

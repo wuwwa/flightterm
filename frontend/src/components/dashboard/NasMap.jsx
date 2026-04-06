@@ -306,10 +306,12 @@ export default function NasMap({ backendOk, onSelectAirport }) {
   // Route deviation lines
   const devLines = useMemo(() => {
     if (!showRouteDevs) return []
-    return routeDeviations.filter(d => d.avg_km > 30 && AIRPORTS[d.dep_arpt] && AIRPORTS[d.arr_arpt]).map(d => ({
-      positions: [[AIRPORTS[d.dep_arpt].lat, AIRPORTS[d.dep_arpt].lon], [AIRPORTS[d.arr_arpt].lat, AIRPORTS[d.arr_arpt].lon]],
-      ...d,
-    }))
+    return routeDeviations.map(d => {
+      const dep = resolveAirport(d.dep_arpt)
+      const arr = resolveAirport(d.arr_arpt)
+      if (!dep || !arr || d.avg_km <= 30) return null
+      return { positions: [[dep.lat, dep.lon], [arr.lat, arr.lon]], ...d, dep_arpt: dep.code, arr_arpt: arr.code }
+    }).filter(Boolean)
   }, [routeDeviations, showRouteDevs])
 
   // Surface/TRACON markers
@@ -354,7 +356,7 @@ export default function NasMap({ backendOk, onSelectAirport }) {
       </div>
 
       <div style={{ height: '340px' }}>
-        <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={false} attributionControl={false}>
+        <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={true} scrollWheelZoom={false} attributionControl={false}>
           <MapInvalidator />
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
 

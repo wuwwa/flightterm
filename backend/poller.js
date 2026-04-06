@@ -956,11 +956,38 @@ function getFlights() {
   }
 }
 
+// Aggregate route deviations from live enrichment cache (works without TFMS)
+function getRouteDeviationsLive(minDevKm = 20, limit = 25) {
+  const routePairs = new Map() // "DEP→ARR" -> { flights, totalDev, maxDev }
+  for (const f of latestFlights) {
+    const enrich = enrichCache.get(f.icao)
+    if (!enrich?.routeDeviation || enrich.routeDeviation < minDevKm) continue
+    const route = enrich.flightroute || (enrich.tfms && {
+      origin: { icao_code: enrich.tfms.dep_arpt },
+      destination: { icao_code: enrich.tfms.arr_arpt },
+    })
+    if (!route?.origin?.icao_code || !route?.destination?.icao_code) continue
+    const dep = route.origin.icao_code
+    const arr = route.destination.icao_code
+    const key = `${dep}→${arr}`
+    const existing = routePairs.get(key) || { dep_arpt: dep, arr_arpt: arr, flights: 0, totalDev: 0, max_km: 0 }
+    existing.flights++
+    existing.totalDev += enrich.routeDeviation
+    existing.max_km = Math.max(existing.max_km, enrich.routeDeviation)
+    routePairs.set(key, existing)
+  }
+  return Array.from(routePairs.values())
+    .map(r => ({ ...r, avg_km: Math.round(r.totalDev / r.flights * 10) / 10, totalDev: undefined }))
+    .sort((a, b) => b.avg_km - a.avg_km)
+    .slice(0, limit)
+}
+
 module.exports = {
   start,
   stop,
   getStatus,
   getFlights,
+  getRouteDeviationsLive,
   getActiveKeyCount,
   anomalyEvents,
   // Exposed for testing
