@@ -373,7 +373,7 @@ export default function NasMap({ backendOk, onSelectAirport }) {
         </span>
       </div>
 
-      <div style={{ height: '340px' }}>
+      <div style={{ height: 'min(78vh, 760px)', minHeight: 520 }}>
         <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={true} scrollWheelZoom={false} attributionControl={false}>
           <MapInvalidator />
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />

@@ -536,7 +536,20 @@ function buildEnrichment(f) {
     }
   }
 
-  return Object.keys(enrich).length > 0 ? enrich : null
+  // Persist to cache so getFlights() can attach it to flight payloads.
+  // (Previously this was missing — buildEnrichment mutated the local enrich
+  // object every cycle but never wrote it back, so TFMS/route data only ever
+  // appeared on flights that ALSO got APL-enriched via the anomaly path.)
+  if (Object.keys(enrich).length > 0) {
+    enrich._ts = Date.now()
+    enrichCache.set(f.icao, enrich)
+    if (enrichCache.size > MAX_ENRICH_CACHE) {
+      const first = enrichCache.keys().next().value
+      enrichCache.delete(first)
+    }
+    return enrich
+  }
+  return null
 }
 
 // Great-circle cross-track distance: how far a point is from the line between two points (km)
@@ -629,7 +642,16 @@ async function pollCycle() {
     console.error('poller: sightings record error:', err.message)
   }
 
-  // 2. Score each aircraft BEFORE updating history.
+  // 2a. Enrich ALL flights with TFMS + flightroute data first (cheap DB lookups,
+  //     no HTTP). This ensures every flight in getFlights() has its TFMS/route
+  //     data available, not just flights with enough history to be scored for
+  //     anomalies. Without this, the flight table's "route" column would only
+  //     populate for the small subset of flights that already had anomaly history.
+  for (const f of flights) {
+    buildEnrichment(f)
+  }
+
+  // 2b. Score each aircraft BEFORE updating history.
   //    scoreAnomaly compares current flight against the last snapshot (prev).
   //    If we update history first, prev === current and all deltas are 0.
   const newAnomalies = {}

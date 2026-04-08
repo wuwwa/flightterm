@@ -1,0 +1,833 @@
+[      65ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:21550
+[      91ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[      91ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[      92ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[      92ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[     103ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 5303 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775611956659:185
+[     104ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775611956659:213
+[     104ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775611956659:220
+[     206ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4619, serverFetchedAt: 1775611958769, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[     206ms] [LOG] [fetch] result: 4619 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[     280ms] [LOG] [boot] live sync enabled @ http://localhost:5173/src/App.jsx?t=1775611956659:225
+[     280ms] [LOG] [boot] complete @ http://localhost:5173/src/App.jsx?t=1775611956659:230
+[     431ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/RTY484:0
+[   15606ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N28BR:0
+[   22846ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4630, serverFetchedAt: 1775612004902, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[   22846ms] [LOG] [fetch] result: 4630 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[   30753ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3517S:0
+[   45354ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4630, serverFetchedAt: 1775612004902, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[   45354ms] [LOG] [fetch] result: 4630 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[   45895ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N484LF:0
+[   61042ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N213PF:0
+[   67846ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4626, serverFetchedAt: 1775612048710, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[   67846ms] [LOG] [fetch] result: 4626 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[   76180ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAU:0
+[   90347ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4626, serverFetchedAt: 1775612048710, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[   90347ms] [LOG] [fetch] result: 4626 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[   91328ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAS:0
+[  107077ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N595GL:0
+[  112848ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4635, serverFetchedAt: 1775612093772, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  112848ms] [LOG] [fetch] result: 4635 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  122216ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/C6605:0
+[  135350ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4635, serverFetchedAt: 1775612093772, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  135350ms] [LOG] [fetch] result: 4635 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  137360ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N813WH:0
+[  152504ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N627HE:0
+[  157851ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4631, serverFetchedAt: 1775612138841, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  157851ms] [LOG] [fetch] result: 4631 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  167658ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/SHADY27:0
+[  180346ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4631, serverFetchedAt: 1775612138841, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  180346ms] [LOG] [fetch] result: 4631 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  182810ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N281MW:0
+[  198593ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/GFY562:0
+[  202849ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4610, serverFetchedAt: 1775612183982, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  202850ms] [LOG] [fetch] result: 4610 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  213738ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/PDU53:0
+[  225357ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4610, serverFetchedAt: 1775612183982, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  225357ms] [LOG] [fetch] result: 4610 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  229493ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/HAWK250:0
+[  244647ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/HAWK252:0
+[  247864ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4581, serverFetchedAt: 1775612229356, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  247864ms] [LOG] [fetch] result: 4581 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  259789ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N439NK:0
+[  270350ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4581, serverFetchedAt: 1775612229356, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  270350ms] [LOG] [fetch] result: 4581 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  274961ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N7021E:0
+[  290112ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/GH72:0
+[  292847ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4584, serverFetchedAt: 1775612273995, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  292847ms] [LOG] [fetch] result: 4584 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  305267ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N723MG:0
+[  315359ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4584, serverFetchedAt: 1775612273995, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  315360ms] [LOG] [fetch] result: 4584 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  320415ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N72K:0
+[  334576ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612321686:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  334579ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612321686:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  334590ms] [ERROR] The above error occurred in the <AirportBoard> component:
+
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612321686:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  334590ms] [ERROR] ErrorBoundary caught: ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612321686:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performSyncWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18879:28) 
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612321686:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  335561ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/ROYAL55:0
+[  348901ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  348902ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  348902ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  348902ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  348910ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 5234 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775611956659:185
+[  348910ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775611956659:213
+[  348911ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775611956659:220
+[  348949ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4567, serverFetchedAt: 1775612319150, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  348949ms] [LOG] [fetch] result: 4567 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  348989ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612336065:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  349038ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612336065:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  349049ms] [ERROR] The above error occurred in the <AirportBoard> component:
+
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612336065:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  349049ms] [ERROR] ErrorBoundary caught: ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612336065:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performConcurrentWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18684:30) 
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612336065:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  349223ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGVJE:0
+[  364915ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/RTY484:0
+[  365876ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/G26725:0
+[  379861ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  379861ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  379862ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  379862ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  380294ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 5234 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775611956659:185
+[  380294ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775611956659:213
+[  380295ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775611956659:220
+[  380323ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4559, serverFetchedAt: 1775612364033, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  380324ms] [LOG] [fetch] result: 4559 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  380359ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612366997:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  380397ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612366997:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  380407ms] [ERROR] The above error occurred in the <AirportBoard> component:
+
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612366997:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  380407ms] [ERROR] ErrorBoundary caught: ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612366997:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performConcurrentWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18684:30) 
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612366997:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  380583ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGVJE:0
+[  381114ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N28BR:0
+[  381557ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/SHINR38:0
+[  395730ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/RTY484:0
+[  396270ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N432PH:0
+[  396721ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/G20768:0
+[  410876ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N28BR:0
+[  411892ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N184SD:0
+[  412031ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3517S:0
+[  422662ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  422662ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  422663ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  422663ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  425662ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 5231 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775611956659:185
+[  425663ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775611956659:213
+[  425663ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775611956659:220
+[  425691ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4536, serverFetchedAt: 1775612409099, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  425692ms] [LOG] [fetch] result: 4536 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  425727ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612409820:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  425765ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612409820:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  425772ms] [ERROR] The above error occurred in the <AirportBoard> component:
+
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612409820:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  425772ms] [ERROR] ErrorBoundary caught: ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612409820:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performConcurrentWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18684:30) 
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612409820:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  425990ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGVJE:0
+[  426032ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N432PH:0
+[  426752ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  426753ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  426753ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  426753ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  426764ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 5231 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775611956659:185
+[  426764ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775611956659:213
+[  426765ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775611956659:220
+[  426779ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612409820:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  426783ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612409820:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  426787ms] [ERROR] The above error occurred in the <AirportBoard> component:
+
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612409820:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  426788ms] [ERROR] ErrorBoundary caught: ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612409820:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performConcurrentWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18684:30) 
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612409820:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  426801ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4536, serverFetchedAt: 1775612409099, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  426801ms] [LOG] [fetch] result: 4536 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  426980ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGVJE:0
+[  427041ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N16058:0
+[  427184ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N484LF:0
+[  441142ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/RTY484:0
+[  441179ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3517S:0
+[  442122ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/RTY484:0
+[  442189ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N492LP:0
+[  442326ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N213PF:0
+[  443894ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  443894ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  443895ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  443895ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  443903ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 5223 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775611956659:185
+[  443904ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775611956659:213
+[  443904ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775611956659:220
+[  443914ms] [ERROR] Failed to load resource: the server responded with a status of 429 (Too Many Requests) @ http://localhost:5173/api/anomalies/stream:0
+[  443944ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4536, serverFetchedAt: 1775612409099, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  443944ms] [LOG] [fetch] result: 4536 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  443978ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612431063:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  444031ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612431063:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  444040ms] [ERROR] The above error occurred in the <AirportBoard> component:
+
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612431063:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  444040ms] [ERROR] ErrorBoundary caught: ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612431063:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performConcurrentWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18684:30) 
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612431063:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  444186ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGVJE:0
+[  456294ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N28BR:0
+[  456324ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N484LF:0
+[  457261ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N28BR:0
+[  457343ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/BXR1959:0
+[  457474ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAU:0
+[  459330ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/RTY484:0
+[  471462ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N432PH:0
+[  471490ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N213PF:0
+[  471565ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  471565ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  471565ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775611956659:174
+[  471566ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775611956659:178
+[  471580ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 5223 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775611956659:185
+[  471580ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775611956659:213
+[  471580ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775611956659:220
+[  471591ms] [ERROR] Failed to load resource: the server responded with a status of 429 (Too Many Requests) @ http://localhost:5173/api/anomalies/stream:0
+[  471609ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4529, serverFetchedAt: 1775612453857, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775611956659:252
+[  471610ms] [LOG] [fetch] result: 4529 flights @ http://localhost:5173/src/App.jsx?t=1775611956659:277
+[  471653ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612431063:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  471698ms] ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612431063:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  471706ms] [ERROR] The above error occurred in the <AirportBoard> component:
+
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612431063:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  471707ms] [ERROR] ErrorBoundary caught: ReferenceError: AirportContextStrip is not defined
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612431063:434:9)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performConcurrentWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18684:30) 
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612431063:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  471918ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGVJE:0
+[  472414ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N432PH:0
+[  472505ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/G24493:0
+[  472622ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAS:0
+[  475440ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N28BR:0
+[  486605ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3517S:0
+[  486637ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAU:0
+[  487076ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/RTY484:0
+[  487568ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3517S:0
+[  487661ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N630FB:0
+[  487763ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGBFJ:0
+[  490594ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N432PH:0
+[  498283ms] ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612485460:872:48)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  498287ms] ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612485460:872:48)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  498289ms] [ERROR] The above error occurred in the <FlightsTab> component:
+
+    at FlightsTab (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612485460:628:23)
+    at div
+    at div
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612485460:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  498290ms] [ERROR] ErrorBoundary caught: ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612485460:872:48)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performSyncWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18879:28) 
+    at FlightsTab (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612485460:628:23)
+    at div
+    at div
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612485460:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  501772ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N213PF:0
+[  501799ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAS:0
+[  502225ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N432PH:0
+[  502739ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N213PF:0
+[  502811ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N584LQ:0
+[  502911ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3534S:0
+[  505780ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3517S:0
+[  517435ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAU:0
+[  517435ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGBFJ:0
+[  517445ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3517S:0
+[  517878ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAU:0
+[  517965ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/PATRT7:0
+[  518746ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N595GL:0
+[  520943ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N213PF:0
+[  524454ms] ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612511611:879:52)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  524457ms] ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612511611:879:52)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  524459ms] [ERROR] The above error occurred in the <FlightsTab> component:
+
+    at FlightsTab (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612511611:628:23)
+    at div
+    at div
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612511611:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  524459ms] [ERROR] ErrorBoundary caught: ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612511611:879:52)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performSyncWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18879:28) 
+    at FlightsTab (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612511611:628:23)
+    at div
+    at div
+    at AirportBoard (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612511611:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612254629:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775611956659:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  530758ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:21550
+[  530778ms] ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:879:52)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  530785ms] ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:879:52)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  530786ms] [ERROR] The above error occurred in the <FlightsTab> component:
+
+    at FlightsTab (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:628:23)
+    at div
+    at div
+    at AirportBoard (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612511611:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775612511611:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  530786ms] [ERROR] ErrorBoundary caught: ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:879:52)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performConcurrentWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18684:30) 
+    at FlightsTab (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:628:23)
+    at div
+    at div
+    at AirportBoard (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612511611:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775612511611:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  531272ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:21550
+[  531281ms] ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:879:52)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  531284ms] ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:879:52)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  531287ms] [ERROR] The above error occurred in the <FlightsTab> component:
+
+    at FlightsTab (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:628:23)
+    at div
+    at div
+    at AirportBoard (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612511611:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775612511611:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  531287ms] [ERROR] ErrorBoundary caught: ReferenceError: SideStatsPanel is not defined
+    at FlightsTab (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:879:52)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at mountIndeterminateComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14926:21)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15914:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performConcurrentWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18684:30) 
+    at FlightsTab (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:628:23)
+    at div
+    at div
+    at AirportBoard (http://localhost:5173/src/components/tfms/AirportBoard.jsx?t=1775612511611:75:40)
+    at div
+    at div
+    at TfmsPanel (http://localhost:5173/src/components/tfms/TfmsPanel.jsx?t=1775612511611:22:37)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775612511611:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  544924ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/tfms/AirportBoard.jsx?t=1775612532166:0
+[  544924ms] [ERROR] [hmr] Failed to reload /@fs/C:\Users\wilso\Documents\Flight\flightterm\frontend\src\components\tfms\AirportBoard.jsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5173/@vite/client:175
+[  675186ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:21550
+[  675204ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775612624459:174
+[  675205ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775612624459:178
+[  675206ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775612624459:174
+[  675206ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775612624459:178
+[  675214ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 5207 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775612624459:185
+[  675214ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775612624459:213
+[  675215ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775612624459:220
+[  675243ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4491, serverFetchedAt: 1775612634472, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775612624459:252
+[  675244ms] [LOG] [fetch] result: 4491 flights @ http://localhost:5173/src/App.jsx?t=1775612624459:277
+[  675447ms] [LOG] [boot] live sync enabled @ http://localhost:5173/src/App.jsx?t=1775612624459:225
+[  675447ms] [LOG] [boot] complete @ http://localhost:5173/src/App.jsx?t=1775612624459:230
+[  675949ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGVJE:0
+[  691115ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/1172209:0
+[  697858ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4456, serverFetchedAt: 1775612679346, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775612624459:252
+[  697858ms] [LOG] [fetch] result: 4456 flights @ http://localhost:5173/src/App.jsx?t=1775612624459:277
+[  710893ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N805TT:0
+[  720354ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4456, serverFetchedAt: 1775612679346, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775612624459:252
+[  720354ms] [LOG] [fetch] result: 4456 flights @ http://localhost:5173/src/App.jsx?t=1775612624459:277
+[  727008ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N432PH:0
+[  742184ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3517S:0
+[  742861ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 4428, serverFetchedAt: 1775612724007, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775612624459:252
+[  742862ms] [LOG] [fetch] result: 4428 flights @ http://localhost:5173/src/App.jsx?t=1775612624459:277
+[  757351ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N213PF:0

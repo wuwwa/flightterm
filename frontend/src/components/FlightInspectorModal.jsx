@@ -1,0 +1,292 @@
+import { useState, useEffect } from 'react'
+import clsx from 'clsx'
+import { fetchFlight } from '../services/aeroapi'
+import { squawkLabel, squawkColor } from '../utils/squawk'
+import TrackChart from './TrackChart'
+import FlightMap from './FlightMap'
+
+// ── FlightInspectorModal ─────────────────────────────────────────────────────
+// A full-screen modal that replaces the old vertical sidebar. Shows the flight
+// map prominently on the left and the data fields as a grid of compact tiles
+// on the right — instead of one tall vertical scroll of key/value pairs.
+
+function fmtTime(s) {
+  if (!s) return '—'
+  try { return new Date(s).toISOString().substring(11, 16) + 'utc' } catch { return s }
+}
+
+// Compact row inside a tile
+function Row({ label, value, color = 'text-fg2', mono = true }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 py-0.5 text-[10px] border-b border-white/3 last:border-b-0">
+      <span className="text-fg3 text-[9px] uppercase tracking-wide shrink-0">{label}</span>
+      <span className={clsx('text-right truncate', mono && 'tabular-nums', color)}>
+        {value ?? <span className="text-fg3/30">—</span>}
+      </span>
+    </div>
+  )
+}
+
+function Tile({ title, accent, children, className }) {
+  return (
+    <div className={clsx('bg-bg2/40 border border-border rounded p-2 flex flex-col min-h-0', className)}>
+      <div className={clsx('text-[9px] font-bold uppercase tracking-wide mb-1 pb-1 border-b border-border', accent || 'text-fg2')}>
+        {title}
+      </div>
+      <div className="flex-1 min-h-0">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+export default function FlightInspectorModal({
+  flight,
+  flights,
+  enrichData,
+  aeroCache,
+  aeroSpend,
+  userAeroKey,
+  trackHistory,
+  onClose,
+  onAeroFetched,
+  backendOk,
+}) {
+  const [aeroLoading, setAeroLoading] = useState(false)
+  const [aeroError, setAeroError] = useState(null)
+
+  const { aircraft, flightroute, adsbfi, apl } = enrichData || {}
+  const aeroData = flight ? aeroCache[flight.icao] : null
+
+  // Escape closes
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  if (!flight) return null
+
+  // Source tag
+  const srcTag = flight.src === 'apl'
+    ? { label: 'airplanes.live', color: 'text-mag' }
+    : flight.src === 'adsbx'
+    ? { label: 'adsbx', color: 'text-acc' }
+    : { label: 'opensky', color: 'text-grn' }
+
+  // Try aeroapi
+  const handleAeroQuery = async () => {
+    if (!flight || aeroLoading || !flight.callsign || flight.callsign === '—') return
+    if (aeroSpend?.cap_reached) return
+    setAeroLoading(true)
+    setAeroError(null)
+    try {
+      const data = await fetchFlight(flight.callsign, userAeroKey)
+      onAeroFetched(flight.icao, data)
+    } catch (err) {
+      setAeroError(err.response?.data?.error || err.message)
+    } finally {
+      setAeroLoading(false)
+    }
+  }
+
+  // Build header route summary
+  const tfms = flight.tfms
+  const headerRoute = tfms?.dep_arpt && tfms?.arr_arpt
+    ? `${tfms.dep_arpt.replace(/^K/, '')} → ${tfms.arr_arpt.replace(/^K/, '')}`
+    : flightroute?.origin && flightroute?.destination
+    ? `${flightroute.origin.icao_code?.replace(/^K/, '') || '?'} → ${flightroute.destination.icao_code?.replace(/^K/, '') || '?'}`
+    : null
+
+  // Vertical rate from any source
+  const vr = flight.vertRate != null ? Math.round(flight.vertRate * 196.85) : (adsbfi?.baroRate ?? null)
+
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/70" />
+
+      <div
+        className="relative bg-bg1 border border-border rounded-lg shadow-2xl w-[95vw] max-w-6xl max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* ── Header strip ─────────────────────────────────────────────── */}
+        <div className="flex items-center gap-3 px-3 py-2 bg-bg2 border-b border-border rounded-t-lg shrink-0">
+          <span className="text-acc font-bold text-[11px] uppercase tracking-wide">aircraft intel</span>
+          <span className="text-ylw font-bold text-[14px] tabular-nums">{flight.callsign}</span>
+          {flight.mil && <span className="bg-red/15 text-red text-[9px] font-bold uppercase px-1.5 py-px rounded border border-red/30">MIL</span>}
+          {headerRoute && (
+            <span className="text-fg2 text-[11px] tabular-nums">{headerRoute}</span>
+          )}
+          {tfms?.eta && (
+            <span className="text-fg3 text-[10px] tabular-nums">eta {fmtTime(tfms.eta)}</span>
+          )}
+          <span className="text-fg3/40 text-[9px] uppercase tracking-wide">{flight.icao}</span>
+          <span className={clsx('text-[9px] font-bold uppercase ml-auto', srcTag.color)}>{srcTag.label}</span>
+          <button onClick={onClose} className="text-fg3 hover:text-fg text-sm px-2 cursor-pointer">✕</button>
+        </div>
+
+        {/* ── Main: map (left) + data tile grid (right) ────────────────── */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-px bg-border overflow-hidden">
+
+          {/* LEFT: map + track sparklines */}
+          <div className="bg-bg1 flex flex-col min-h-0">
+            <div className="flex-1 min-h-0 relative" style={{ minHeight: 280 }}>
+              <FlightMap
+                snapshots={trackHistory || []}
+                flight={flight}
+                flights={flights}
+                fullscreen={false}
+                onToggleFullscreen={() => {}}
+              />
+            </div>
+            {trackHistory?.length > 1 && (
+              <div className="border-t border-border shrink-0">
+                <TrackChart snapshots={trackHistory} />
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT: 2x2 grid of data tiles */}
+          <div className="bg-bg overflow-y-auto p-2">
+            <div className="grid grid-cols-2 gap-2 auto-rows-min">
+
+              {/* AIRCRAFT */}
+              <Tile title="Aircraft" accent="text-acc">
+                <Row label="type" value={aircraft?.type || flight.acType} />
+                <Row label="icao" value={aircraft?.icao_type} color="text-fg3" />
+                <Row label="mfr" value={aircraft?.manufacturer} color="text-acc" />
+                <Row label="reg" value={aircraft?.registration || flight.acReg} color="text-ylw" />
+                <Row label="owner" value={aircraft?.registered_owner} mono={false} />
+                <Row label="ctry" value={aircraft?.registered_owner_country_name || flight.country} color="text-fg3" mono={false} />
+              </Tile>
+
+              {/* LIVE VECTOR */}
+              <Tile title="Live Vector" accent="text-cyn">
+                <Row label="alt" value={flight.alt != null ? `${Math.round(flight.alt * 3.281).toLocaleString()} ft` : null} color="text-cyn" />
+                <Row label="spd" value={flight.vel != null ? `${Math.round(flight.vel * 1.944)} kt` : null} />
+                <Row label="vr" value={vr != null ? `${vr > 0 ? '+' : ''}${vr} fpm` : null}
+                  color={vr != null && Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg2'} />
+                <Row label="hdg" value={flight.hdg != null ? `${flight.hdg}°` : null} color="text-fg3" />
+                <Row label="squawk" value={squawkLabel(flight.squawk)} color={squawkColor(flight.squawk)} />
+                <Row label="status" value={flight.grounded ? 'ground' : 'airborne'} color={flight.grounded ? 'text-ylw' : 'text-grn'} />
+              </Tile>
+
+              {/* ROUTE */}
+              <Tile title="Route" accent="text-grn">
+                {tfms?.dep_arpt && tfms?.arr_arpt ? (
+                  <>
+                    <Row label="from" value={tfms.dep_arpt} color="text-acc" />
+                    <Row label="to" value={tfms.arr_arpt} color="text-acc" />
+                    <Row label="etd" value={fmtTime(tfms.etd)} color="text-fg3" />
+                    <Row label="eta" value={fmtTime(tfms.eta)} color="text-fg3" />
+                    {flight.routeDeviation > 0 && (
+                      <Row label="deviation"
+                        value={`${flight.routeDeviation}km${flight.routeDeviationMode === 'polyline' ? '*' : ''}`}
+                        color={flight.routeDeviation > 100 ? 'text-red' : flight.routeDeviation > 50 ? 'text-ylw' : 'text-fg3'} />
+                    )}
+                    {tfms?.aircraft_type && <Row label="type" value={tfms.aircraft_type} color="text-fg3" />}
+                  </>
+                ) : flightroute ? (
+                  <>
+                    <Row label="airline" value={flightroute.airline?.name} mono={false} />
+                    <Row label="from" value={flightroute.origin?.icao_code} color="text-acc" />
+                    <Row label="to" value={flightroute.destination?.icao_code} color="text-acc" />
+                    {flightroute.origin?.municipality && (
+                      <Row label="origin" value={flightroute.origin.municipality} color="text-fg3" mono={false} />
+                    )}
+                    {flightroute.destination?.municipality && (
+                      <Row label="dest" value={flightroute.destination.municipality} color="text-fg3" mono={false} />
+                    )}
+                  </>
+                ) : (
+                  <div className="text-[9px] text-fg3/40 text-center py-2">no route data</div>
+                )}
+              </Tile>
+
+              {/* TELEMETRY (deep — combined adsb.fi + apl) */}
+              <Tile title="Telemetry" accent="text-mag">
+                {(adsbfi || apl) ? (
+                  <>
+                    {adsbfi?.emergency && <Row label="emerg" value={adsbfi.emergency} color="text-red" />}
+                    <Row label="ias" value={apl?.ias != null ? `${apl.ias} kt` : null} color="text-cyn" />
+                    <Row label="tas" value={apl?.tas != null ? `${apl.tas} kt` : null} color="text-cyn" />
+                    <Row label="mach" value={apl?.mach != null ? `M${apl.mach}` : null} color="text-acc" />
+                    <Row label="mcp alt" value={(adsbfi?.navAlt ?? apl?.navAltMcp) != null ? `${adsbfi?.navAlt ?? apl?.navAltMcp} ft` : null} color="text-cyn" />
+                    <Row label="mcp hdg" value={(adsbfi?.navHdg ?? apl?.navHeading) != null ? `${adsbfi?.navHdg ?? apl?.navHeading}°` : null} color="text-fg3" />
+                    <Row label="roll" value={apl?.roll != null ? `${apl.roll > 0 ? '+' : ''}${apl.roll}°` : null}
+                      color={apl?.roll != null && Math.abs(apl.roll) > 25 ? 'text-ylw' : 'text-fg2'} />
+                    {apl?.windDir != null && <Row label="wind" value={`${apl.windDir}° / ${apl.windSpeed ?? '—'} kt`} color="text-mag" />}
+                    {apl?.oat != null && <Row label="oat" value={`${apl.oat}°C`} color="text-fg3" />}
+                  </>
+                ) : (
+                  <div className="text-[9px] text-fg3/40 text-center py-2">enrichment pending</div>
+                )}
+              </Tile>
+
+              {/* AEROAPI section — spans 2 columns when data is loaded */}
+              {aeroData ? (
+                <Tile title="FlightAware AeroAPI" accent="text-mag" className="col-span-2">
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-0">
+                    <Row label="ident" value={aeroData.ident} color="text-ylw" />
+                    <Row label="status" value={aeroData.status}
+                      color={aeroData.status === 'En Route' ? 'text-grn' : aeroData.status?.includes('Delay') ? 'text-ylw' : 'text-fg2'} />
+                    <Row label="from" value={aeroData.origin?.code_icao || aeroData.origin?.code} color="text-acc" />
+                    <Row label="to" value={aeroData.destination?.code_icao || aeroData.destination?.code} color="text-acc" />
+                    <Row label="sched out" value={fmtTime(aeroData.scheduled_out || aeroData.scheduled_off)} color="text-fg3" />
+                    <Row label="actual out" value={fmtTime(aeroData.actual_out || aeroData.actual_off)} color={aeroData.actual_out || aeroData.actual_off ? 'text-grn' : 'text-fg3'} />
+                    <Row label="est in" value={fmtTime(aeroData.estimated_in || aeroData.estimated_on)} color="text-fg3" />
+                    <Row label="actual in" value={fmtTime(aeroData.actual_in || aeroData.actual_on)} color={aeroData.actual_in || aeroData.actual_on ? 'text-grn' : 'text-fg3'} />
+                  </div>
+                  {aeroData.progress_percent != null && (
+                    <div className="mt-1.5 pt-1.5 border-t border-border">
+                      <div className="flex justify-between text-[9px] mb-0.5">
+                        <span className="text-fg3">progress</span>
+                        <span className="text-acc tabular-nums">{aeroData.progress_percent}%</span>
+                      </div>
+                      <div className="h-1 bg-bg rounded-full overflow-hidden">
+                        <div className="h-full bg-acc rounded-full transition-all duration-500" style={{ width: `${Math.min(100, aeroData.progress_percent)}%` }} />
+                      </div>
+                    </div>
+                  )}
+                </Tile>
+              ) : (
+                <div className="col-span-2">
+                  <button
+                    className={clsx(
+                      'w-full bg-bg2/40 border border-border hover:border-acc text-acc text-[11px] py-1.5 px-3 rounded cursor-pointer text-left font-mono flex justify-between items-center transition-colors',
+                      (aeroLoading || flight.callsign === '—' || aeroSpend?.cap_reached) && 'opacity-40 cursor-default'
+                    )}
+                    onClick={handleAeroQuery}
+                    disabled={aeroLoading || flight.callsign === '—' || aeroSpend?.cap_reached}
+                  >
+                    <span>{aeroLoading ? 'querying flightaware…' : aeroSpend?.cap_reached ? 'aeroapi cap reached' : '❯ query aeroapi for full lifecycle'}</span>
+                    <span className="text-ylw text-[10px]">~$0.005</span>
+                  </button>
+                  {aeroError && <div className="text-red text-[9px] mt-1 px-1">{aeroError}</div>}
+                </div>
+              )}
+            </div>
+
+            {/* Aircraft photo if available */}
+            {aircraft?.url_photo_thumbnail && (
+              <div className="mt-2">
+                <img
+                  className="w-full block max-h-40 object-cover rounded border border-border filter-[saturate(0.5)_brightness(0.85)]"
+                  src={aircraft.url_photo_thumbnail}
+                  alt=""
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Footer hint ─────────────────────────────────────────────── */}
+        <div className="px-3 py-1 bg-bg2 border-t border-border rounded-b-lg shrink-0 text-[8px] text-fg3/60 flex justify-between">
+          <span>esc to close</span>
+          {!backendOk && <span className="text-red">backend offline</span>}
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -3,13 +3,13 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import CommandBar from './components/CommandBar'
 import LogPanel from './components/LogPanel'
 import FlightTable from './components/FlightTable'
-import DetailPanel from './components/DetailPanel'
 import SettingsModal from './components/SettingsModal'
 import UsagePanel from './components/UsagePanel'
 import NotamPanel from './components/NotamPanel'
 import NasPanel from './components/NasPanel'
 import TfmsPanel from './components/tfms/TfmsPanel'
 import DashboardPanel from './components/DashboardPanel'
+import FlightInspectorModal from './components/FlightInspectorModal'
 import { SwimProvider } from './contexts/SwimContext'
 
 import axios from 'axios'
@@ -73,22 +73,6 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showUsage, setShowUsage] = useState(false)
   const [showNotams, setShowNotams] = useState(false)
-
-  // ── sidebar resize state ───────────────────────────────────────────────────
-  const [sidebarW, setSidebarW] = useState(360)
-  const draggingRef = useRef(false)
-
-  useEffect(() => {
-    const onMove = (e) => {
-      if (!draggingRef.current) return
-      const w = window.innerWidth - e.clientX
-      setSidebarW(Math.max(200, Math.min(600, w)))
-    }
-    const onUp = () => { draggingRef.current = false; document.body.style.cursor = '' }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-  }, [])
 
   // ── detail / enrichment state ───────────────────────────────────────────────
   const [selectedFlight, setSelectedFlight] = useState(null)
@@ -582,12 +566,10 @@ export default function App() {
         </div>
       )}
 
-      {/* Page 1: flight tracker — fills one viewport */}
-      {/* Sidebar auto-collapses to 0 when no flight selected so FlightTable gets full width */}
-      <div
-        className="grid grid-rows-[auto_auto_minmax(0,1fr)_auto_auto] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
-        style={{ '--sidebar-w': selectedFlight ? `${sidebarW}px` : '0px' }}
-      >
+      {/* Page 1: flight tracker — fills one viewport.
+          Flight detail is now a modal (FlightInspectorModal), not a sidebar,
+          so the FlightTable always uses full width. */}
+      <div className="grid grid-rows-[auto_auto_minmax(0,1fr)_auto_auto] grid-cols-1 h-screen overflow-hidden">
         {/* Combined command bar: branding, stats, filter, region, controls, SWIM indicators, clock */}
         <div className="col-span-full row-start-1">
           <CommandBar
@@ -627,54 +609,6 @@ export default function App() {
           />
         </div>
 
-        {/* Detail panel — desktop sidebar (only renders when a flight is selected) */}
-        {selectedFlight && (
-          <div className="row-start-3 overflow-y-auto min-h-0 hidden md:block relative">
-            {/* Resize handle */}
-            <div
-              className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-acc/30 active:bg-acc/50 transition-colors"
-              onMouseDown={(e) => { e.preventDefault(); draggingRef.current = true; document.body.style.cursor = 'col-resize' }}
-            />
-            <DetailPanel
-              flight={selectedFlight}
-              flights={flights}
-              enrichData={enrichCache[selectedFlight.icao]}
-              aeroCache={aeroCache}
-              aeroSpend={aeroSpend}
-              userAeroKey={settings.userAeroKey}
-              trackHistory={trackHistory[selectedFlight.icao]}
-              onClose={() => setSelectedFlight(null)}
-              onAeroFetched={handleAeroFetched}
-              backendOk={backendOk}
-            />
-          </div>
-        )}
-
-        {/* Detail panel — mobile slide-up sheet */}
-        {selectedFlight && (
-          <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
-            <div className="absolute inset-0 bg-black/60" onClick={() => setSelectedFlight(null)} />
-            <div className="relative bg-bg1 max-h-[80vh] overflow-y-auto rounded-t-lg border-t border-border">
-              <div className="sticky top-0 z-10 bg-bg2 flex justify-between items-center py-1 px-3 border-b border-border">
-                <span className="text-acc text-[11px]">aircraft intel</span>
-                <button className="text-fg3 text-sm px-2" onClick={() => setSelectedFlight(null)}>✕</button>
-              </div>
-              <DetailPanel
-                flight={selectedFlight}
-                flights={flights}
-                enrichData={enrichCache[selectedFlight.icao] ?? null}
-                aeroCache={aeroCache}
-                aeroSpend={aeroSpend}
-                userAeroKey={settings.userAeroKey}
-                trackHistory={trackHistory[selectedFlight.icao] ?? null}
-                onClose={() => setSelectedFlight(null)}
-                onAeroFetched={handleAeroFetched}
-                backendOk={backendOk}
-                mobile
-              />
-            </div>
-          </div>
-        )}
         {/* TFMS — flight plans, map, airport board, delays */}
         <div className="col-span-full row-start-4 overflow-y-auto">
           <TfmsPanel backendOk={backendOk} />
@@ -701,6 +635,20 @@ export default function App() {
       </div>
 
       {/* Overlays */}
+      {selectedFlight && (
+        <FlightInspectorModal
+          flight={selectedFlight}
+          flights={flights}
+          enrichData={enrichCache[selectedFlight.icao]}
+          aeroCache={aeroCache}
+          aeroSpend={aeroSpend}
+          userAeroKey={settings.userAeroKey}
+          trackHistory={trackHistory[selectedFlight.icao]}
+          onClose={() => setSelectedFlight(null)}
+          onAeroFetched={handleAeroFetched}
+          backendOk={backendOk}
+        />
+      )}
       {showSettings && (
         <SettingsModal
           settings={settings}

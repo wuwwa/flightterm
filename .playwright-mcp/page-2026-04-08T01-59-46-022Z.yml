@@ -1,0 +1,566 @@
+- generic [ref=e2]:
+  - generic [ref=e6]: fetching flights…
+  - generic [ref=e7]:
+    - generic [ref=e9]:
+      - generic [ref=e10]: flightterm
+      - generic [ref=e11]: "|"
+      - generic [ref=e12]:
+        - generic [ref=e13]: "0"
+        - generic [ref=e14]: ac
+      - generic [ref=e15]:
+        - generic [ref=e16]: "0"
+        - generic [ref=e17]: air
+      - generic [ref=e18]: "|"
+      - generic [ref=e19]:
+        - generic [ref=e22]: FNS
+        - generic [ref=e25]: TFMS
+        - generic [ref=e28]: SFDPS
+        - generic [ref=e31]: ITWS
+        - generic [ref=e34]: STDDS
+      - generic [ref=e35]:
+        - generic [ref=e36]: ❯
+        - textbox "callsign, icao, airline, type, airport…" [ref=e37]
+      - generic [ref=e38]:
+        - button "global" [ref=e39] [cursor=pointer]
+        - button "usa" [ref=e40] [cursor=pointer]
+        - button "europe" [ref=e41] [cursor=pointer]
+        - button "asia" [ref=e42] [cursor=pointer]
+        - button "atlantic" [ref=e43] [cursor=pointer]
+      - generic [ref=e44]: "|"
+      - button "settings" [ref=e45] [cursor=pointer]
+      - button "usage" [ref=e46] [cursor=pointer]
+      - button "clear" [ref=e47] [cursor=pointer]
+      - generic [ref=e48]:
+        - generic [ref=e49]: ○
+        - generic [ref=e50]: 01:59:45z
+    - generic "click to expand log" [ref=e52] [cursor=pointer]:
+      - generic [ref=e53]: log
+      - generic [ref=e54]: 01:59:45
+      - generic [ref=e55]: fetching initial flight data…
+      - generic [ref=e56]: ▼
+    - generic [ref=e58]:
+      - generic [ref=e60]:
+        - generic [ref=e61]: "0"
+        - text: records
+      - generic [ref=e62]: no data — press fetch
+    - generic [ref=e64]:
+      - generic [ref=e65]:
+        - generic [ref=e66] [cursor=pointer]:
+          - generic [ref=e67]: airport ops
+          - generic [ref=e68]: ▾
+        - generic [ref=e69]: 0 airports
+      - generic [ref=e72]:
+        - combobox [ref=e73]:
+          - option "select airport"
+          - option "ABQ — Albuquerque"
+          - option "ATL — Atlanta"
+          - option "AUS — Austin"
+          - option "BWI — Baltimore"
+          - option "BOS — Boston"
+          - option "CLT — Charlotte"
+          - option "MDW — Chicago Midway"
+          - option "ORD — Chicago O'Hare"
+          - option "CVG — Cincinnati"
+          - option "CLE — Cleveland"
+          - option "DAL — Dallas Love"
+          - option "DFW — Dallas-Fort Worth"
+          - option "DEN — Denver"
+          - option "DTW — Detroit"
+          - option "FLL — Fort Lauderdale"
+          - option "RSW — Fort Myers"
+          - option "HNL — Honolulu"
+          - option "HOU — Houston Hobby"
+          - option "IAH — Houston IAH"
+          - option "IND — Indianapolis"
+          - option "MCI — Kansas City"
+          - option "LAS — Las Vegas"
+          - option "LAX — Los Angeles"
+          - option "SDF — Louisville"
+          - option "MIA — Miami"
+          - option "MSP — Minneapolis"
+          - option "BNA — Nashville"
+          - option "MSY — New Orleans"
+          - option "JFK — New York JFK" [selected]
+          - option "LGA — New York LGA"
+          - option "EWR — Newark"
+          - option "OAK — Oakland"
+          - option "MCO — Orlando"
+          - option "PHL — Philadelphia"
+          - option "PHX — Phoenix"
+          - option "PIT — Pittsburgh"
+          - option "PDX — Portland"
+          - option "RDU — Raleigh-Durham"
+          - option "SMF — Sacramento"
+          - option "SLC — Salt Lake City"
+          - option "SAT — San Antonio"
+          - option "SAN — San Diego"
+          - option "SFO — San Francisco"
+          - option "SJC — San Jose"
+          - option "SEA — Seattle"
+          - option "STL — St. Louis"
+          - option "SYR — Syracuse"
+          - option "TPA — Tampa"
+          - option "DCA — Washington DCA"
+          - option "IAD — Washington IAD"
+          - option "PBI — West Palm Beach"
+        - generic [ref=e74]:
+          - generic [ref=e75]: JFK
+          - generic [ref=e76]: New York JFK, NY
+    - generic [ref=e83]:
+      - generic [ref=e84] [cursor=pointer]:
+        - generic [ref=e85]: FAA SWIM
+        - generic [ref=e86]: NAS health · NOTAMs · live feed · terminal weather
+        - generic [ref=e87]: ▾
+      - generic [ref=e88]:
+        - generic [ref=e89]:
+          - generic [ref=e90]:
+            - generic [ref=e91]: NAS status
+            - generic [ref=e93]: no feeds
+          - generic [ref=e95]: SWIM feeds not connected — configure in .env
+        - generic [ref=e96]:
+          - generic [ref=e97]:
+            - generic [ref=e98]: NOTAMs & TFRs
+            - generic [ref=e100]: "--"
+          - generic [ref=e101]: FNS feed not connected
+        - generic [ref=e102]:
+          - generic [ref=e103]:
+            - generic [ref=e104]: live feed
+            - generic [ref=e105]:
+              - button "● live" [ref=e106] [cursor=pointer]
+              - generic [ref=e107]: "66"
+          - generic [ref=e108]:
+            - button "FLOW 4" [ref=e109] [cursor=pointer]
+            - button "WX" [ref=e110] [cursor=pointer]
+            - button "ANOM 50" [ref=e111] [cursor=pointer]
+            - button "OPS" [ref=e112] [cursor=pointer]
+            - button "TFR 12" [ref=e113] [cursor=pointer]
+          - generic [ref=e114]:
+            - generic [ref=e115]:
+              - generic [ref=e116]: ANOM
+              - generic [ref=e117]:
+                - generic [ref=e118]: AAL1357 diversion
+                - generic [ref=e119]: 267km off filed route (KMIA→KJFK)
+              - generic [ref=e120]: 1m
+            - generic [ref=e121]:
+              - generic [ref=e122]: ANOM
+              - generic [ref=e123]:
+                - generic [ref=e124]: AAL2813 diversion
+                - generic [ref=e125]: heading 132° deviates 179° from KSFO (bearing 313°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e126]: 1m
+            - generic [ref=e127]:
+              - generic [ref=e128]: ANOM
+              - generic [ref=e129]:
+                - generic [ref=e130]: SWA4350 diversion
+                - generic [ref=e131]: heading 41° deviates 160° from KDAL (bearing 241°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e132]: 1m
+            - generic [ref=e133]:
+              - generic [ref=e134]: ANOM
+              - generic [ref=e135]:
+                - generic [ref=e136]: SWA3168 diversion
+                - generic [ref=e137]: descent -13.3 m/s [transponder] (expected -6 to 6 in cruise), heading 246° deviates 123° from KPHX (bearing 123°)
+              - generic [ref=e138]: 1m
+            - generic [ref=e139]:
+              - generic [ref=e140]: ANOM
+              - generic [ref=e141]:
+                - generic [ref=e142]: DAL2196 diversion
+                - generic [ref=e143]: heading 357° deviates 168° from KFLL (bearing 165°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e144]: 2m
+            - generic [ref=e145]:
+              - generic [ref=e146]: ANOM
+              - generic [ref=e147]:
+                - generic [ref=e148]: AAL2035 diversion
+                - generic [ref=e149]: 166km off filed route (KMIA→KSFO)
+              - generic [ref=e150]: 2m
+            - generic [ref=e151]:
+              - generic [ref=e152]: ANOM
+              - generic [ref=e153]:
+                - generic [ref=e154]: SWA2451 diversion
+                - generic [ref=e155]: descent -11.1 m/s [transponder] (expected -7 to 7 in cruise), speed change -16.6 m/s in 33s
+              - generic [ref=e156]: 2m
+            - generic [ref=e157]:
+              - generic [ref=e158]: ANOM
+              - generic [ref=e159]:
+                - generic [ref=e160]: UAL1326 diversion
+                - generic [ref=e161]: heading 349° deviates 172° from KIAH (bearing 161°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e162]: 2m
+            - generic [ref=e163]:
+              - generic [ref=e164]: ANOM
+              - generic [ref=e165]:
+                - generic [ref=e166]: SWA1845 diversion
+                - generic [ref=e167]: 1029km off filed route (?→?)
+              - generic [ref=e168]: 2m
+            - generic [ref=e169]:
+              - generic [ref=e170]: ANOM
+              - generic [ref=e171]:
+                - generic [ref=e172]: NKS1687 diversion
+                - generic [ref=e173]: 176km off filed route (KFLL→KLAX)
+              - generic [ref=e174]: 2m
+            - generic [ref=e175]:
+              - generic [ref=e176]: ANOM
+              - generic [ref=e177]:
+                - generic [ref=e178]: ROU2129 squawk
+                - generic [ref=e179]: SQUAWK 7700 — EMERGENCY
+              - generic [ref=e180]: 2m
+            - generic [ref=e181]:
+              - generic [ref=e182]: ANOM
+              - generic [ref=e183]:
+                - generic [ref=e184]: UAL2211 diversion
+                - generic [ref=e185]: heading 288° deviates 165° from KORD (bearing 93°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e186]: 3m
+            - generic [ref=e187]:
+              - generic [ref=e188]: ANOM
+              - generic [ref=e189]:
+                - generic [ref=e190]: UAL2224 diversion
+                - generic [ref=e191]: 165km off filed route (KIAH→KDCA)
+              - generic [ref=e192]: 3m
+            - generic [ref=e193]:
+              - generic [ref=e194]: ANOM
+              - generic [ref=e195]:
+                - generic [ref=e196]: UAL2400 diversion
+                - generic [ref=e197]: 227km off filed route (KBOS→KSFO)
+              - generic [ref=e198]: 4m
+            - generic [ref=e199]:
+              - generic [ref=e200]: ANOM
+              - generic [ref=e201]:
+                - generic [ref=e202]: SWA3523 diversion
+                - generic [ref=e203]: heading 261° deviates 177° from KABQ (bearing 84°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e204]: 4m
+            - generic [ref=e205]:
+              - generic [ref=e206]: ANOM
+              - generic [ref=e207]:
+                - generic [ref=e208]: AAL1135 diversion
+                - generic [ref=e209]: 207km off filed route (KPHX→KPHL)
+              - generic [ref=e210]: 5m
+            - generic [ref=e211]:
+              - generic [ref=e212]: ANOM
+              - generic [ref=e213]:
+                - generic [ref=e214]: AAL2668 diversion
+                - generic [ref=e215]: 247km off filed route (PHL→SLC)
+              - generic [ref=e216]: 5m
+            - generic [ref=e217]:
+              - generic [ref=e218]: ANOM
+              - generic [ref=e219]:
+                - generic [ref=e220]: UAL283 diversion
+                - generic [ref=e221]: 282km off filed route (KFLL→KEWR)
+              - generic [ref=e222]: 5m
+            - generic [ref=e223]:
+              - generic [ref=e224]: ANOM
+              - generic [ref=e225]:
+                - generic [ref=e226]: UAL2855 diversion
+                - generic [ref=e227]: heading 90° deviates 179° from KSFO (bearing 269°), MCP hdg 0° — 90° from current track (turn intent)
+              - generic [ref=e228]: 5m
+            - generic [ref=e229]:
+              - generic [ref=e230]: ANOM
+              - generic [ref=e231]:
+                - generic [ref=e232]: UAL797 diversion
+                - generic [ref=e233]: (near airport), 220km off filed route (KIAD→KLAX)
+              - generic [ref=e234]: 5m
+            - generic [ref=e235]:
+              - generic [ref=e236]: ANOM
+              - generic [ref=e237]:
+                - generic [ref=e238]: UPS701 diversion
+                - generic [ref=e239]: 171km off filed route (?→?)
+              - generic [ref=e240]: 5m
+            - generic [ref=e241]:
+              - generic [ref=e242]: ANOM
+              - generic [ref=e243]:
+                - generic [ref=e244]: AAL2897 diversion
+                - generic [ref=e245]: heading 8° deviates 49° from KSTL (bearing 319°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e246]: 5m
+            - generic [ref=e247]:
+              - generic [ref=e248]: ANOM
+              - generic [ref=e249]:
+                - generic [ref=e250]: JBU2615 diversion
+                - generic [ref=e251]: 168km off filed route (KJFK→KSFO)
+              - generic [ref=e252]: 6m
+            - generic [ref=e253]:
+              - generic [ref=e254]: ANOM
+              - generic [ref=e255]:
+                - generic [ref=e256]: SWA3064 diversion
+                - generic [ref=e257]: heading 135° deviates 168° from KLAS (bearing 303°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e258]: 7m
+            - generic [ref=e259]:
+              - generic [ref=e260]: ANOM
+              - generic [ref=e261]:
+                - generic [ref=e262]: UAL1148 diversion
+                - generic [ref=e263]: (near airport), 178km off filed route (KIAH→KSMF)
+              - generic [ref=e264]: 8m
+            - generic [ref=e265]:
+              - generic [ref=e266]: ANOM
+              - generic [ref=e267]:
+                - generic [ref=e268]: DAL811 diversion
+                - generic [ref=e269]: 290km off filed route (KMIA→KLAX)
+              - generic [ref=e270]: 8m
+            - generic [ref=e271]:
+              - generic [ref=e272]: ANOM
+              - generic [ref=e273]:
+                - generic [ref=e274]: RPA4634 diversion
+                - generic [ref=e275]: heading 86° deviates 98° from KATL (bearing 184°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e276]: 8m
+            - generic [ref=e277]:
+              - generic [ref=e278]: ANOM
+              - generic [ref=e279]:
+                - generic [ref=e280]: AAL469 diversion
+                - generic [ref=e281]: 198km off filed route (MIA→DFW)
+              - generic [ref=e282]: 8m
+            - generic [ref=e283]:
+              - generic [ref=e284]: ANOM
+              - generic [ref=e285]:
+                - generic [ref=e286]: ASA460 diversion
+                - generic [ref=e287]: 168km off filed route (KSEA→KBOS)
+              - generic [ref=e288]: 8m
+            - generic [ref=e289]:
+              - generic [ref=e290]: ANOM
+              - generic [ref=e291]:
+                - generic [ref=e292]: AAL1976 diversion
+                - generic [ref=e293]: heading 31° deviates 141° from KDFW (bearing 250°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e294]: 8m
+            - generic [ref=e295]:
+              - generic [ref=e296]: ANOM
+              - generic [ref=e297]:
+                - generic [ref=e298]: SWA3168 diversion
+                - generic [ref=e299]: heading 246° deviates 115° from KPHX (bearing 131°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e300]: 8m
+            - generic [ref=e301]:
+              - generic [ref=e302]: ANOM
+              - generic [ref=e303]:
+                - generic [ref=e304]: DAL1636 diversion
+                - generic [ref=e305]: 167km off filed route (KJFK→KTPA)
+              - generic [ref=e306]: 9m
+            - generic [ref=e307]:
+              - generic [ref=e308]: ANOM
+              - generic [ref=e309]:
+                - generic [ref=e310]: UAL742 diversion
+                - generic [ref=e311]: 229km off filed route (IAH→LGA)
+              - generic [ref=e312]: 9m
+            - generic [ref=e313]:
+              - generic [ref=e314]: ANOM
+              - generic [ref=e315]:
+                - generic [ref=e316]: ASA25 diversion
+                - generic [ref=e317]: descent -4.9 m/s [transponder] (expected -4 to 4 in cruise), speed change 29.1 m/s in 39s
+              - generic [ref=e318]: 10m
+            - generic [ref=e319]:
+              - generic [ref=e320]: ANOM
+              - generic [ref=e321]:
+                - generic [ref=e322]: UAL2321 diversion
+                - generic [ref=e323]: heading 270° deviates 180° from KEWR (bearing 90°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e324]: 10m
+            - generic [ref=e325]:
+              - generic [ref=e326]: ANOM
+              - generic [ref=e327]:
+                - generic [ref=e328]: AAL2097 diversion
+                - generic [ref=e329]: 175km off filed route (KFLL→KDCA)
+              - generic [ref=e330]: 10m
+            - generic [ref=e331]:
+              - generic [ref=e332]: ANOM
+              - generic [ref=e333]:
+                - generic [ref=e334]: SWA2615 diversion
+                - generic [ref=e335]: heading 168° deviates 64° from KMCO (bearing 104°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e336]: 10m
+            - generic [ref=e337]:
+              - generic [ref=e338]: ANOM
+              - generic [ref=e339]:
+                - generic [ref=e340]: UAL2400 diversion
+                - generic [ref=e341]: 231km off filed route (KBOS→KSFO)
+              - generic [ref=e342]: 10m
+            - generic [ref=e343]:
+              - generic [ref=e344]: ANOM
+              - generic [ref=e345]:
+                - generic [ref=e346]: UAL1156 diversion
+                - generic [ref=e347]: heading 255° deviates 179° from KORD (bearing 76°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e348]: 10m
+            - generic [ref=e349]:
+              - generic [ref=e350]: ANOM
+              - generic [ref=e351]:
+                - generic [ref=e352]: AAL1357 diversion
+                - generic [ref=e353]: 218km off filed route (KMIA→KJFK)
+              - generic [ref=e354]: 10m
+            - generic [ref=e355]:
+              - generic [ref=e356]: ANOM
+              - generic [ref=e357]:
+                - generic [ref=e358]: SWA4255 diversion
+                - generic [ref=e359]: 803km off filed route (KPHX→KSAT)
+              - generic [ref=e360]: 10m
+            - generic [ref=e361]:
+              - generic [ref=e362]: ANOM
+              - generic [ref=e363]:
+                - generic [ref=e364]: DAL2056 diversion
+                - generic [ref=e365]: 194km off filed route (KSLC→KMCO)
+              - generic [ref=e366]: 10m
+            - generic [ref=e367]:
+              - generic [ref=e368]: ANOM
+              - generic [ref=e369]:
+                - generic [ref=e370]: UAL1949 diversion
+                - generic [ref=e371]: heading 328° deviates 166° from KIAH (bearing 162°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e372]: 10m
+            - generic [ref=e373]:
+              - generic [ref=e374]: ANOM
+              - generic [ref=e375]:
+                - generic [ref=e376]: ASA19 diversion
+                - generic [ref=e377]: 172km off filed route (KJFK→KPDX)
+              - generic [ref=e378]: 10m
+            - generic [ref=e379]:
+              - generic [ref=e380]: ANOM
+              - generic [ref=e381]:
+                - generic [ref=e382]: SWA3610 diversion
+                - generic [ref=e383]: 165km off filed route (KMSY→KLAX)
+              - generic [ref=e384]: 11m
+            - generic [ref=e385]:
+              - generic [ref=e386]: ANOM
+              - generic [ref=e387]:
+                - generic [ref=e388]: SWA1080 diversion
+                - generic [ref=e389]: heading 0° deviates 178° from KSJC (bearing 178°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e390]: 11m
+            - generic [ref=e391]:
+              - generic [ref=e392]: ANOM
+              - generic [ref=e393]:
+                - generic [ref=e394]: SWA3507 diversion
+                - generic [ref=e395]: heading 108° deviates 175° from KAUS (bearing 283°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e396]: 11m
+            - generic [ref=e397]:
+              - generic [ref=e398]: ANOM
+              - generic [ref=e399]:
+                - generic [ref=e400]: RPA4435 diversion
+                - generic [ref=e401]: heading 135° deviates 162° from KCLE (bearing 333°), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e402]: 11m
+            - generic [ref=e403]:
+              - generic [ref=e404]: ANOM
+              - generic [ref=e405]:
+                - generic [ref=e406]: SKW4912 diversion
+                - generic [ref=e407]: descent -9.8 m/s [transponder] (expected -7 to 7 in cruise), speed change -20.7 m/s in 40s
+              - generic [ref=e408]: 12m
+            - generic [ref=e409]:
+              - generic [ref=e410]: ANOM
+              - generic [ref=e411]:
+                - generic [ref=e412]: AAL2668 diversion
+                - generic [ref=e413]: climb 5.5 m/s [transponder] (expected -4 to 4 in cruise), (convective SIGMET active — likely weather avoidance)
+              - generic [ref=e414]: 12m
+            - generic [ref=e415]:
+              - generic [ref=e416]: FLOW
+              - generic [ref=e417]:
+                - generic [ref=e418]: REROUTE DNL
+                - generic [ref=e419]: other
+              - generic [ref=e420]: 26m
+            - generic [ref=e421]:
+              - generic [ref=e422]: FLOW
+              - generic [ref=e423]:
+                - generic [ref=e424]: GROUND DELAY — 25m delay
+                - generic [ref=e425]: staffing
+              - generic [ref=e426]: 35m
+            - generic [ref=e427]:
+              - generic [ref=e428]: TFR
+              - generic [ref=e429]:
+                - generic [ref=e430]: TFR ZTL
+                - generic [ref=e431]: TN..AIRSPACE 14NM SE CLEVELAND, TN..TEMPORARY FLIGHT RESTRICTIONS WI A
+              - generic [ref=e432]: 50m
+            - generic [ref=e433]:
+              - generic [ref=e434]: TFR
+              - generic [ref=e435]:
+                - generic [ref=e436]: TFR FDC
+                - generic [ref=e437]: FDC 6/9419 NOTAMC 6/9394 A) ORD
+              - generic [ref=e438]: 1h
+            - generic [ref=e439]:
+              - generic [ref=e440]: FLOW
+              - generic [ref=e441]:
+                - generic [ref=e442]: REROUTE DNL
+                - generic [ref=e443]: other
+              - generic [ref=e444]: 1h
+            - generic [ref=e445]:
+              - generic [ref=e446]: TFR
+              - generic [ref=e447]:
+                - generic [ref=e448]: TFR FDC
+                - generic [ref=e449]: FDC 6/9418 NOTAMC 6/9380 A) ORD
+              - generic [ref=e450]: 1h
+            - generic [ref=e451]:
+              - generic [ref=e452]: TFR
+              - generic [ref=e453]:
+                - generic [ref=e454]: TFR FDC
+                - generic [ref=e455]: FDC 6/9415 NOTAMC 6/9392 A) ORD
+              - generic [ref=e456]: 1h
+            - generic [ref=e457]:
+              - generic [ref=e458]: TFR
+              - generic [ref=e459]:
+                - generic [ref=e460]: TFR FDC
+                - generic [ref=e461]: FDC 6/9413 NOTAMC 6/9387 A) ORD
+              - generic [ref=e462]: 1h
+            - generic [ref=e463]:
+              - generic [ref=e464]: TFR
+              - generic [ref=e465]:
+                - generic [ref=e466]: TFR FDC
+                - generic [ref=e467]: FDC 6/9411 NOTAMC 6/9390 A) ORD
+              - generic [ref=e468]: 1h
+            - generic [ref=e469]:
+              - generic [ref=e470]: TFR
+              - generic [ref=e471]:
+                - generic [ref=e472]: TFR FDC
+                - generic [ref=e473]: FDC 6/9409 NOTAMC 6/9381 A) ORD
+              - generic [ref=e474]: 1h
+            - generic [ref=e475]:
+              - generic [ref=e476]: TFR
+              - generic [ref=e477]:
+                - generic [ref=e478]: TFR FDC
+                - generic [ref=e479]: FDC 6/9407 NOTAMC 6/9393 A) ORD
+              - generic [ref=e480]: 1h
+            - generic [ref=e481]:
+              - generic [ref=e482]: TFR
+              - generic [ref=e483]:
+                - generic [ref=e484]: TFR FDC
+                - generic [ref=e485]: FDC 6/9403 NOTAMC 6/9391 A) ORD
+              - generic [ref=e486]: 1h
+            - generic [ref=e487]:
+              - generic [ref=e488]: TFR
+              - generic [ref=e489]:
+                - generic [ref=e490]: TFR FDC
+                - generic [ref=e491]: FDC 6/9401 NOTAMC 6/9389 A) ORD
+              - generic [ref=e492]: 1h
+            - generic [ref=e493]:
+              - generic [ref=e494]: TFR
+              - generic [ref=e495]:
+                - generic [ref=e496]: TFR FDC
+                - generic [ref=e497]: FDC 6/9399 NOTAMC 6/9386 A) ORD
+              - generic [ref=e498]: 1h
+            - generic [ref=e499]:
+              - generic [ref=e500]: TFR
+              - generic [ref=e501]:
+                - generic [ref=e502]: TFR FDC
+                - generic [ref=e503]: FDC 6/9395 NOTAMC 6/9383 A) ORD
+              - generic [ref=e504]: 1h
+            - generic [ref=e505]:
+              - generic [ref=e506]: FLOW
+              - generic [ref=e507]:
+                - generic [ref=e508]: REROUTE AGS
+                - generic [ref=e509]: other
+              - generic [ref=e510]: 1h
+        - generic [ref=e511]:
+          - generic [ref=e512]:
+            - generic [ref=e513]: terminal weather
+            - generic [ref=e514]: 0 sites · 0 hazards
+          - generic [ref=e515]: no terminal hazards
+  - generic [ref=e518]:
+    - generic [ref=e519]:
+      - generic [ref=e521]: US airspace
+      - generic [ref=e522]:
+        - generic [ref=e523]:
+          - generic [ref=e524]: wx
+          - button "TFRs" [ref=e525] [cursor=pointer]
+          - button "WX" [ref=e526] [cursor=pointer]
+          - button "PIREPs" [ref=e527] [cursor=pointer]
+          - button "ITWS" [ref=e528] [cursor=pointer]
+        - generic [ref=e529]:
+          - generic [ref=e530]: flt
+          - button "ADS-B" [ref=e531] [cursor=pointer]
+          - button "IFR" [ref=e532] [cursor=pointer]
+          - button "TRACON" [ref=e533] [cursor=pointer]
+        - generic [ref=e534]:
+          - generic [ref=e535]: evt
+          - button "anomalies" [ref=e536] [cursor=pointer]
+          - button "off-route" [ref=e537] [cursor=pointer]
+          - button "flow" [ref=e538] [cursor=pointer]
+          - button "NOTAMs" [ref=e539] [cursor=pointer]
+          - button "cascades" [ref=e540] [cursor=pointer]
+    - generic [ref=e543]:
+      - button "Zoom in" [ref=e544] [cursor=pointer]: +
+      - button "Zoom out" [ref=e545] [cursor=pointer]: −
+  - generic [ref=e551]:
+    - generic [ref=e552]: NORMALopensky-network.org + api.adsbdb.com
+    - generic [ref=e553]: idle

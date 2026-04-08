@@ -1,0 +1,202 @@
+[     118ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:21550
+[     202ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775614937216:174
+[     202ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775614937216:178
+[     204ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775614937216:174
+[     205ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775614937216:178
+[     228ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 4686 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775614937216:185
+[     228ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775614937216:213
+[     229ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775614937216:220
+[     285ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3991, serverFetchedAt: 1775615021835, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[     286ms] [LOG] [fetch] result: 3991 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[     443ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/favicon.ico:0
+[     488ms] [LOG] [boot] live sync enabled @ http://localhost:5173/src/App.jsx?t=1775614937216:225
+[     488ms] [LOG] [boot] complete @ http://localhost:5173/src/App.jsx?t=1775614937216:230
+[    1140ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N28BR:0
+[    4740ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N620SY:0
+[    7587ms] [ERROR] Failed to load resource: the server responded with a status of 429 (Too Many Requests) @ http://localhost:5173/api/apl/hex?hex=a817e4:0
+[    8601ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://localhost:5173/api/apl/hex?hex=a6ab27:0
+[   15407ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://localhost:5173/api/apl/hex?hex=ae5d80:0
+[   15517ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/aircraft/ae5d80:0
+[   15517ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/GAGE08:0
+[   16287ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N432PH:0
+[   19006ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://localhost:5173/api/apl/hex?hex=a99692:0
+[   19106ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N717FG:0
+[   19106ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/aircraft/a99692:0
+[   22893ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3986, serverFetchedAt: 1775615067338, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[   22894ms] [LOG] [fetch] result: 3986 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[   31460ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N213PF:0
+[   45396ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3986, serverFetchedAt: 1775615067338, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[   45396ms] [LOG] [fetch] result: 3986 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[   46609ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAU:0
+[   62331ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAS:0
+[   67896ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3967, serverFetchedAt: 1775615112041, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[   67896ms] [LOG] [fetch] result: 3967 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[   77490ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3534S:0
+[   83716ms] [ERROR] Failed to load resource: the server responded with a status of 429 (Too Many Requests) @ http://localhost:5173/api/apl/hex?hex=a38d8f:0
+[   90420ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3967, serverFetchedAt: 1775615112041, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[   90421ms] [LOG] [fetch] result: 3967 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[   92640ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N595GL:0
+[  107794ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/JUMP70:0
+[  112910ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3967, serverFetchedAt: 1775615157043, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[  112911ms] [LOG] [fetch] result: 3967 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[  122954ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/COOL51:0
+[  135410ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3967, serverFetchedAt: 1775615157043, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[  135411ms] [LOG] [fetch] result: 3967 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[  138115ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/COOL37:0
+[  153252ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/BOXER33:0
+[  157499ms] ReferenceError: flownKm is not defined
+    at http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:518:27
+    at updateMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12210:27)
+    at Object.useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12726:24)
+    at useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-RLJ2RCJQ.js?v=9f3348c7:1094:29)
+    at FlightMap (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:490:22)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+[  157500ms] ReferenceError: flownKm is not defined
+    at http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:518:27
+    at updateMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12210:27)
+    at Object.useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12726:24)
+    at useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-RLJ2RCJQ.js?v=9f3348c7:1094:29)
+    at FlightMap (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:490:22)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+[  157500ms] ReferenceError: flownKm is not defined
+    at http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:518:27
+    at updateMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12210:27)
+    at Object.useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12726:24)
+    at useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-RLJ2RCJQ.js?v=9f3348c7:1094:29)
+    at FlightMap (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:490:22)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+[  157500ms] ReferenceError: flownKm is not defined
+    at http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:518:27
+    at updateMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12210:27)
+    at Object.useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12726:24)
+    at useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-RLJ2RCJQ.js?v=9f3348c7:1094:29)
+    at FlightMap (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:490:22)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+[  157504ms] [ERROR] The above error occurred in the <FlightMap> component:
+
+    at FlightMap (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:436:37)
+    at div
+    at DetailPanel (http://localhost:5173/src/components/DetailPanel.jsx?t=1775614937216:76:3)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775614937216:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  157504ms] [ERROR] ErrorBoundary caught: ReferenceError: flownKm is not defined
+    at http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:518:27
+    at updateMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12210:27)
+    at Object.useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12726:24)
+    at useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-RLJ2RCJQ.js?v=9f3348c7:1094:29)
+    at FlightMap (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:490:22)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20) 
+    at FlightMap (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:436:37)
+    at div
+    at DetailPanel (http://localhost:5173/src/components/DetailPanel.jsx?t=1775614937216:76:3)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775614937216:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  157504ms] [ERROR] The above error occurred in the <FlightMap> component:
+
+    at FlightMap (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:436:37)
+    at div
+    at DetailPanel (http://localhost:5173/src/components/DetailPanel.jsx?t=1775614937216:76:3)
+    at div
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775614937216:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  157504ms] [ERROR] ErrorBoundary caught: ReferenceError: flownKm is not defined
+    at http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:518:27
+    at updateMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12210:27)
+    at Object.useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:12726:24)
+    at useMemo (http://localhost:5173/node_modules/.vite/deps/chunk-RLJ2RCJQ.js?v=9f3348c7:1094:29)
+    at FlightMap (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:490:22)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20) 
+    at FlightMap (http://localhost:5173/@fs/C:/Users/wilso/Documents/Flight/flightterm/frontend/src/components/FlightMap.jsx?t=1775615220818:436:37)
+    at div
+    at DetailPanel (http://localhost:5173/src/components/DetailPanel.jsx?t=1775614937216:76:3)
+    at div
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775614937216:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  168411ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N439NK:0
+[  178390ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775614937216:174
+[  178390ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775614937216:178
+[  178391ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775614937216:174
+[  178391ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775614937216:178
+[  178408ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 4730 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775614937216:185
+[  178408ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775614937216:213
+[  178409ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775614937216:220
+[  178454ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3970, serverFetchedAt: 1775615202133, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[  178455ms] [LOG] [fetch] result: 3970 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[  178603ms] [LOG] [boot] live sync enabled @ http://localhost:5173/src/App.jsx?t=1775614937216:225
+[  178603ms] [LOG] [boot] complete @ http://localhost:5173/src/App.jsx?t=1775614937216:230
+[  178759ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N28BR:0
+[  183582ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N72K:0
+[  193909ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N432PH:0
+[  198722ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGXPH:0
+[  201095ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3942, serverFetchedAt: 1775615247097, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[  201095ms] [LOG] [fetch] result: 3942 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[  209057ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N213PF:0
+[  213880ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N116SM:0
+[  223593ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3942, serverFetchedAt: 1775615247097, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[  223594ms] [LOG] [fetch] result: 3942 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[  224211ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAU:0
+[  229025ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N68VU:0
+[  239390ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGYAS:0
+[  244179ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/ROYAL55:0
+[  246091ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3925, serverFetchedAt: 1775615292061, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[  246091ms] [LOG] [fetch] result: 3925 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[  254588ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3534S:0
+[  260009ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/SHINR38:0
+[  268591ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3925, serverFetchedAt: 1775615292061, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[  268591ms] [LOG] [fetch] result: 3925 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[  269726ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N595GL:0
+[  275165ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/GH71:0
+[  284869ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/JUMP70:0
+[  291073ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3916, serverFetchedAt: 1775615337040, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[  291074ms] [LOG] [fetch] result: 3916 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[  293079ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N184SD:0
+[  300031ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/COOL51:0
+[  308793ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGBLP:0
+[  313583ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3916, serverFetchedAt: 1775615337040, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[  313583ms] [LOG] [fetch] result: 3916 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[  315204ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/COOL37:0
+[  323937ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N24BQ:0
+[  330362ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N439NK:0
+[  336081ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 3910, serverFetchedAt: 1775615381987, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775614937216:252
+[  336082ms] [LOG] [fetch] result: 3910 flights @ http://localhost:5173/src/App.jsx?t=1775614937216:277
+[  339095ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N492LP:0

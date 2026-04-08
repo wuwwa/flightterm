@@ -51,7 +51,7 @@ export default function TfmsPanel({ backendOk }) {
       </div>
 
       {!collapsed && (
-        <div className="bg-bg1" style={{ height: '260px' }}>
+        <div className="bg-bg1" style={{ height: '420px' }}>
           <AirportBoard backendOk={backendOk} airport={selectedAirport} onAirportChange={setSelectedAirport} />
         </div>
       )}

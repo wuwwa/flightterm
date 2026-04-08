@@ -4,21 +4,18 @@ import { squawkLabel, squawkColor } from '../utils/squawk'
 import { detectPhase, PHASE } from '../utils/anomaly'
 import FilterBar, { emptyFilters, isFiltersActive, applyFilters, computeFilterCounts } from './FilterBar'
 
+// Column layout (desktop): 8 essential columns. Older "operator", "country",
+// "eta", "squawk", "hdg", "src" are folded into other cells or shown via tooltips
+// to keep the table scannable. Mobile uses a subset via hideMobile.
 const COLS = [
   { key: 'icao',     label: 'icao24' },
   { key: 'callsign', label: 'callsign' },
-  { key: 'operator', label: 'operator', hideMobile: true },
   { key: 'type',     label: 'type', hideMobile: true },
-  { key: 'country',  label: 'ctry', hideMobile: true },
   { key: 'route',    label: 'route', hideMobile: true },
-  { key: 'alt',      label: 'alt (ft)' },
-  { key: 'vel',      label: 'spd (kt)' },
-  { key: 'vrate',    label: 'vrate', hideMobile: true },
+  { key: 'alt',      label: 'alt' },
+  { key: 'vel',      label: 'spd' },
+  { key: 'vrate',    label: 'v/r', hideMobile: true },
   { key: 'phase',    label: 'phase' },
-  { key: 'eta',      label: 'eta', hideMobile: true },
-  { key: 'squawk',   label: 'squawk', hide: true },
-  { key: 'hdg',      label: 'hdg', hide: true },
-  { key: 'src',      label: 'src', hide: true },
 ]
 
 // Abbreviate common country names to 2-3 chars
@@ -42,11 +39,11 @@ function shortCountry(c) {
 }
 
 const PHASE_LABEL = {
-  [PHASE.CLIMB]:    'climb',
-  [PHASE.CRUISE]:   'cruise',
-  [PHASE.DESCENT]:  'descent',
-  [PHASE.APPROACH]: 'approach',
-  [PHASE.GROUND]:   'ground',
+  [PHASE.CLIMB]:    'CLB',
+  [PHASE.CRUISE]:   'CRZ',
+  [PHASE.DESCENT]:  'DES',
+  [PHASE.APPROACH]: 'APR',
+  [PHASE.GROUND]:   'GND',
   [PHASE.UNKNOWN]:  '—',
 }
 
@@ -423,8 +420,8 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                 )}
                 onClick={() => onSelect(f)}
               >
-                {/* icao24 + anomaly indicator */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3">
+                {/* icao24 + anomaly indicator + squawk badge if non-standard */}
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 tabular-nums">
                   {anomaly && (
                     <span
                       className={clsx('mr-1', anomaly.confirmed ? 'text-red font-bold' : 'text-red')}
@@ -434,32 +431,46 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                     </span>
                   )}
                   {f.icao}
+                  {squawkLabel(f.squawk) && (
+                    <span className={clsx('ml-1 text-[9px]', squawkColor(f.squawk))} title={`squawk ${f.squawk}`}>
+                      {squawkLabel(f.squawk)}
+                    </span>
+                  )}
                 </td>
-                {/* callsign */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-ylw">
+                {/* callsign + operator (folded into tooltip) */}
+                <td
+                  className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-ylw"
+                  title={[f.acOperator, acReg, f.country].filter(Boolean).join(' · ')}
+                >
                   {f.callsign}
-                  {f.mil && <span className="text-red text-[10px]"> [mil]</span>}
+                  {f.mil && <span className="text-red text-[9px] ml-1">[mil]</span>}
                 </td>
-                {/* operator */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell" title={f.acReg ? `${f.acOperator || '—'} (${acReg})` : f.acOperator || f.country}>
-                  {f.acOperator?.substring(0, 12) || shortCountry(f.country)}
+                {/* type · ctry — type if known, country fallback */}
+                <td
+                  className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell"
+                  title={[f.acDesc || acType, cat ? CAT_LABEL[cat?.toUpperCase()] || cat : null, f.country].filter(Boolean).join(' · ')}
+                >
+                  {acType ? (
+                    <>
+                      <span className="text-fg2">{acType}</span>
+                      {cat && <span className="text-fg3/50 text-[8px] ml-0.5">{CAT_LABEL[cat?.toUpperCase()] || cat}</span>}
+                    </>
+                  ) : (
+                    <span className="text-fg3/40">{shortCountry(f.country) || '—'}</span>
+                  )}
                 </td>
-                {/* type + class badge */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell" title={[f.acDesc || acType, cat ? `Cat ${cat} (${CAT_LABEL[cat?.toUpperCase()] || cat})` : null].filter(Boolean).join(' · ')}>
-                  {acType || '—'}
-                  {cat && <span className="text-fg3/50 text-[8px] ml-0.5">{CAT_LABEL[cat?.toUpperCase()] || cat}</span>}
-                </td>
-                {/* country */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell" title={f.country}>
-                  {shortCountry(f.country)}
-                </td>
-                {/* route (from TFMS) + off-route indicator */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell" title={f.tfms?.route || ''}>
+                {/* route — DEP→ARR · ETA · deviation, all in one cell when TFMS data exists */}
+                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell tabular-nums" title={f.tfms?.route || ''}>
                   {f.tfms?.dep_arpt && f.tfms?.arr_arpt ? (
-                    <span className="text-fg2">
-                      {f.tfms.dep_arpt.replace(/^K/, '')}
-                      <span className="text-fg3/40">→</span>
-                      {f.tfms.arr_arpt.replace(/^K/, '')}
+                    <span>
+                      <span className="text-fg2">{f.tfms.dep_arpt.replace(/^K/, '')}</span>
+                      <span className="text-fg3/40 mx-0.5">→</span>
+                      <span className="text-fg2">{f.tfms.arr_arpt.replace(/^K/, '')}</span>
+                      {f.tfms?.eta && (
+                        <span className="text-fg3/60 text-[9px] ml-1.5">
+                          {new Date(f.tfms.eta).toISOString().substring(11, 16)}z
+                        </span>
+                      )}
                       {f.routeDeviation > 50 && (
                         <span className={clsx('ml-1 text-[8px]', f.routeDeviation > 100 ? 'text-red' : 'text-ylw')} title={`${f.routeDeviation}km off ${f.routeDeviationMode === 'polyline' ? 'filed waypoints' : 'great-circle path'}`}>
                           {f.routeDeviation}km{f.routeDeviationMode === 'polyline' ? '*' : ''}
@@ -467,46 +478,33 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                       )}
                     </span>
                   ) : enrich?.flightroute ? (
-                    <span className="text-fg3">
+                    <span className="text-fg3/60">
                       {enrich.flightroute.origin?.icao_code?.replace(/^K/, '') || '?'}
-                      <span className="text-fg3/40">→</span>
+                      <span className="text-fg3/30 mx-0.5">→</span>
                       {enrich.flightroute.destination?.icao_code?.replace(/^K/, '') || '?'}
                     </span>
-                  ) : '—'}
+                  ) : null}
                 </td>
                 {/* altitude in feet */}
                 <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs tabular-nums', f.grounded ? 'text-ylw' : 'text-cyn')}>
-                  {f.alt != null ? Math.round(f.alt * 3.281).toLocaleString() : '—'}
+                  {f.alt != null ? Math.round(f.alt * 3.281).toLocaleString() : ''}
                 </td>
                 {/* speed in knots */}
                 <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg2 tabular-nums">
-                  {f.vel != null ? Math.round(f.vel * 1.944) : '—'}
+                  {f.vel != null ? Math.round(f.vel * 1.944) : ''}
                 </td>
                 {/* vertical rate in ft/min */}
                 <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell tabular-nums',
-                  vr == null ? 'text-fg3' : Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg3'
+                  vr == null ? 'text-fg3/40' : Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg3'
                 )}>
-                  {vr != null ? `${vr > 0 ? '+' : ''}${vr}` : '—'}
+                  {vr != null ? `${vr > 0 ? '+' : ''}${vr}` : ''}
                 </td>
-                {/* phase */}
-                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs', PHASE_COLOR[phase])}>
+                {/* phase + heading on hover via tooltip */}
+                <td
+                  className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs font-bold', PHASE_COLOR[phase])}
+                  title={f.hdg != null ? `heading ${f.hdg}°` : ''}
+                >
                   {PHASE_LABEL[phase]}
-                </td>
-                {/* ETA from TFMS */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell tabular-nums">
-                  {f.tfms?.eta ? new Date(f.tfms.eta).toISOString().substring(11, 16) + 'z' : '—'}
-                </td>
-                {/* squawk (hidden by default) */}
-                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell', squawkColor(f.squawk))}>
-                  {squawkLabel(f.squawk)}
-                </td>
-                {/* heading (hidden by default) */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell tabular-nums">
-                  {f.hdg != null ? `${f.hdg}°` : '—'}
-                </td>
-                {/* data source indicators (hidden by default) */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3/50 hidden sm:table-cell" title="T=TFMS E=Enriched R=Route">
-                  {srcIndicator(f, enrichCache)}
                 </td>
               </tr>
             )

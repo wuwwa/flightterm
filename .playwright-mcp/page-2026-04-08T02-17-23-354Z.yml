@@ -1,0 +1,1650 @@
+- generic [ref=e2]:
+  - generic [ref=e6]: fetching flights…
+  - generic [ref=e7]:
+    - generic [ref=e9]:
+      - generic [ref=e10]: flightterm
+      - generic [ref=e11]: "|"
+      - generic [ref=e12]:
+        - generic [ref=e13]: "0"
+        - generic [ref=e14]: ac
+      - generic [ref=e15]:
+        - generic [ref=e16]: "0"
+        - generic [ref=e17]: air
+      - generic [ref=e18]: "|"
+      - generic [ref=e19]:
+        - generic [ref=e22]: FNS
+        - generic [ref=e25]: TFMS
+        - generic [ref=e28]: SFDPS
+        - generic [ref=e31]: ITWS
+        - generic [ref=e34]: STDDS
+      - generic [ref=e35]:
+        - generic [ref=e36]: 2,143
+        - generic [ref=e37]: flights
+      - generic [ref=e38]: 1 GS
+      - generic [ref=e39]: 1 GDP
+      - generic [ref=e40]: 57 TFR
+      - generic [ref=e41]:
+        - generic [ref=e42]: ❯
+        - textbox "callsign, icao, airline, type, airport…" [ref=e43]
+      - generic [ref=e44]:
+        - button "global" [ref=e45] [cursor=pointer]
+        - button "usa" [ref=e46] [cursor=pointer]
+        - button "europe" [ref=e47] [cursor=pointer]
+        - button "asia" [ref=e48] [cursor=pointer]
+        - button "atlantic" [ref=e49] [cursor=pointer]
+      - generic [ref=e50]: "|"
+      - button "settings" [ref=e51] [cursor=pointer]
+      - button "usage" [ref=e52] [cursor=pointer]
+      - button "clear" [ref=e53] [cursor=pointer]
+      - generic [ref=e54]:
+        - generic [ref=e55]: ○
+        - generic [ref=e56]: 02:17:23z
+    - generic "click to expand log" [ref=e58] [cursor=pointer]:
+      - generic [ref=e59]: log
+      - generic [ref=e60]: 02:17:23
+      - generic [ref=e61]: fetching initial flight data…
+      - generic [ref=e62]: ▼
+    - generic [ref=e64]:
+      - generic [ref=e66]:
+        - generic [ref=e67]: "0"
+        - text: records
+      - generic [ref=e68]: no data — press fetch
+    - generic [ref=e70]:
+      - generic [ref=e71]:
+        - generic [ref=e72] [cursor=pointer]:
+          - generic [ref=e73]: airport ops
+          - generic [ref=e74]: ▾
+        - 'generic "Airspace health: 100/100 — 0 GS, 0 GDP, 0 congestion, 321 airports" [ref=e75]': NORMAL
+        - generic [ref=e78]: 321 airports
+      - generic [ref=e80]:
+        - generic [ref=e81]:
+          - textbox "search airport…" [ref=e83]: JFK · New York JFK
+          - generic [ref=e84]: NY
+          - generic [ref=e85]:
+            - generic [ref=e86]: 33 in
+            - generic [ref=e87]: 45 out
+          - generic "METAR KJFK 080151Z 33020G27KT 10SM FEW250 03/M11 A3045 RMK AO2 PK WND 34033/0114 SLP311 T00281111" [ref=e89]:
+            - generic [ref=e90]: VFR
+            - generic [ref=e91]: 330@20G27kt
+            - generic [ref=e92]: 10+sm
+            - generic [ref=e93]: 2.8°C
+        - generic [ref=e94]:
+          - generic [ref=e95]:
+            - generic [ref=e96]: Traffic
+            - generic [ref=e97]:
+              - generic [ref=e98]: 33 in
+              - generic [ref=e99]: 45 out
+            - generic [ref=e100]: 20 landed in last 30m
+          - generic [ref=e101]:
+            - generic [ref=e102]: Next
+            - generic [ref=e103]:
+              - generic [ref=e104]: 33m in
+              - generic [ref=e105]: — out
+            - generic [ref=e106]: JBU1204
+          - generic [ref=e107]:
+            - generic [ref=e108]: Inbound Wave
+            - generic [ref=e109]:
+              - generic [ref=e110]: 1 ≤30m
+              - generic [ref=e111]: 4 30-60m
+            - generic [ref=e112]: arrival pressure window
+          - generic [ref=e113]:
+            - generic [ref=e114]: Origins
+            - generic [ref=e115]:
+              - generic [ref=e116]: "23"
+              - generic [ref=e117]: unique
+            - generic [ref=e118]: "top: LAX (4)"
+        - generic [ref=e119]:
+          - generic [ref=e120]: data coverage
+          - generic [ref=e123]: TFMS
+          - generic [ref=e126]: STDDS
+          - generic [ref=e129]: ITWS
+          - generic [ref=e132]: cfg
+          - generic [ref=e135]: flow
+        - generic [ref=e136]:
+          - generic [ref=e137]:
+            - generic [ref=e138]: eta
+            - generic [ref=e139]: 1≤15m
+            - generic [ref=e140]: 0≤30m
+            - generic [ref=e141]: 4≤60m
+            - generic [ref=e142]: 6+60m
+          - generic [ref=e143]:
+            - generic [ref=e144]: airlines
+            - generic [ref=e145]:
+              - generic [ref=e146]: JBU
+              - generic [ref=e147]: "32"
+            - generic [ref=e148]:
+              - generic [ref=e149]: DAL
+              - generic [ref=e150]: "27"
+            - generic [ref=e151]:
+              - generic [ref=e152]: AAL
+              - generic [ref=e153]: "12"
+            - generic [ref=e154]:
+              - generic [ref=e155]: EDV
+              - generic [ref=e156]: "4"
+            - generic [ref=e157]:
+              - generic [ref=e158]: RPA
+              - generic [ref=e159]: "2"
+          - generic [ref=e160]:
+            - generic [ref=e161]: in
+            - generic [ref=e162]:
+              - generic [ref=e163]: LAX
+              - generic [ref=e164]: "4"
+            - generic [ref=e165]:
+              - generic [ref=e166]: LAS
+              - generic [ref=e167]: "3"
+            - generic [ref=e168]:
+              - generic [ref=e169]: SFO
+              - generic [ref=e170]: "3"
+            - generic [ref=e171]:
+              - generic [ref=e172]: MMUN
+              - generic [ref=e173]: "2"
+            - generic [ref=e174]:
+              - generic [ref=e175]: SAN
+              - generic [ref=e176]: "2"
+          - generic [ref=e177]:
+            - generic [ref=e178]: out
+            - generic [ref=e179]:
+              - generic [ref=e180]: LAX
+              - generic [ref=e181]: "6"
+            - generic [ref=e182]:
+              - generic [ref=e183]: SFO
+              - generic [ref=e184]: "5"
+            - generic [ref=e185]:
+              - generic [ref=e186]: PHX
+              - generic [ref=e187]: "3"
+            - generic [ref=e188]:
+              - generic [ref=e189]: SAN
+              - generic [ref=e190]: "2"
+            - generic [ref=e191]:
+              - generic [ref=e192]: SLC
+              - generic [ref=e193]: "2"
+        - generic [ref=e194]:
+          - button "Flights78" [ref=e195] [cursor=pointer]
+          - button "Weather" [ref=e196] [cursor=pointer]
+          - button "NOTAMs" [ref=e197] [cursor=pointer]
+          - button "Surface" [ref=e198] [cursor=pointer]
+          - button "Flow" [ref=e199] [cursor=pointer]
+        - generic [ref=e201]:
+          - generic [ref=e202]:
+            - generic [ref=e203]:
+              - generic [ref=e204]: ARRIVALS
+              - generic [ref=e205]: 33 inbound · 20 landed
+            - generic [ref=e206]:
+              - generic [ref=e207]: Flight
+              - generic [ref=e208]: From
+              - generic [ref=e209]: Status
+              - generic [ref=e210]: Alt
+              - generic [ref=e211]: ETA
+            - generic [ref=e212]:
+              - generic "JBU566 · MWCR→KJFK · 01:03z" [ref=e213] [cursor=pointer]:
+                - generic [ref=e214]: JBU566
+                - generic [ref=e215]: MWCR
+                - generic [ref=e216]: Active
+                - generic [ref=e217]: FL370
+                - generic [ref=e219]: 01:03z
+              - generic "JBU528 · SEGU→KJFK · 03:22z" [ref=e220] [cursor=pointer]:
+                - generic [ref=e221]: JBU528
+                - generic [ref=e222]: SEGU
+                - generic [ref=e223]: Active
+                - generic [ref=e224]: FL310
+                - generic [ref=e226]: 03:22z
+              - generic "DAL1950 · TIST→KJFK · 23:44z (-153m)" [ref=e227] [cursor=pointer]:
+                - generic [ref=e228]: DAL1950
+                - generic [ref=e229]: TIST
+                - generic [ref=e230]: Active
+                - generic [ref=e231]: FL90
+                - generic [ref=e232]:
+                  - generic [ref=e233]: "-153m"
+                  - generic [ref=e234]: 23:44z
+              - generic "DAL939 · KLAX→KJFK · 23:56z (-141m)" [ref=e235] [cursor=pointer]:
+                - generic [ref=e236]: DAL939
+                - generic [ref=e237]: LAX
+                - generic [ref=e238]: Active
+                - generic [ref=e239]: FL30
+                - generic [ref=e240]:
+                  - generic [ref=e241]: "-141m"
+                  - generic [ref=e242]: 23:56z
+              - generic "DAL305 · KFLL→KJFK · 23:56z (-141m)" [ref=e243] [cursor=pointer]:
+                - generic [ref=e244]: DAL305
+                - generic [ref=e245]: FLL
+                - generic [ref=e246]: Active
+                - generic [ref=e247]: FL20
+                - generic [ref=e248]:
+                  - generic [ref=e249]: "-141m"
+                  - generic [ref=e250]: 23:56z
+              - generic "EDV5200 · KCHS→KJFK · 23:56z (-140m)" [ref=e251] [cursor=pointer]:
+                - generic [ref=e252]: EDV5200
+                - generic [ref=e253]: CHS
+                - generic [ref=e254]: Active
+                - generic [ref=e255]: FL30
+                - generic [ref=e256]:
+                  - generic [ref=e257]: "-140m"
+                  - generic [ref=e258]: 23:56z
+              - generic "JBU938 · MMSD→KJFK · 00:21z (-116m)" [ref=e259] [cursor=pointer]:
+                - generic [ref=e260]: JBU938
+                - generic [ref=e261]: MMSD
+                - generic [ref=e262]: Active
+                - generic [ref=e263]: FL349
+                - generic [ref=e264]:
+                  - generic [ref=e265]: "-116m"
+                  - generic [ref=e266]: 00:21z
+              - generic "JBU1017 · KBOS→KJFK · 00:33z (-104m)" [ref=e267] [cursor=pointer]:
+                - generic [ref=e268]: JBU1017
+                - generic [ref=e269]: BOS
+                - generic [ref=e270]: Active
+                - generic [ref=e271]: FL159
+                - generic [ref=e272]:
+                  - generic [ref=e273]: "-104m"
+                  - generic [ref=e274]: 00:33z
+              - generic "EDV5219 · KRDU→KJFK · 00:36z (-101m)" [ref=e275] [cursor=pointer]:
+                - generic [ref=e276]: EDV5219
+                - generic [ref=e277]: RDU
+                - generic [ref=e278]: Active
+                - generic [ref=e279]: FL270
+                - generic [ref=e280]:
+                  - generic [ref=e281]: "-101m"
+                  - generic [ref=e282]: 00:36z
+              - generic "DAL2793 · MMUN→KJFK · 00:49z (-88m)" [ref=e283] [cursor=pointer]:
+                - generic [ref=e284]: DAL2793
+                - generic [ref=e285]: MMUN
+                - generic [ref=e286]: Active
+                - generic [ref=e287]: FL349
+                - generic [ref=e288]:
+                  - generic [ref=e289]: "-88m"
+                  - generic [ref=e290]: 00:49z
+              - generic "JBU1852 · MMUN→KJFK · 00:50z (-87m)" [ref=e291] [cursor=pointer]:
+                - generic [ref=e292]: JBU1852
+                - generic [ref=e293]: MMUN
+                - generic [ref=e294]: Active
+                - generic [ref=e295]: FL370
+                - generic [ref=e296]:
+                  - generic [ref=e297]: "-87m"
+                  - generic [ref=e298]: 00:50z
+              - generic "AAL3026 · KPHX→KJFK · 00:55z (-82m)" [ref=e299] [cursor=pointer]:
+                - generic [ref=e300]: AAL3026
+                - generic [ref=e301]: PHX
+                - generic [ref=e302]: Active
+                - generic [ref=e303]: FL330
+                - generic [ref=e304]:
+                  - generic [ref=e305]: "-82m"
+                  - generic [ref=e306]: 00:55z
+              - generic "DAL1554 · KATL→KJFK · 00:56z (-81m)" [ref=e307] [cursor=pointer]:
+                - generic [ref=e308]: DAL1554
+                - generic [ref=e309]: ATL
+                - generic [ref=e310]: Active
+                - generic [ref=e311]: FL350
+                - generic [ref=e312]:
+                  - generic [ref=e313]: "-81m"
+                  - generic [ref=e314]: 00:56z
+              - generic "AAL1094 · TBPB→KJFK · 01:01z (-75m)" [ref=e315] [cursor=pointer]:
+                - generic [ref=e316]: AAL1094
+                - generic [ref=e317]: TBPB
+                - generic [ref=e318]: Active
+                - generic [ref=e319]: FL360
+                - generic [ref=e320]:
+                  - generic [ref=e321]: "-75m"
+                  - generic [ref=e322]: 01:01z
+              - generic "EDV4962 · KORD→KJFK · 01:03z (-74m)" [ref=e323] [cursor=pointer]:
+                - generic [ref=e324]: EDV4962
+                - generic [ref=e325]: ORD
+                - generic [ref=e326]: Active
+                - generic [ref=e327]: FL349
+                - generic [ref=e328]:
+                  - generic [ref=e329]: "-74m"
+                  - generic [ref=e330]: 01:03z
+              - generic "DAL683 · KSAN→KJFK · 01:06z (-71m)" [ref=e331] [cursor=pointer]:
+                - generic [ref=e332]: DAL683
+                - generic [ref=e333]: SAN
+                - generic [ref=e334]: Active
+                - generic [ref=e335]: FL390
+                - generic [ref=e336]:
+                  - generic [ref=e337]: "-71m"
+                  - generic [ref=e338]: 01:06z
+              - generic "AAL4 · KLAX→KJFK · 01:20z (-57m)" [ref=e339] [cursor=pointer]:
+                - generic [ref=e340]: AAL4
+                - generic [ref=e341]: LAX
+                - generic [ref=e342]: Active
+                - generic [ref=e343]: FL370
+                - generic [ref=e344]:
+                  - generic [ref=e345]: "-57m"
+                  - generic [ref=e346]: 01:20z
+              - generic "DAL415 · KSEA→KJFK · 01:24z (-53m)" [ref=e347] [cursor=pointer]:
+                - generic [ref=e348]: DAL415
+                - generic [ref=e349]: SEA
+                - generic [ref=e350]: Active
+                - generic [ref=e351]: FL350
+                - generic [ref=e352]:
+                  - generic [ref=e353]: "-53m"
+                  - generic [ref=e354]: 01:24z
+              - generic "JBU348 · KLAS→KJFK · 01:41z (-36m)" [ref=e355] [cursor=pointer]:
+                - generic [ref=e356]: JBU348
+                - generic [ref=e357]: LAS
+                - generic [ref=e358]: Active
+                - generic [ref=e359]: FL350
+                - generic [ref=e360]:
+                  - generic [ref=e361]: "-36m"
+                  - generic [ref=e362]: 01:41z
+              - generic "DAL1507 · KTPA→KJFK · 01:51z (-26m)" [ref=e363] [cursor=pointer]:
+                - generic [ref=e364]: DAL1507
+                - generic [ref=e365]: TPA
+                - generic [ref=e366]: Active
+                - generic [ref=e367]: FL106
+                - generic [ref=e368]:
+                  - generic [ref=e369]: "-26m"
+                  - generic [ref=e370]: 01:51z
+              - generic "JBU558 · TNCA→KJFK · 02:05z (-12m)" [ref=e371] [cursor=pointer]:
+                - generic [ref=e372]: JBU558
+                - generic [ref=e373]: TNCA
+                - generic [ref=e374]: Active
+                - generic [ref=e375]: FL320
+                - generic [ref=e376]:
+                  - generic [ref=e377]: "-12m"
+                  - generic [ref=e378]: 02:05z
+              - generic "DAL2323 · KAUS→KJFK · 02:09z (-8m)" [ref=e379] [cursor=pointer]:
+                - generic [ref=e380]: DAL2323
+                - generic [ref=e381]: AUS
+                - generic [ref=e382]: Active
+                - generic [ref=e383]: FL350
+                - generic [ref=e384]:
+                  - generic [ref=e385]: "-8m"
+                  - generic [ref=e386]: 02:09z
+              - generic "AAL1524 · KLAS→KJFK · 02:17z (now)" [ref=e387] [cursor=pointer]:
+                - generic [ref=e388]: AAL1524
+                - generic [ref=e389]: LAS
+                - generic [ref=e390]: Active
+                - generic [ref=e391]: FL350
+                - generic [ref=e392]:
+                  - generic [ref=e393]: now
+                  - generic [ref=e394]: 02:17z
+              - generic "JBU1204 · TJSJ→KJFK · 02:50z (+33m)" [ref=e395] [cursor=pointer]:
+                - generic [ref=e396]: JBU1204
+                - generic [ref=e397]: TJSJ
+                - generic [ref=e398]: Active
+                - generic [ref=e399]: FL340
+                - generic [ref=e400]:
+                  - generic [ref=e401]: +33m
+                  - generic [ref=e402]: 02:50z
+              - generic "JBU432 · TJSJ→KJFK · 03:02z (+45m)" [ref=e403] [cursor=pointer]:
+                - generic [ref=e404]: JBU432
+                - generic [ref=e405]: TJSJ
+                - generic [ref=e406]: Active
+                - generic [ref=e407]: FL205
+                - generic [ref=e408]:
+                  - generic [ref=e409]: +45m
+                  - generic [ref=e410]: 03:02z
+              - generic "JBU290 · KSAN→KJFK · 03:08z (+51m)" [ref=e411] [cursor=pointer]:
+                - generic [ref=e412]: JBU290
+                - generic [ref=e413]: SAN
+                - generic [ref=e414]: Active
+                - generic [ref=e415]: FL330
+                - generic [ref=e416]:
+                  - generic [ref=e417]: +51m
+                  - generic [ref=e418]: 03:08z
+              - generic "JBU2124 · KLAX→KJFK · 03:17z (+60m)" [ref=e419] [cursor=pointer]:
+                - generic [ref=e420]: JBU2124
+                - generic [ref=e421]: LAX
+                - generic [ref=e422]: Active
+                - generic [ref=e423]: FL350
+                - generic [ref=e424]:
+                  - generic [ref=e425]: +60m
+                  - generic [ref=e426]: 03:17z
+              - generic "AAL166 · KSFO→KJFK · 03:30z (+73m)" [ref=e427] [cursor=pointer]:
+                - generic [ref=e428]: AAL166
+                - generic [ref=e429]: SFO
+                - generic [ref=e430]: Active
+                - generic [ref=e431]: FL350
+                - generic [ref=e432]:
+                  - generic [ref=e433]: +73m
+                  - generic [ref=e434]: 03:30z
+              - generic "JBU1400 · TLPL→KJFK · 03:36z (+79m)" [ref=e435] [cursor=pointer]:
+                - generic [ref=e436]: JBU1400
+                - generic [ref=e437]: TLPL
+                - generic [ref=e438]: Active
+                - generic [ref=e439]: FL340
+                - generic [ref=e440]:
+                  - generic [ref=e441]: +79m
+                  - generic [ref=e442]: 03:36z
+              - generic "DAL938 · KLAX→KJFK · 03:37z (+80m)" [ref=e443] [cursor=pointer]:
+                - generic [ref=e444]: DAL938
+                - generic [ref=e445]: LAX
+                - generic [ref=e446]: Active
+                - generic [ref=e447]: FL370
+                - generic [ref=e448]:
+                  - generic [ref=e449]: +80m
+                  - generic [ref=e450]: 03:37z
+              - generic "JBU1216 · KSFO→KJFK · 03:57z (+100m)" [ref=e451] [cursor=pointer]:
+                - generic [ref=e452]: JBU1216
+                - generic [ref=e453]: SFO
+                - generic [ref=e454]: Active
+                - generic [ref=e455]: FL350
+                - generic [ref=e456]:
+                  - generic [ref=e457]: +100m
+                  - generic [ref=e458]: 03:57z
+              - generic "JBU2648 · KLAS→KJFK · 03:58z (+102m)" [ref=e459] [cursor=pointer]:
+                - generic [ref=e460]: JBU2648
+                - generic [ref=e461]: LAS
+                - generic [ref=e462]: Active
+                - generic [ref=e463]: FL259
+                - generic [ref=e464]:
+                  - generic [ref=e465]: +102m
+                  - generic [ref=e466]: 03:58z
+              - generic "DAL363 · KSFO→KJFK · 04:15z (+118m)" [ref=e467] [cursor=pointer]:
+                - generic [ref=e468]: DAL363
+                - generic [ref=e469]: SFO
+                - generic [ref=e470]: Active
+                - generic [ref=e471]: FL370
+                - generic [ref=e472]:
+                  - generic [ref=e473]: +118m
+                  - generic [ref=e474]: 04:15z
+              - generic [ref=e475]: Landed
+              - generic [ref=e476] [cursor=pointer]:
+                - generic [ref=e477]: AAL141
+                - generic [ref=e478]: EGLL
+                - generic [ref=e479]: Done
+                - generic [ref=e480]: —
+              - generic [ref=e481] [cursor=pointer]:
+                - generic [ref=e482]: ASA249
+                - generic [ref=e483]: MMPR
+                - generic [ref=e484]: Done
+                - generic [ref=e485]: —
+              - generic [ref=e486] [cursor=pointer]:
+                - generic [ref=e487]: AAL1922
+                - generic [ref=e488]: MIA
+                - generic [ref=e489]: Done
+                - generic [ref=e490]: —
+              - generic [ref=e491] [cursor=pointer]:
+                - generic [ref=e492]: JBU1532
+                - generic [ref=e493]: SKCG
+                - generic [ref=e494]: Done
+                - generic [ref=e495]: —
+              - generic [ref=e496] [cursor=pointer]:
+                - generic [ref=e497]: JBU1668
+                - generic [ref=e498]: MDPC
+                - generic [ref=e499]: Done
+                - generic [ref=e500]: —
+              - generic [ref=e501] [cursor=pointer]:
+                - generic [ref=e502]: AAL274
+                - generic [ref=e503]: LAX
+                - generic [ref=e504]: Done
+                - generic [ref=e505]: —
+              - generic [ref=e506] [cursor=pointer]:
+                - generic [ref=e507]: EDV4909
+                - generic [ref=e508]: BNA
+                - generic [ref=e509]: Done
+                - generic [ref=e510]: —
+              - generic [ref=e511] [cursor=pointer]:
+                - generic [ref=e512]: JBU164
+                - generic [ref=e513]: SRQ
+                - generic [ref=e514]: Done
+                - generic [ref=e515]: —
+              - generic [ref=e516] [cursor=pointer]:
+                - generic [ref=e517]: AAL2915
+                - generic [ref=e518]: SNA
+                - generic [ref=e519]: Done
+                - generic [ref=e520]: —
+              - generic [ref=e521] [cursor=pointer]:
+                - generic [ref=e522]: JBU2116
+                - generic [ref=e523]: SFO
+                - generic [ref=e524]: Done
+                - generic [ref=e525]: —
+              - generic [ref=e526] [cursor=pointer]:
+                - generic [ref=e527]: JBU2202
+                - generic [ref=e528]: FLL
+                - generic [ref=e529]: Done
+                - generic [ref=e530]: —
+              - generic [ref=e531] [cursor=pointer]:
+                - generic [ref=e532]: JBU524
+                - generic [ref=e533]: LAX
+                - generic [ref=e534]: Done
+                - generic [ref=e535]: —
+              - generic [ref=e536] [cursor=pointer]:
+                - generic [ref=e537]: JBU580
+                - generic [ref=e538]: MKJS
+                - generic [ref=e539]: Done
+                - generic [ref=e540]: —
+              - generic [ref=e541] [cursor=pointer]:
+                - generic [ref=e542]: JBU1274
+                - generic [ref=e543]: CHS
+                - generic [ref=e544]: Done
+                - generic [ref=e545]: —
+              - generic [ref=e546] [cursor=pointer]:
+                - generic [ref=e547]: JBU2842
+                - generic [ref=e548]: SAV
+                - generic [ref=e549]: Done
+                - generic [ref=e550]: —
+              - generic [ref=e551] [cursor=pointer]:
+                - generic [ref=e552]: DAL991
+                - generic [ref=e553]: LAX
+                - generic [ref=e554]: Done
+                - generic [ref=e555]: —
+              - generic [ref=e556] [cursor=pointer]:
+                - generic [ref=e557]: DAL2974
+                - generic [ref=e558]: MDPC
+                - generic [ref=e559]: Done
+                - generic [ref=e560]: —
+              - generic [ref=e561] [cursor=pointer]:
+                - generic [ref=e562]: EDV5235
+                - generic [ref=e563]: JAX
+                - generic [ref=e564]: Done
+                - generic [ref=e565]: —
+              - generic [ref=e566] [cursor=pointer]:
+                - generic [ref=e567]: RPA5702
+                - generic [ref=e568]: BOS
+                - generic [ref=e569]: Done
+                - generic [ref=e570]: —
+              - generic [ref=e571] [cursor=pointer]:
+                - generic [ref=e572]: EDV5252
+                - generic [ref=e573]: PIT
+                - generic [ref=e574]: Done
+                - generic [ref=e575]: —
+          - generic [ref=e576]:
+            - generic [ref=e577]:
+              - generic [ref=e578]: DEPARTURES
+              - generic [ref=e579]: 45 outbound
+            - generic [ref=e580]:
+              - generic [ref=e581]: Flight
+              - generic [ref=e582]: To
+              - generic [ref=e583]: Status
+              - generic [ref=e584]: Alt
+              - generic [ref=e585]: ETD
+            - generic [ref=e586]:
+              - generic "AAL167 · KJFK→RJTT · 14:30z" [ref=e587] [cursor=pointer]:
+                - generic [ref=e588]: AAL167
+                - generic [ref=e589]: RJTT
+                - generic [ref=e590]: Active
+                - generic [ref=e592]: 14:30z
+              - generic "DAL679 · KJFK→KSFO · 19:20z" [ref=e593] [cursor=pointer]:
+                - generic [ref=e594]: DAL679
+                - generic [ref=e595]: SFO
+                - generic [ref=e596]: Active
+                - generic [ref=e597]: FL340
+                - generic [ref=e599]: 19:20z
+              - generic "JBU1189 · KJFK→KSAN · 19:50z" [ref=e600] [cursor=pointer]:
+                - generic [ref=e601]: JBU1189
+                - generic [ref=e602]: SAN
+                - generic [ref=e603]: Active
+                - generic [ref=e604]: FL340
+                - generic [ref=e606]: 19:50z
+              - generic "DAL887 · KJFK→KSLC · 20:10z" [ref=e607] [cursor=pointer]:
+                - generic [ref=e608]: DAL887
+                - generic [ref=e609]: SLC
+                - generic [ref=e610]: Active
+                - generic [ref=e611]: FL320
+                - generic [ref=e613]: 20:10z
+              - generic "ASA114 · KJFK→KSFO · 20:26z (-351m)" [ref=e614] [cursor=pointer]:
+                - generic [ref=e615]: ASA114
+                - generic [ref=e616]: SFO
+                - generic [ref=e617]: Active
+                - generic [ref=e618]: FL360
+                - generic [ref=e619]:
+                  - generic [ref=e620]: "-351m"
+                  - generic [ref=e621]: 20:26z
+              - generic "AAL306 · KJFK→KLAX · 20:30z (-347m)" [ref=e622] [cursor=pointer]:
+                - generic [ref=e623]: AAL306
+                - generic [ref=e624]: LAX
+                - generic [ref=e625]: Active
+                - generic [ref=e626]: FL360
+                - generic [ref=e627]:
+                  - generic [ref=e628]: "-347m"
+                  - generic [ref=e629]: 20:30z
+              - generic "DAL1387 · KJFK→KMSY · 20:35z (-342m)" [ref=e630] [cursor=pointer]:
+                - generic [ref=e631]: DAL1387
+                - generic [ref=e632]: MSY
+                - generic [ref=e633]: Active
+                - generic [ref=e634]: FL174
+                - generic [ref=e635]:
+                  - generic [ref=e636]: "-342m"
+                  - generic [ref=e637]: 20:35z
+              - generic "DAL771 · KJFK→KLAX · 20:40z (-337m)" [ref=e638] [cursor=pointer]:
+                - generic [ref=e639]: DAL771
+                - generic [ref=e640]: LAX
+                - generic [ref=e641]: Active
+                - generic [ref=e642]: FL380
+                - generic [ref=e643]:
+                  - generic [ref=e644]: "-337m"
+                  - generic [ref=e645]: 20:40z
+              - generic "DAL798 · KJFK→KPHX · 20:55z (-322m)" [ref=e646] [cursor=pointer]:
+                - generic [ref=e647]: DAL798
+                - generic [ref=e648]: PHX
+                - generic [ref=e649]: Active
+                - generic [ref=e650]: FL320
+                - generic [ref=e651]:
+                  - generic [ref=e652]: "-322m"
+                  - generic [ref=e653]: 20:55z
+              - generic "DAL670 · KJFK→KSFO · 21:05z (-312m)" [ref=e654] [cursor=pointer]:
+                - generic [ref=e655]: DAL670
+                - generic [ref=e656]: SFO
+                - generic [ref=e657]: Active
+                - generic [ref=e658]: FL340
+                - generic [ref=e659]:
+                  - generic [ref=e660]: "-312m"
+                  - generic [ref=e661]: 21:05z
+              - generic "RPA4339 · KJFK→KDCA · 21:10z (-307m)" [ref=e662] [cursor=pointer]:
+                - generic [ref=e663]: RPA4339
+                - generic [ref=e664]: DCA
+                - generic [ref=e665]: Active
+                - generic [ref=e666]: FL120
+                - generic [ref=e667]:
+                  - generic [ref=e668]: "-307m"
+                  - generic [ref=e669]: 21:10z
+              - generic "AAL1849 · KJFK→KDFW · 21:20z (-297m)" [ref=e670] [cursor=pointer]:
+                - generic [ref=e671]: AAL1849
+                - generic [ref=e672]: DFW
+                - generic [ref=e673]: Active
+                - generic [ref=e674]: FL380
+                - generic [ref=e675]:
+                  - generic [ref=e676]: "-297m"
+                  - generic [ref=e677]: 21:20z
+              - generic "DAL709 · KJFK→KSAN · 21:25z (-292m)" [ref=e678] [cursor=pointer]:
+                - generic [ref=e679]: DAL709
+                - generic [ref=e680]: SAN
+                - generic [ref=e681]: Active
+                - generic [ref=e682]: FL340
+                - generic [ref=e683]:
+                  - generic [ref=e684]: "-292m"
+                  - generic [ref=e685]: 21:25z
+              - generic "AAL302 · KJFK→KLAX · 21:29z (-288m)" [ref=e686] [cursor=pointer]:
+                - generic [ref=e687]: AAL302
+                - generic [ref=e688]: LAX
+                - generic [ref=e689]: Active
+                - generic [ref=e690]: FL340
+                - generic [ref=e691]:
+                  - generic [ref=e692]: "-288m"
+                  - generic [ref=e693]: 21:29z
+              - generic "JBU815 · KJFK→KSFO · 21:30z (-287m)" [ref=e694] [cursor=pointer]:
+                - generic [ref=e695]: JBU815
+                - generic [ref=e696]: SFO
+                - generic [ref=e697]: Active
+                - generic [ref=e698]: FL340
+                - generic [ref=e699]:
+                  - generic [ref=e700]: "-287m"
+                  - generic [ref=e701]: 21:30z
+              - generic "DAL92 · KJFK→EDDB · 21:45z (-272m)" [ref=e702] [cursor=pointer]:
+                - generic [ref=e703]: DAL92
+                - generic [ref=e704]: EDDB
+                - generic [ref=e705]: Active
+                - generic [ref=e706]:
+                  - generic [ref=e707]: "-272m"
+                  - generic [ref=e708]: 21:45z
+              - generic "DAL1233 · KJFK→KAUS · 21:45z (-272m)" [ref=e709] [cursor=pointer]:
+                - generic [ref=e710]: DAL1233
+                - generic [ref=e711]: AUS
+                - generic [ref=e712]: Active
+                - generic [ref=e713]: FL320
+                - generic [ref=e714]:
+                  - generic [ref=e715]: "-272m"
+                  - generic [ref=e716]: 21:45z
+              - generic "JBU1501 · KJFK→KFLL · 21:59z (-258m)" [ref=e717] [cursor=pointer]:
+                - generic [ref=e718]: JBU1501
+                - generic [ref=e719]: FLL
+                - generic [ref=e720]: Active
+                - generic [ref=e721]: FL340
+                - generic [ref=e722]:
+                  - generic [ref=e723]: "-258m"
+                  - generic [ref=e724]: 21:59z
+              - generic "JBU735 · KJFK→KPHX · 21:59z (-258m)" [ref=e725] [cursor=pointer]:
+                - generic [ref=e726]: JBU735
+                - generic [ref=e727]: PHX
+                - generic [ref=e728]: Active
+                - generic [ref=e729]: FL340
+                - generic [ref=e730]:
+                  - generic [ref=e731]: "-258m"
+                  - generic [ref=e732]: 21:59z
+              - generic "JBU603 · KJFK→CYVR · 22:15z (-242m)" [ref=e733] [cursor=pointer]:
+                - generic [ref=e734]: JBU603
+                - generic [ref=e735]: CYVR
+                - generic [ref=e736]: Active
+                - generic [ref=e737]: FL320
+                - generic [ref=e738]:
+                  - generic [ref=e739]: "-242m"
+                  - generic [ref=e740]: 22:15z
+              - generic "DAL496 · KJFK→KDFW · 22:20z (-237m)" [ref=e741] [cursor=pointer]:
+                - generic [ref=e742]: DAL496
+                - generic [ref=e743]: DFW
+                - generic [ref=e744]: Active
+                - generic [ref=e745]: FL320
+                - generic [ref=e746]:
+                  - generic [ref=e747]: "-237m"
+                  - generic [ref=e748]: 22:20z
+              - generic "DAL353 · KJFK→KLAX · 22:25z (-232m)" [ref=e749] [cursor=pointer]:
+                - generic [ref=e750]: DAL353
+                - generic [ref=e751]: LAX
+                - generic [ref=e752]: Active
+                - generic [ref=e753]: FL380
+                - generic [ref=e754]:
+                  - generic [ref=e755]: "-232m"
+                  - generic [ref=e756]: 22:25z
+              - generic "JBU1378 · KJFK→MHLM · 22:29z (-228m)" [ref=e757] [cursor=pointer]:
+                - generic [ref=e758]: JBU1378
+                - generic [ref=e759]: MHLM
+                - generic [ref=e760]: Active
+                - generic [ref=e761]: FL300
+                - generic [ref=e762]:
+                  - generic [ref=e763]: "-228m"
+                  - generic [ref=e764]: 22:29z
+              - generic "AAL2882 · KJFK→KLAS · 22:30z (-227m)" [ref=e765] [cursor=pointer]:
+                - generic [ref=e766]: AAL2882
+                - generic [ref=e767]: LAS
+                - generic [ref=e768]: Active
+                - generic [ref=e769]: FL360
+                - generic [ref=e770]:
+                  - generic [ref=e771]: "-227m"
+                  - generic [ref=e772]: 22:30z
+              - generic "AAL2339 · KJFK→KPHX · 22:30z (-227m)" [ref=e773] [cursor=pointer]:
+                - generic [ref=e774]: AAL2339
+                - generic [ref=e775]: PHX
+                - generic [ref=e776]: Active
+                - generic [ref=e777]: FL360
+                - generic [ref=e778]:
+                  - generic [ref=e779]: "-227m"
+                  - generic [ref=e780]: 22:30z
+              - generic "JBU1328 · KJFK→MGGT · 22:35z (-222m)" [ref=e781] [cursor=pointer]:
+                - generic [ref=e782]: JBU1328
+                - generic [ref=e783]: MGGT
+                - generic [ref=e784]: Active
+                - generic [ref=e785]: FL300
+                - generic [ref=e786]:
+                  - generic [ref=e787]: "-222m"
+                  - generic [ref=e788]: 22:35z
+              - generic "EDV4908 · KJFK→KBNA · 22:45z (-212m)" [ref=e789] [cursor=pointer]:
+                - generic [ref=e790]: EDV4908
+                - generic [ref=e791]: BNA
+                - generic [ref=e792]: Active
+                - generic [ref=e793]: FL360
+                - generic [ref=e794]:
+                  - generic [ref=e795]: "-212m"
+                  - generic [ref=e796]: 22:45z
+              - generic "JBU423 · KJFK→KLAX · 22:45z (-212m)" [ref=e797] [cursor=pointer]:
+                - generic [ref=e798]: JBU423
+                - generic [ref=e799]: LAX
+                - generic [ref=e800]: Active
+                - generic [ref=e801]: FL290
+                - generic [ref=e802]:
+                  - generic [ref=e803]: "-212m"
+                  - generic [ref=e804]: 22:45z
+              - generic "JBU1053 · KJFK→KPBI · 22:45z (-212m)" [ref=e805] [cursor=pointer]:
+                - generic [ref=e806]: JBU1053
+                - generic [ref=e807]: PBI
+                - generic [ref=e808]: Active
+                - generic [ref=e809]: FL380
+                - generic [ref=e810]:
+                  - generic [ref=e811]: "-212m"
+                  - generic [ref=e812]: 22:45z
+              - generic "DAL863 · KJFK→KSLC · 22:45z (-212m)" [ref=e813] [cursor=pointer]:
+                - generic [ref=e814]: DAL863
+                - generic [ref=e815]: SLC
+                - generic [ref=e816]: Active
+                - generic [ref=e817]: FL360
+                - generic [ref=e818]:
+                  - generic [ref=e819]: "-212m"
+                  - generic [ref=e820]: 22:45z
+              - generic "JBU559 · KJFK→MKJP · 22:45z (-212m)" [ref=e821] [cursor=pointer]:
+                - generic [ref=e822]: JBU559
+                - generic [ref=e823]: MKJP
+                - generic [ref=e824]: Active
+                - generic [ref=e825]: FL360
+                - generic [ref=e826]:
+                  - generic [ref=e827]: "-212m"
+                  - generic [ref=e828]: 22:45z
+              - generic "JBU1873 · KJFK→KCHS · 22:50z (-207m)" [ref=e829] [cursor=pointer]:
+                - generic [ref=e830]: JBU1873
+                - generic [ref=e831]: CHS
+                - generic [ref=e832]: Active
+                - generic [ref=e833]: FL360
+                - generic [ref=e834]:
+                  - generic [ref=e835]: "-207m"
+                  - generic [ref=e836]: 22:50z
+              - generic "JBU703 · KJFK→TJSJ · 22:50z (-207m)" [ref=e837] [cursor=pointer]:
+                - generic [ref=e838]: JBU703
+                - generic [ref=e839]: TJSJ
+                - generic [ref=e840]: Active
+                - generic [ref=e841]: FL224
+                - generic [ref=e842]:
+                  - generic [ref=e843]: "-207m"
+                  - generic [ref=e844]: 22:50z
+              - generic "RPA4586 · KJFK→KIND · 22:51z (-206m)" [ref=e845] [cursor=pointer]:
+                - generic [ref=e846]: RPA4586
+                - generic [ref=e847]: IND
+                - generic [ref=e848]: Active
+                - generic [ref=e849]: FL360
+                - generic [ref=e850]:
+                  - generic [ref=e851]: "-206m"
+                  - generic [ref=e852]: 22:51z
+              - generic "DAL684 · KJFK→KPDX · 22:52z (-205m)" [ref=e853] [cursor=pointer]:
+                - generic [ref=e854]: DAL684
+                - generic [ref=e855]: PDX
+                - generic [ref=e856]: Active
+                - generic [ref=e857]: FL273
+                - generic [ref=e858]:
+                  - generic [ref=e859]: "-205m"
+                  - generic [ref=e860]: 22:52z
+              - generic "DAL128 · KJFK→LEBL · 22:55z (-202m)" [ref=e861] [cursor=pointer]:
+                - generic [ref=e862]: DAL128
+                - generic [ref=e863]: LEBL
+                - generic [ref=e864]: Active
+                - generic [ref=e865]: FL260
+                - generic [ref=e866]:
+                  - generic [ref=e867]: "-202m"
+                  - generic [ref=e868]: 22:55z
+              - generic "JBU2615 · KJFK→KSFO · 23:00z (-197m)" [ref=e869] [cursor=pointer]:
+                - generic [ref=e870]: JBU2615
+                - generic [ref=e871]: SFO
+                - generic [ref=e872]: Active
+                - generic [ref=e873]: FL282
+                - generic [ref=e874]:
+                  - generic [ref=e875]: "-197m"
+                  - generic [ref=e876]: 23:00z
+              - generic "DAL778 · KJFK→KLAS · 23:05z (-192m)" [ref=e877] [cursor=pointer]:
+                - generic [ref=e878]: DAL778
+                - generic [ref=e879]: LAS
+                - generic [ref=e880]: Active
+                - generic [ref=e881]: FL280
+                - generic [ref=e882]:
+                  - generic [ref=e883]: "-192m"
+                  - generic [ref=e884]: 23:05z
+              - generic "DAL424 · KJFK→KDEN · 23:10z (-187m)" [ref=e885] [cursor=pointer]:
+                - generic [ref=e886]: DAL424
+                - generic [ref=e887]: DEN
+                - generic [ref=e888]: Active
+                - generic [ref=e889]: FL321
+                - generic [ref=e890]:
+                  - generic [ref=e891]: "-187m"
+                  - generic [ref=e892]: 23:10z
+              - generic "JBU1793 · KJFK→MROC · 23:15z (-182m)" [ref=e893] [cursor=pointer]:
+                - generic [ref=e894]: JBU1793
+                - generic [ref=e895]: MROC
+                - generic [ref=e896]: Active
+                - generic [ref=e897]: FL64
+                - generic [ref=e898]:
+                  - generic [ref=e899]: "-182m"
+                  - generic [ref=e900]: 23:15z
+              - generic "AAL106 · KJFK→EGLL · 23:20z (-177m)" [ref=e901] [cursor=pointer]:
+                - generic [ref=e902]: AAL106
+                - generic [ref=e903]: EGLL
+                - generic [ref=e904]: Active
+                - generic [ref=e905]: FL174
+                - generic [ref=e906]:
+                  - generic [ref=e907]: "-177m"
+                  - generic [ref=e908]: 23:20z
+              - generic "JBU1723 · KJFK→KLAX · 00:30z (-107m)" [ref=e909] [cursor=pointer]:
+                - generic [ref=e910]: JBU1723
+                - generic [ref=e911]: LAX
+                - generic [ref=e912]: Active
+                - generic [ref=e913]: FL340
+                - generic [ref=e914]:
+                  - generic [ref=e915]: "-107m"
+                  - generic [ref=e916]: 00:30z
+              - generic "JBU1419 · KJFK→KDTW · 01:45z (-32m)" [ref=e917] [cursor=pointer]:
+                - generic [ref=e918]: JBU1419
+                - generic [ref=e919]: DTW
+                - generic [ref=e920]: Active
+                - generic [ref=e921]: FL400
+                - generic [ref=e922]:
+                  - generic [ref=e923]: "-32m"
+                  - generic [ref=e924]: 01:45z
+              - generic "JBU1195 · KJFK→KPIT · 02:00z (-17m)" [ref=e925] [cursor=pointer]:
+                - generic [ref=e926]: JBU1195
+                - generic [ref=e927]: PIT
+                - generic [ref=e928]: Active
+                - generic [ref=e929]: FL220
+                - generic [ref=e930]:
+                  - generic [ref=e931]: "-17m"
+                  - generic [ref=e932]: 02:00z
+              - generic "JBU486 · KJFK→KROC · 02:10z (-7m)" [ref=e933] [cursor=pointer]:
+                - generic [ref=e934]: JBU486
+                - generic [ref=e935]: ROC
+                - generic [ref=e936]: Active
+                - generic [ref=e937]: FL200
+                - generic [ref=e938]:
+                  - generic [ref=e939]: "-7m"
+                  - generic [ref=e940]: 02:10z
+    - generic [ref=e942]:
+      - generic [ref=e943] [cursor=pointer]:
+        - generic [ref=e944]: FAA SWIM
+        - generic [ref=e945]: 5/5 feeds
+        - generic [ref=e946]: NAS health · NOTAMs · live feed · terminal weather
+        - generic [ref=e947]: ▾
+      - generic [ref=e948]:
+        - generic [ref=e949]:
+          - generic [ref=e950]:
+            - generic [ref=e951]: NAS status
+            - generic [ref=e953]: 5 feeds
+          - generic [ref=e954]:
+            - generic [ref=e955]:
+              - generic [ref=e956]: NORMAL
+              - generic [ref=e957]: 321 airports tracked
+            - generic [ref=e958]: NAS operating normally
+          - generic [ref=e959]:
+            - generic "Active IFR flight plans tracked by TFMS" [ref=e960]:
+              - generic [ref=e961]: 2,143
+              - generic [ref=e962]: IFR flights
+            - generic "Flight plan updates received in the last hour" [ref=e963]:
+              - generic [ref=e964]: 8,538
+              - generic [ref=e965]: updates/hr
+            - generic "Airports where NO departures are allowed" [ref=e966]:
+              - generic [ref=e967]: "1"
+              - generic [ref=e968]: ground stops
+            - generic "Airports where departures are delayed to manage arrival rate" [ref=e969]:
+              - generic [ref=e970]: "1"
+              - generic [ref=e971]: delay pgms
+          - generic [ref=e972]:
+            - generic [ref=e973] [cursor=pointer]:
+              - generic [ref=e974]: RSTR
+              - generic [ref=e975]: JFK
+              - generic [ref=e976]: Restriction — volume
+            - generic [ref=e977] [cursor=pointer]:
+              - generic [ref=e978]: FXA
+              - generic [ref=e979]: —
+              - generic [ref=e980]: Flow Constraint Area — other
+            - generic [ref=e981] [cursor=pointer]:
+              - generic [ref=e982]: FXA
+              - generic [ref=e983]: —
+              - generic [ref=e984]: Flow Constraint Area — none
+            - generic [ref=e985] [cursor=pointer]:
+              - generic [ref=e986]: RSTR
+              - generic [ref=e987]: N90
+              - generic [ref=e988]: Restriction — vol:enrt sctr
+            - generic [ref=e989] [cursor=pointer]:
+              - generic [ref=e990]: RSTR
+              - generic [ref=e991]: SFO
+              - generic [ref=e992]: Restriction — runway
+            - generic [ref=e993] [cursor=pointer]:
+              - generic [ref=e994]: FXA
+              - generic [ref=e995]: —
+              - generic [ref=e996]: Flow Constraint Area — other
+            - generic [ref=e997] [cursor=pointer]:
+              - generic [ref=e998]: RSTR
+              - generic [ref=e999]: EWR
+              - generic [ref=e1000]: "Restriction — vol: sector conf"
+            - generic [ref=e1001] [cursor=pointer]:
+              - generic [ref=e1002]: FXA
+              - generic [ref=e1003]: —
+              - generic [ref=e1004]: Flow Constraint Area — none
+            - generic [ref=e1005] [cursor=pointer]:
+              - generic [ref=e1006]: RSTR
+              - generic [ref=e1007]: ALL
+              - generic [ref=e1008]: Restriction — weather
+            - generic [ref=e1009] [cursor=pointer]:
+              - generic [ref=e1010]: RSTR
+              - generic [ref=e1011]: EWR
+              - generic [ref=e1012]: "Restriction — vol: sector conf"
+            - generic [ref=e1013] [cursor=pointer]:
+              - generic [ref=e1014]: RSTR
+              - generic [ref=e1015]: LGA
+              - generic [ref=e1016]: Restriction — tm initiatives:m
+            - generic [ref=e1017] [cursor=pointer]:
+              - generic [ref=e1018]: RSTR
+              - generic [ref=e1019]: N90
+              - generic [ref=e1020]: Restriction — vol:enrt sctr
+            - generic [ref=e1021] [cursor=pointer]:
+              - generic [ref=e1022]: RSTR
+              - generic [ref=e1023]: ORD
+              - generic [ref=e1024]: Restriction — volume
+            - generic [ref=e1025] [cursor=pointer]:
+              - generic [ref=e1026]: RSTR
+              - generic [ref=e1027]: ALL
+              - generic [ref=e1028]: Restriction — volume
+            - generic [ref=e1029] [cursor=pointer]:
+              - generic [ref=e1030]: RSTR
+              - generic [ref=e1031]: ORD
+              - generic [ref=e1032]: Restriction — volume
+            - generic [ref=e1033] [cursor=pointer]:
+              - generic [ref=e1034]: RSTR
+              - generic [ref=e1035]: ATL
+              - generic [ref=e1036]: Restriction — volume
+            - generic [ref=e1037] [cursor=pointer]:
+              - generic [ref=e1038]: FXA
+              - generic [ref=e1039]: —
+              - generic [ref=e1040]: Flow Constraint Area — other
+            - generic [ref=e1041] [cursor=pointer]:
+              - generic [ref=e1042]: RSTR
+              - generic [ref=e1043]: AGS/DNL/AIK/HQU
+              - generic [ref=e1044]: Restriction — other:masters
+            - generic [ref=e1045] [cursor=pointer]:
+              - generic [ref=e1046]: RSTR
+              - generic [ref=e1047]: ORD
+              - generic [ref=e1048]: Restriction — volume
+            - generic [ref=e1049] [cursor=pointer]:
+              - generic [ref=e1050]: RSTR
+              - generic [ref=e1051]: SAN
+              - generic [ref=e1052]: Restriction — tm initiatives:m
+            - generic [ref=e1053] [cursor=pointer]:
+              - generic [ref=e1054]: RSTR
+              - generic [ref=e1055]: ALL
+              - generic [ref=e1056]: Restriction — volume
+            - generic [ref=e1057] [cursor=pointer]:
+              - generic [ref=e1058]: RSTR
+              - generic [ref=e1059]: ALL
+              - generic [ref=e1060]: Restriction — volume
+            - generic [ref=e1061] [cursor=pointer]:
+              - generic [ref=e1062]: RSTR
+              - generic [ref=e1063]: TJSJ/TIST
+              - generic [ref=e1064]: Restriction — volume
+            - generic [ref=e1065] [cursor=pointer]:
+              - generic [ref=e1066]: RSTR
+              - generic [ref=e1067]: EWR
+              - generic [ref=e1068]: Restriction — volume
+            - generic [ref=e1069] [cursor=pointer]:
+              - generic [ref=e1070]: RSTR
+              - generic [ref=e1071]: FLL
+              - generic [ref=e1072]: Restriction — weather
+            - generic [ref=e1073] [cursor=pointer]:
+              - generic [ref=e1074]: RSTR
+              - generic [ref=e1075]: SAN
+              - generic [ref=e1076]: Restriction — tm initiatives:m
+            - generic [ref=e1077] [cursor=pointer]:
+              - generic [ref=e1078]: FXA
+              - generic [ref=e1079]: —
+              - generic [ref=e1080]: Flow Constraint Area — weather
+            - generic [ref=e1081] [cursor=pointer]:
+              - generic [ref=e1082]: FXA
+              - generic [ref=e1083]: —
+              - generic [ref=e1084]: Flow Constraint Area — other
+            - generic [ref=e1085] [cursor=pointer]:
+              - generic [ref=e1086]: FXA
+              - generic [ref=e1087]: —
+              - generic [ref=e1088]: Flow Constraint Area — weather
+            - generic [ref=e1089] [cursor=pointer]:
+              - generic [ref=e1090]: FXA
+              - generic [ref=e1091]: —
+              - generic [ref=e1092]: Flow Constraint Area — other
+            - generic [ref=e1093] [cursor=pointer]:
+              - generic [ref=e1094]: FXA
+              - generic [ref=e1095]: —
+              - generic [ref=e1096]: Flow Constraint Area — other
+            - generic [ref=e1097] [cursor=pointer]:
+              - generic [ref=e1098]: FXA
+              - generic [ref=e1099]: —
+              - generic [ref=e1100]: Flow Constraint Area — weather
+            - generic [ref=e1101] [cursor=pointer]:
+              - generic [ref=e1102]: RSTR
+              - generic [ref=e1103]: IAD
+              - generic [ref=e1104]: Restriction — volume
+            - generic [ref=e1105] [cursor=pointer]:
+              - generic [ref=e1106]: FXA
+              - generic [ref=e1107]: —
+              - generic [ref=e1108]: Flow Constraint Area — weather
+            - generic [ref=e1109] [cursor=pointer]:
+              - generic [ref=e1110]: FXA
+              - generic [ref=e1111]: —
+              - generic [ref=e1112]: Flow Constraint Area — weather
+            - generic [ref=e1113] [cursor=pointer]:
+              - generic [ref=e1114]: FXA
+              - generic [ref=e1115]: —
+              - generic [ref=e1116]: Flow Constraint Area — none
+            - generic [ref=e1117] [cursor=pointer]:
+              - generic [ref=e1118]: FXA
+              - generic [ref=e1119]: —
+              - generic [ref=e1120]: Flow Constraint Area — weather
+            - generic [ref=e1121] [cursor=pointer]:
+              - generic [ref=e1122]: RSTR
+              - generic [ref=e1123]: ALL
+              - generic [ref=e1124]: Restriction — volume
+            - generic [ref=e1125] [cursor=pointer]:
+              - generic [ref=e1126]: RSTR
+              - generic [ref=e1127]: ATL
+              - generic [ref=e1128]: Restriction — volume
+            - generic [ref=e1129] [cursor=pointer]:
+              - generic [ref=e1130]: RSTR
+              - generic [ref=e1131]: ALL
+              - generic [ref=e1132]: Restriction — weather
+            - generic [ref=e1133] [cursor=pointer]:
+              - generic [ref=e1134]: RSTR
+              - generic [ref=e1135]: ALL
+              - generic [ref=e1136]: Restriction — volume
+            - generic [ref=e1137] [cursor=pointer]:
+              - generic [ref=e1138]: RSTR
+              - generic [ref=e1139]: MIA/MCO/FLL
+              - generic [ref=e1140]: Restriction — volume
+            - generic [ref=e1141] [cursor=pointer]:
+              - generic [ref=e1142]: RSTR
+              - generic [ref=e1143]: MCO
+              - generic [ref=e1144]: Restriction — weather
+            - generic [ref=e1145] [cursor=pointer]:
+              - generic [ref=e1146]: RSTR
+              - generic [ref=e1147]: ALL
+              - generic [ref=e1148]: Restriction — volume
+            - generic [ref=e1149] [cursor=pointer]:
+              - generic [ref=e1150]: RSTR
+              - generic [ref=e1151]: ORD
+              - generic [ref=e1152]: Restriction — volume
+            - generic [ref=e1153] [cursor=pointer]:
+              - generic [ref=e1154]: RSTR
+              - generic [ref=e1155]: ORD
+              - generic [ref=e1156]: Restriction — volume
+            - generic [ref=e1157] [cursor=pointer]:
+              - generic [ref=e1158]: RSTR
+              - generic [ref=e1159]: FLL
+              - generic [ref=e1160]: Restriction — volume
+            - generic [ref=e1161] [cursor=pointer]:
+              - generic [ref=e1162]: FXA
+              - generic [ref=e1163]: —
+              - generic [ref=e1164]: Flow Constraint Area — other
+        - generic [ref=e1165]:
+          - generic [ref=e1166]:
+            - generic [ref=e1167]: NOTAMs & TFRs
+            - generic [ref=e1169]: live
+          - generic [ref=e1171]:
+            - generic [ref=e1172]:
+              - generic [ref=e1173]: TFR
+              - generic [ref=e1174]: "6"
+            - generic [ref=e1175]:
+              - button "FDC" [ref=e1176] [cursor=pointer]
+              - button "GUM" [ref=e1177] [cursor=pointer]
+              - button "ZHN" [ref=e1178] [cursor=pointer]
+              - button "ZID" [ref=e1179] [cursor=pointer]
+              - button "ZJX" [ref=e1180] [cursor=pointer]
+              - button "ZTL" [ref=e1181] [cursor=pointer]
+        - generic [ref=e1182]:
+          - generic [ref=e1183]:
+            - generic [ref=e1184]: live feed
+            - generic [ref=e1185]:
+              - button "● live" [ref=e1186] [cursor=pointer]
+              - generic [ref=e1187]: "67"
+          - generic [ref=e1188]:
+            - button "FLOW 5" [ref=e1189] [cursor=pointer]
+            - button "WX" [ref=e1190] [cursor=pointer]
+            - button "ANOM 50" [ref=e1191] [cursor=pointer]
+            - button "OPS" [ref=e1192] [cursor=pointer]
+            - button "TFR 12" [ref=e1193] [cursor=pointer]
+          - generic [ref=e1194]:
+            - generic [ref=e1195]:
+              - generic [ref=e1196]: ANOM
+              - generic [ref=e1197]:
+                - generic [ref=e1198]: N8115B altitude
+                - generic [ref=e1199]: descent -0.7 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1200]: 57s
+            - generic [ref=e1201]:
+              - generic [ref=e1202]: ANOM
+              - generic [ref=e1203]:
+                - generic [ref=e1204]: RPA5590 diversion
+                - generic [ref=e1205]: heading 98° deviates 179° from KORD (bearing 277°), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1206]: 57s
+            - generic [ref=e1207]:
+              - generic [ref=e1208]: ANOM
+              - generic [ref=e1209]:
+                - generic [ref=e1210]: AAL2135 diversion
+                - generic [ref=e1211]: heading 104° deviates 179° from KIAH (bearing 285°)
+              - generic [ref=e1212]: 57s
+            - generic [ref=e1213]:
+              - generic [ref=e1214]: ANOM
+              - generic [ref=e1215]:
+                - generic [ref=e1216]: AAL2539 diversion
+                - generic [ref=e1217]: heading 340° deviates 49° from KBOS (bearing 29°), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1218]: 57s
+            - generic [ref=e1219]:
+              - generic [ref=e1220]: ANOM
+              - generic [ref=e1221]:
+                - generic [ref=e1222]: CSB421 speed
+                - generic [ref=e1223]: speed change 27.0 m/s in 93s, heading 232° deviates 62° from KCVG (bearing 294°)
+              - generic [ref=e1224]: 57s
+            - generic [ref=e1225]:
+              - generic [ref=e1226]: ANOM
+              - generic [ref=e1227]:
+                - generic [ref=e1228]: RN087 altitude
+                - generic [ref=e1229]: descent -6.2 m/s [transponder] (expected 8 to 63 in climb)
+              - generic [ref=e1230]: 57s
+            - generic [ref=e1231]:
+              - generic [ref=e1232]: ANOM
+              - generic [ref=e1233]:
+                - generic [ref=e1234]: N410FC altitude
+                - generic [ref=e1235]: descent -1.0 m/s [transponder] (expected 6 to 47 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1236]: 57s
+            - generic [ref=e1237]:
+              - generic [ref=e1238]: ANOM
+              - generic [ref=e1239]:
+                - generic [ref=e1240]: SWA3987 altitude
+                - generic [ref=e1241]: climb 0.3 m/s [transponder] (expected -78 to -6 in descent), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1242]: 57s
+            - generic [ref=e1243]:
+              - generic [ref=e1244]: ANOM
+              - generic [ref=e1245]:
+                - generic [ref=e1246]: N100HN altitude
+                - generic [ref=e1247]: descent 0.0 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1248]: 57s
+            - generic [ref=e1249]:
+              - generic [ref=e1250]: ANOM
+              - generic [ref=e1251]:
+                - generic [ref=e1252]: TWY48 diversion
+                - generic [ref=e1253]: heading 296° deviates 179° from KAUS (bearing 115°)
+              - generic [ref=e1254]: 57s
+            - generic [ref=e1255]:
+              - generic [ref=e1256]: ANOM
+              - generic [ref=e1257]:
+                - generic [ref=e1258]: N338BG altitude
+                - generic [ref=e1259]: descent -0.3 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1260]: 57s
+            - generic [ref=e1261]:
+              - generic [ref=e1262]: ANOM
+              - generic [ref=e1263]:
+                - generic [ref=e1264]: SKW4064 diversion
+                - generic [ref=e1265]: heading 317° deviates 167° from KORD (bearing 150°), 62km off filed route
+              - generic [ref=e1266]: 57s
+            - generic [ref=e1267]:
+              - generic [ref=e1268]: ANOM
+              - generic [ref=e1269]:
+                - generic [ref=e1270]: WUP669 diversion
+                - generic [ref=e1271]: heading 133° deviates 137° from KAUS (bearing 270°), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1272]: 57s
+            - generic [ref=e1273]:
+              - generic [ref=e1274]: ANOM
+              - generic [ref=e1275]:
+                - generic [ref=e1276]: KYOTE37 altitude
+                - generic [ref=e1277]: descent 0.0 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1278]: 57s
+            - generic [ref=e1279]:
+              - generic [ref=e1280]: ANOM
+              - generic [ref=e1281]:
+                - generic [ref=e1282]: N26800 altitude
+                - generic [ref=e1283]: descent -3.3 m/s [transponder] (expected 6 to 47 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1284]: 57s
+            - generic [ref=e1285]:
+              - generic [ref=e1286]: ANOM
+              - generic [ref=e1287]:
+                - generic [ref=e1288]: CFBFY altitude
+                - generic [ref=e1289]: descent 0.3 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1290]: 57s
+            - generic [ref=e1291]:
+              - generic [ref=e1292]: ANOM
+              - generic [ref=e1293]:
+                - generic [ref=e1294]: N7866N altitude
+                - generic [ref=e1295]: descent -0.7 m/s [transponder] (expected 6 to 47 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1296]: 57s
+            - generic [ref=e1297]:
+              - generic [ref=e1298]: ANOM
+              - generic [ref=e1299]:
+                - generic [ref=e1300]: CGTOT altitude
+                - generic [ref=e1301]: descent -1.0 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1302]: 57s
+            - generic [ref=e1303]:
+              - generic [ref=e1304]: ANOM
+              - generic [ref=e1305]:
+                - generic [ref=e1306]: AAL1352 diversion
+                - generic [ref=e1307]: heading 114° deviates 100° from KCLT (bearing 14°)
+              - generic [ref=e1308]: 57s
+            - generic [ref=e1309]:
+              - generic [ref=e1310]: ANOM
+              - generic [ref=e1311]:
+                - generic [ref=e1312]: N791FA altitude
+                - generic [ref=e1313]: descent -1.9 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1314]: 57s
+            - generic [ref=e1315]:
+              - generic [ref=e1316]: ANOM
+              - generic [ref=e1317]:
+                - generic [ref=e1318]: N782RP diversion
+                - generic [ref=e1319]: heading 71° deviates 174° from KAUS (bearing 257°)
+              - generic [ref=e1320]: 57s
+            - generic [ref=e1321]:
+              - generic [ref=e1322]: ANOM
+              - generic [ref=e1323]:
+                - generic [ref=e1324]: N909KC altitude
+                - generic [ref=e1325]: descent 0.7 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1326]: 57s
+            - generic [ref=e1327]:
+              - generic [ref=e1328]: ANOM
+              - generic [ref=e1329]:
+                - generic [ref=e1330]: N2846R altitude
+                - generic [ref=e1331]: descent 0.0 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1332]: 57s
+            - generic [ref=e1333]:
+              - generic [ref=e1334]: ANOM
+              - generic [ref=e1335]:
+                - generic [ref=e1336]: R20699 altitude
+                - generic [ref=e1337]: descent 0.0 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1338]: 57s
+            - generic [ref=e1339]:
+              - generic [ref=e1340]: ANOM
+              - generic [ref=e1341]:
+                - generic [ref=e1342]: DAL502 diversion
+                - generic [ref=e1343]: heading 341° deviates 177° from KFLL (bearing 158°), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1344]: 57s
+            - generic [ref=e1345]:
+              - generic [ref=e1346]: ANOM
+              - generic [ref=e1347]:
+                - generic [ref=e1348]: RPA3680 altitude
+                - generic [ref=e1349]: descent 0.3 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1350]: 57s
+            - generic [ref=e1351]:
+              - generic [ref=e1352]: ANOM
+              - generic [ref=e1353]:
+                - generic [ref=e1354]: RPA4466 diversion
+                - generic [ref=e1355]: heading 271° deviates 60° from KORD (bearing 331°), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1356]: 57s
+            - generic [ref=e1357]:
+              - generic [ref=e1358]: ANOM
+              - generic [ref=e1359]:
+                - generic [ref=e1360]: N373DG diversion
+                - generic [ref=e1361]: heading 39° deviates 171° from KJFK (bearing 228°), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1362]: 57s
+            - generic [ref=e1363]:
+              - generic [ref=e1364]: ANOM
+              - generic [ref=e1365]:
+                - generic [ref=e1366]: N5623E altitude
+                - generic [ref=e1367]: descent -0.7 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1368]: 57s
+            - generic [ref=e1369]:
+              - generic [ref=e1370]: ANOM
+              - generic [ref=e1371]:
+                - generic [ref=e1372]: N460LE altitude
+                - generic [ref=e1373]: descent -1.3 m/s [transponder] (expected 6 to 47 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1374]: 57s
+            - generic [ref=e1375]:
+              - generic [ref=e1376]: ANOM
+              - generic [ref=e1377]:
+                - generic [ref=e1378]: N6974H altitude
+                - generic [ref=e1379]: descent -1.6 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1380]: 57s
+            - generic [ref=e1381]:
+              - generic [ref=e1382]: ANOM
+              - generic [ref=e1383]:
+                - generic [ref=e1384]: N769GM altitude
+                - generic [ref=e1385]: descent -2.6 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1386]: 57s
+            - generic [ref=e1387]:
+              - generic [ref=e1388]: ANOM
+              - generic [ref=e1389]:
+                - generic [ref=e1390]: SWA510 diversion
+                - generic [ref=e1391]: climb 8.1 m/s [transponder] (expected -4 to 4 in cruise), (lone deviant — neighbors flying straight)
+              - generic [ref=e1392]: 57s
+            - generic [ref=e1393]:
+              - generic [ref=e1394]: ANOM
+              - generic [ref=e1395]:
+                - generic [ref=e1396]: UAL2034 altitude
+                - generic [ref=e1397]: descent 0.0 m/s [transponder] (expected 9 to 74 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1398]: 57s
+            - generic [ref=e1399]:
+              - generic [ref=e1400]: ANOM
+              - generic [ref=e1401]:
+                - generic [ref=e1402]: N20230 altitude
+                - generic [ref=e1403]: descent 0.0 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1404]: 57s
+            - generic [ref=e1405]:
+              - generic [ref=e1406]: ANOM
+              - generic [ref=e1407]:
+                - generic [ref=e1408]: JBU1138 diversion
+                - generic [ref=e1409]: 187km off filed route (KAUS→KBOS)
+              - generic [ref=e1410]: 57s
+            - generic [ref=e1411]:
+              - generic [ref=e1412]: ANOM
+              - generic [ref=e1413]:
+                - generic [ref=e1414]: DAL2903 diversion
+                - generic [ref=e1415]: heading 275° deviates 175° from KMCI (bearing 100°)
+              - generic [ref=e1416]: 57s
+            - generic [ref=e1417]:
+              - generic [ref=e1418]: ANOM
+              - generic [ref=e1419]:
+                - generic [ref=e1420]: NKS3113 diversion
+                - generic [ref=e1421]: 213km off filed route (?→?)
+              - generic [ref=e1422]: 57s
+            - generic [ref=e1423]:
+              - generic [ref=e1424]: ANOM
+              - generic [ref=e1425]:
+                - generic [ref=e1426]: WIS380 altitude
+                - generic [ref=e1427]: descent -0.7 m/s [transponder] (expected 6 to 47 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1428]: 57s
+            - generic [ref=e1429]:
+              - generic [ref=e1430]: ANOM
+              - generic [ref=e1431]:
+                - generic [ref=e1432]: UPS1233 altitude
+                - generic [ref=e1433]: climb -0.3 m/s [transponder] (expected -125 to -10 in descent), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1434]: 57s
+            - generic [ref=e1435]:
+              - generic [ref=e1436]: ANOM
+              - generic [ref=e1437]:
+                - generic [ref=e1438]: AAL456 diversion
+                - generic [ref=e1439]: 171km off filed route (KPHL→KPBI)
+              - generic [ref=e1440]: 57s
+            - generic [ref=e1441]:
+              - generic [ref=e1442]: ANOM
+              - generic [ref=e1443]:
+                - generic [ref=e1444]: OSU2 altitude
+                - generic [ref=e1445]: descent -1.6 m/s [transponder] (expected 8 to 63 in climb)
+              - generic [ref=e1446]: 57s
+            - generic [ref=e1447]:
+              - generic [ref=e1448]: ANOM
+              - generic [ref=e1449]:
+                - generic [ref=e1450]: JBU2129 diversion
+                - generic [ref=e1451]: (near airport), 183km off filed route (KJFK→KRSW)
+              - generic [ref=e1452]: 57s
+            - generic [ref=e1453]:
+              - generic [ref=e1454]: ANOM
+              - generic [ref=e1455]:
+                - generic [ref=e1456]: WSN9 diversion
+                - generic [ref=e1457]: heading 262° deviates 146° from KLAS (bearing 48°), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1458]: 57s
+            - generic [ref=e1459]:
+              - generic [ref=e1460]: ANOM
+              - generic [ref=e1461]:
+                - generic [ref=e1462]: SWA2552 altitude
+                - generic [ref=e1463]: climb 0.3 m/s [transponder] (expected -79 to -6 in descent), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1464]: 57s
+            - generic [ref=e1465]:
+              - generic [ref=e1466]: ANOM
+              - generic [ref=e1467]:
+                - generic [ref=e1468]: N24FE altitude
+                - generic [ref=e1469]: descent 0.3 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1470]: 57s
+            - generic [ref=e1471]:
+              - generic [ref=e1472]: ANOM
+              - generic [ref=e1473]:
+                - generic [ref=e1474]: FH630 altitude
+                - generic [ref=e1475]: descent 1.3 m/s [transponder] (expected 8 to 63 in climb), (multiple aircraft deviating without weather — area event)
+              - generic [ref=e1476]: 57s
+            - generic [ref=e1477]:
+              - generic [ref=e1478]: ANOM
+              - generic [ref=e1479]:
+                - generic [ref=e1480]: SWA2004 diversion
+                - generic [ref=e1481]: heading 98° deviates 169° from KSAN (bearing 267°)
+              - generic [ref=e1482]: 57s
+            - generic [ref=e1483]:
+              - generic [ref=e1484]: ANOM
+              - generic [ref=e1485]:
+                - generic [ref=e1486]: JBU2615 diversion
+                - generic [ref=e1487]: 218km off filed route (KJFK→KSFO)
+              - generic [ref=e1488]: 57s
+            - generic [ref=e1489]:
+              - generic [ref=e1490]: ANOM
+              - generic [ref=e1491]:
+                - generic [ref=e1492]: UAL555 diversion
+                - generic [ref=e1493]: heading 261° deviates 169° from KEWR (bearing 92°), 76km off filed route
+              - generic [ref=e1494]: 57s
+            - generic [ref=e1495]:
+              - generic [ref=e1496]: FLOW
+              - generic [ref=e1497]:
+                - generic [ref=e1498]: REROUTE DNL
+                - generic [ref=e1499]: other
+              - generic [ref=e1500]: 1m
+            - generic [ref=e1501]:
+              - generic [ref=e1502]: FLOW
+              - generic [ref=e1503]:
+                - generic [ref=e1504]: REROUTE AGS
+                - generic [ref=e1505]: other
+              - generic [ref=e1506]: 3m
+            - generic [ref=e1507]:
+              - generic [ref=e1508]: FLOW
+              - generic [ref=e1509]:
+                - generic [ref=e1510]: REROUTE DNL
+                - generic [ref=e1511]: other
+              - generic [ref=e1512]: 44m
+            - generic [ref=e1513]:
+              - generic [ref=e1514]: FLOW
+              - generic [ref=e1515]:
+                - generic [ref=e1516]: GROUND DELAY — 25m delay
+                - generic [ref=e1517]: staffing
+              - generic [ref=e1518]: 52m
+            - generic [ref=e1519]:
+              - generic [ref=e1520]: TFR
+              - generic [ref=e1521]:
+                - generic [ref=e1522]: TFR ZTL
+                - generic [ref=e1523]: TN..AIRSPACE 14NM SE CLEVELAND, TN..TEMPORARY FLIGHT RESTRICTIONS WI A
+              - generic [ref=e1524]: 1h
+            - generic [ref=e1525]:
+              - generic [ref=e1526]: TFR
+              - generic [ref=e1527]:
+                - generic [ref=e1528]: TFR FDC
+                - generic [ref=e1529]: FDC 6/9419 NOTAMC 6/9394 A) ORD
+              - generic [ref=e1530]: 1h
+            - generic [ref=e1531]:
+              - generic [ref=e1532]: FLOW
+              - generic [ref=e1533]:
+                - generic [ref=e1534]: REROUTE DNL
+                - generic [ref=e1535]: other
+              - generic [ref=e1536]: 1h
+            - generic [ref=e1537]:
+              - generic [ref=e1538]: TFR
+              - generic [ref=e1539]:
+                - generic [ref=e1540]: TFR FDC
+                - generic [ref=e1541]: FDC 6/9418 NOTAMC 6/9380 A) ORD
+              - generic [ref=e1542]: 1h
+            - generic [ref=e1543]:
+              - generic [ref=e1544]: TFR
+              - generic [ref=e1545]:
+                - generic [ref=e1546]: TFR FDC
+                - generic [ref=e1547]: FDC 6/9415 NOTAMC 6/9392 A) ORD
+              - generic [ref=e1548]: 1h
+            - generic [ref=e1549]:
+              - generic [ref=e1550]: TFR
+              - generic [ref=e1551]:
+                - generic [ref=e1552]: TFR FDC
+                - generic [ref=e1553]: FDC 6/9413 NOTAMC 6/9387 A) ORD
+              - generic [ref=e1554]: 1h
+            - generic [ref=e1555]:
+              - generic [ref=e1556]: TFR
+              - generic [ref=e1557]:
+                - generic [ref=e1558]: TFR FDC
+                - generic [ref=e1559]: FDC 6/9411 NOTAMC 6/9390 A) ORD
+              - generic [ref=e1560]: 1h
+            - generic [ref=e1561]:
+              - generic [ref=e1562]: TFR
+              - generic [ref=e1563]:
+                - generic [ref=e1564]: TFR FDC
+                - generic [ref=e1565]: FDC 6/9409 NOTAMC 6/9381 A) ORD
+              - generic [ref=e1566]: 1h
+            - generic [ref=e1567]:
+              - generic [ref=e1568]: TFR
+              - generic [ref=e1569]:
+                - generic [ref=e1570]: TFR FDC
+                - generic [ref=e1571]: FDC 6/9407 NOTAMC 6/9393 A) ORD
+              - generic [ref=e1572]: 1h
+            - generic [ref=e1573]:
+              - generic [ref=e1574]: TFR
+              - generic [ref=e1575]:
+                - generic [ref=e1576]: TFR FDC
+                - generic [ref=e1577]: FDC 6/9403 NOTAMC 6/9391 A) ORD
+              - generic [ref=e1578]: 1h
+            - generic [ref=e1579]:
+              - generic [ref=e1580]: TFR
+              - generic [ref=e1581]:
+                - generic [ref=e1582]: TFR FDC
+                - generic [ref=e1583]: FDC 6/9401 NOTAMC 6/9389 A) ORD
+              - generic [ref=e1584]: 1h
+            - generic [ref=e1585]:
+              - generic [ref=e1586]: TFR
+              - generic [ref=e1587]:
+                - generic [ref=e1588]: TFR FDC
+                - generic [ref=e1589]: FDC 6/9399 NOTAMC 6/9386 A) ORD
+              - generic [ref=e1590]: 1h
+            - generic [ref=e1591]:
+              - generic [ref=e1592]: TFR
+              - generic [ref=e1593]:
+                - generic [ref=e1594]: TFR FDC
+                - generic [ref=e1595]: FDC 6/9395 NOTAMC 6/9383 A) ORD
+              - generic [ref=e1596]: 1h
+        - generic [ref=e1597]:
+          - generic [ref=e1598]:
+            - generic [ref=e1599]: terminal weather
+            - generic [ref=e1600]: 88 sites · 7 hazards
+          - generic [ref=e1601]:
+            - generic [ref=e1602]:
+              - generic [ref=e1603]:
+                - generic [ref=e1604]: tornado
+                - generic [ref=e1605]: "3"
+              - generic [ref=e1606]:
+                - button "COS" [ref=e1607] [cursor=pointer]
+                - button "D01" [ref=e1608] [cursor=pointer]
+                - button "DEN" [ref=e1609] [cursor=pointer]
+            - generic [ref=e1610]:
+              - generic [ref=e1611]:
+                - generic [ref=e1612]: microburst
+                - generic [ref=e1613]: "5"
+              - generic [ref=e1614]:
+                - button "BWI" [ref=e1615] [cursor=pointer]
+                - button "DEN" [ref=e1616] [cursor=pointer]
+                - button "DFW" [ref=e1617] [cursor=pointer]
+                - button "IAH" [ref=e1618] [cursor=pointer]
+                - button "ORD" [ref=e1619] [cursor=pointer]
+            - generic [ref=e1620]:
+              - generic [ref=e1621]:
+                - generic [ref=e1622]: windshear
+                - generic [ref=e1623]: "5"
+              - generic [ref=e1624]:
+                - button "BWI" [ref=e1625] [cursor=pointer]
+                - button "DEN" [ref=e1626] [cursor=pointer]
+                - button "DFW" [ref=e1627] [cursor=pointer]
+                - button "IAH" [ref=e1628] [cursor=pointer]
+                - button "ORD" [ref=e1629] [cursor=pointer]
+            - generic [ref=e1630]:
+              - generic [ref=e1631]:
+                - generic [ref=e1632]: gust front
+                - generic [ref=e1633]: "7"
+              - generic [ref=e1634]:
+                - button "BWI" [ref=e1635] [cursor=pointer]
+                - button "C90" [ref=e1636] [cursor=pointer]
+                - button "D10" [ref=e1637] [cursor=pointer]
+                - button "DFW" [ref=e1638] [cursor=pointer]
+                - button "I90" [ref=e1639] [cursor=pointer]
+                - button "ORD" [ref=e1640] [cursor=pointer]
+                - button "PCT" [ref=e1641] [cursor=pointer]
+            - generic [ref=e1642]:
+              - generic [ref=e1643]:
+                - generic [ref=e1644]: hazard
+                - generic [ref=e1645]: "2"
+              - generic [ref=e1646]:
+                - button "CMH" [ref=e1647] [cursor=pointer]
+                - button "F90" [ref=e1648] [cursor=pointer]
+            - generic [ref=e1649]:
+              - generic [ref=e1650]:
+                - generic [ref=e1651]: precip
+                - generic [ref=e1652]: "8"
+              - generic [ref=e1653]:
+                - button "ATL" [ref=e1654] [cursor=pointer]
+                - button "CMH" [ref=e1655] [cursor=pointer]
+                - button "F90" [ref=e1656] [cursor=pointer]
+                - button "I90" [ref=e1657] [cursor=pointer]
+                - button "MCO" [ref=e1658] [cursor=pointer]
+                - button "N90" [ref=e1659] [cursor=pointer]
+                - button "NCT" [ref=e1660] [cursor=pointer]
+                - button "PHL" [ref=e1661] [cursor=pointer]
+            - generic [ref=e1662]:
+              - generic [ref=e1663]:
+                - generic [ref=e1664]: storm motion
+                - generic [ref=e1665]: "1"
+              - button "F90" [ref=e1667] [cursor=pointer]
+  - generic [ref=e1670]:
+    - generic [ref=e1671]:
+      - generic [ref=e1673]: US airspace
+      - generic [ref=e1674]:
+        - generic [ref=e1675]:
+          - generic [ref=e1676]: wx
+          - button "TFRs" [ref=e1677] [cursor=pointer]
+          - button "WX (3)" [ref=e1678] [cursor=pointer]
+          - button "PIREPs (114)" [ref=e1679] [cursor=pointer]
+          - button "ITWS" [ref=e1680] [cursor=pointer]
+        - generic [ref=e1681]:
+          - generic [ref=e1682]: flt
+          - button "ADS-B" [ref=e1683] [cursor=pointer]
+          - button "IFR" [ref=e1684] [cursor=pointer]
+          - button "TRACON (477)" [ref=e1685] [cursor=pointer]
+        - generic [ref=e1686]:
+          - generic [ref=e1687]: evt
+          - button "anomalies (100)" [ref=e1688] [cursor=pointer]
+          - button "off-route (21)" [ref=e1689] [cursor=pointer]
+          - button "flow (10)" [ref=e1690] [cursor=pointer]
+          - button "NOTAMs" [ref=e1691] [cursor=pointer]
+          - button "cascades" [ref=e1692] [cursor=pointer]
+    - generic [ref=e1695]:
+      - button "Zoom in" [ref=e1696] [cursor=pointer]: +
+      - button "Zoom out" [ref=e1697] [cursor=pointer]: −
+  - generic [ref=e1703]:
+    - generic [ref=e1704]: NORMALopensky-network.org + api.adsbdb.com
+    - generic [ref=e1705]: idle
