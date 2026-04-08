@@ -133,10 +133,56 @@ export function FlightLifecyclePopup({ callsign, onClose }) {
             </div>
           )}
 
+          {/* En-route phases (from SFDPS altitude trail) */}
+          {data.phases?.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[9px] text-fg3/50 uppercase">En-Route Phases</div>
+              {data.phases.map((p, i) => (
+                <div key={i} className="flex items-center gap-2 text-[9px] py-0.5 border-b border-white/3">
+                  <span className={clsx('font-bold w-14 shrink-0',
+                    p.phase === 'CLIMB' ? 'text-grn' : p.phase === 'DESCENT' ? 'text-cyn' : 'text-fg2'
+                  )}>{p.phase}</span>
+                  <span className="text-fg3 tabular-nums">
+                    {p.startAlt != null && p.endAlt != null
+                      ? `FL${Math.round(p.startAlt)}→${Math.round(p.endAlt)}`
+                      : ''}
+                  </span>
+                  <span className="text-fg2 tabular-nums">{p.durationMin}m</span>
+                  {p.startArtcc && <span className="text-fg3/40">{p.startArtcc}</span>}
+                  <span className="ml-auto text-fg3/50 tabular-nums">{p.startTime?.substring(11, 16)}z</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ARTCC progression */}
+          {data.artccProgression?.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[9px] text-fg3/50 uppercase">ARTCC Progression</div>
+              <div className="flex flex-wrap gap-1.5">
+                {data.artccProgression.map((a, i) => (
+                  <span key={i} className="text-[9px] bg-bg2 rounded px-1.5 py-0.5">
+                    <span className="text-acc font-bold">{a.artcc}</span>
+                    {a.sector && <span className="text-fg3/50 ml-0.5">/{a.sector}</span>}
+                    <span className="text-fg3/40 ml-1 tabular-nums">{a.time?.substring(11, 16)}z</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Altitude profile (mini sparkline) */}
+          {data.trail?.length > 2 && (
+            <div className="space-y-1">
+              <div className="text-[9px] text-fg3/50 uppercase">Altitude Profile ({data.trail.length} pts)</div>
+              <AltitudeProfile trail={data.trail} />
+            </div>
+          )}
+
           {/* Raw events */}
           {data.events?.length > 0 && (
             <div className="space-y-1">
-              <div className="text-[9px] text-fg3/50 uppercase">All Events ({data.events.length})</div>
+              <div className="text-[9px] text-fg3/50 uppercase">Surface Events ({data.events.length})</div>
               {data.events.map((e, i) => (
                 <div key={i} className="flex items-center gap-2 text-[9px] text-fg3 py-0.5 border-b border-white/3">
                   <span className="text-fg2 w-28 shrink-0">{e.event_type?.replace(/_/g, ' ')}</span>
@@ -157,14 +203,18 @@ export function FlightLifecyclePopup({ callsign, onClose }) {
 
 export function AirportMovementsPopup({ airport, onClose }) {
   const [data, setData] = useState(null)
+  const [flow, setFlow] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setLoading(true)
-    axios.get(`/api/swim/surface/${encodeURIComponent(airport)}`, { params: { limit: 40 } })
-      .then(r => setData(r.data))
-      .catch(() => setData([]))
-      .finally(() => setLoading(false))
+    Promise.allSettled([
+      axios.get(`/api/swim/surface/${encodeURIComponent(airport)}`, { params: { limit: 40 } }),
+      axios.get(`/api/swim/airport/${encodeURIComponent(airport)}/surface-flow`),
+    ]).then(([movRes, flowRes]) => {
+      setData(movRes.status === 'fulfilled' ? movRes.value.data : [])
+      setFlow(flowRes.status === 'fulfilled' ? flowRes.value.data : null)
+    }).finally(() => setLoading(false))
   }, [airport])
 
   const oooi = (data || []).filter(e => ['OFF', 'ON', 'SPOT_OUT', 'SPOT_IN'].includes(e.event_type))
@@ -174,16 +224,76 @@ export function AirportMovementsPopup({ airport, onClose }) {
   const COLOR = { OFF: 'text-grn', ON: 'text-cyn', SPOT_OUT: 'text-ylw', SPOT_IN: 'text-acc' }
 
   return (
-    <Popup title={airport.replace(/^K/, '')} subtitle={`Recent activity at ${airport}`} onClose={onClose}>
+    <Popup title={airport.replace(/^K/, '')} subtitle={`Surface operations at ${airport}`} onClose={onClose}>
       {loading ? (
         <LoadingDots />
-      ) : oooi.length === 0 && other.length === 0 ? (
-        <div className="py-8 text-center text-fg3 text-[11px]">No recent movements at {airport.replace(/^K/, '')}</div>
       ) : (
         <>
+          {/* Surface flow stats */}
+          {flow && (
+            <div className="p-2 border-b border-border">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-bg2 rounded py-1 px-2">
+                  <div className={clsx('text-sm font-bold tabular-nums', flow.depQueue?.count > 5 ? 'text-red' : flow.depQueue?.count > 0 ? 'text-ylw' : 'text-grn')}>
+                    {flow.depQueue?.count || 0}
+                  </div>
+                  <div className="text-[7px] text-fg3">dep queue</div>
+                </div>
+                <div className="bg-bg2 rounded py-1 px-2">
+                  <div className="text-sm font-bold text-fg2 tabular-nums">{flow.activeGroundMovements || 0}</div>
+                  <div className="text-[7px] text-fg3">ground mvmt</div>
+                </div>
+                <div className="bg-bg2 rounded py-1 px-2">
+                  <div className="text-sm font-bold text-acc tabular-nums">{flow.runways?.length || 0}</div>
+                  <div className="text-[7px] text-fg3">active rwys</div>
+                </div>
+              </div>
+
+              {/* Departure queue flights */}
+              {flow.depQueue?.count > 0 && (
+                <div className="mt-2">
+                  <div className="text-[8px] text-fg3/50 uppercase mb-0.5">Waiting to depart</div>
+                  {flow.depQueue.flights.slice(0, 8).map((f, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[9px] py-0.5 border-b border-white/3">
+                      <span className="text-fg2 font-bold w-16 shrink-0">{f.callsign}</span>
+                      <span className="text-ylw tabular-nums">{Math.round(f.wait_min)}m waiting</span>
+                      <span className="ml-auto text-fg3/50 tabular-nums">{f.pushback_time?.substring(11, 16)}z</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Runway utilization */}
+              {flow.runways?.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-[8px] text-fg3/50 uppercase mb-0.5">Runway ops (2hr)</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {flow.runways.map((r, i) => (
+                      <span key={i} className="text-[9px] bg-bg2 rounded px-1.5 py-0.5">
+                        <span className="text-fg2 font-bold">{r.runway}</span>
+                        <span className={clsx('ml-1', r.event_type === 'OFF' ? 'text-grn' : 'text-cyn')}>
+                          {r.ops} {r.event_type === 'OFF' ? 'dep' : 'arr'}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Throughput mini chart */}
+              {flow.throughput?.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-[8px] text-fg3/50 uppercase mb-0.5">Throughput (15-min bins)</div>
+                  <ThroughputChart bins={flow.throughput} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Flight movements */}
           {oooi.length > 0 && (
             <div className="p-2">
-              <div className="text-[9px] text-fg3/50 uppercase mb-1">Flights ({oooi.length})</div>
+              <div className="text-[9px] text-fg3/50 uppercase mb-1">Recent flights ({oooi.length})</div>
               {oooi.map((e, i) => (
                 <div key={e.id || i} className="flex items-center gap-2 text-[10px] py-0.5 border-b border-white/3">
                   <span className="text-fg2 font-bold w-16 shrink-0">{e.callsign || '—'}</span>
@@ -195,18 +305,8 @@ export function AirportMovementsPopup({ airport, onClose }) {
               ))}
             </div>
           )}
-          {other.length > 0 && (
-            <div className="p-2 border-t border-border">
-              <div className="text-[9px] text-fg3/50 uppercase mb-1">Other Events ({other.length})</div>
-              {other.slice(0, 15).map((e, i) => (
-                <div key={e.id || i} className="flex items-center gap-2 text-[9px] text-fg3 py-0.5 border-b border-white/3">
-                  <span className="text-fg2 w-24 shrink-0">{e.event_type?.replace(/_/g, ' ')}</span>
-                  {e.callsign && <span className="text-fg2">{e.callsign}</span>}
-                  {e.text && <span className="truncate flex-1">{e.text.substring(0, 50)}</span>}
-                  <span className="ml-auto text-fg3/50 tabular-nums shrink-0">{e.received_at?.substring(11, 19)}z</span>
-                </div>
-              ))}
-            </div>
+          {oooi.length === 0 && !flow && (
+            <div className="py-8 text-center text-fg3 text-[11px]">No recent movements at {airport.replace(/^K/, '')}</div>
           )}
         </>
       )}
@@ -344,4 +444,50 @@ function fmtFull(ts) {
     if (isNaN(d)) return ts.substring?.(11, 19) || '—'
     return d.toISOString().substring(11, 19) + 'z'
   } catch { return '—' }
+}
+
+// Mini throughput bar chart (departures + arrivals in 15-min bins)
+function ThroughputChart({ bins }) {
+  const max = Math.max(...bins.map(b => Math.max(b.departures || 0, b.arrivals || 0)), 1)
+  return (
+    <div className="flex items-end gap-0.5" style={{ height: 32 }}>
+      {bins.map((b, i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-px" title={`${b.bin} — ${b.departures || 0} dep, ${b.arrivals || 0} arr`}>
+          <div className="w-full flex gap-px justify-center" style={{ height: 28 }}>
+            <div className="w-1/2 bg-grn/60 rounded-t-sm self-end" style={{ height: `${((b.departures || 0) / max) * 100}%` }} />
+            <div className="w-1/2 bg-cyn/60 rounded-t-sm self-end" style={{ height: `${((b.arrivals || 0) / max) * 100}%` }} />
+          </div>
+          {i % 4 === 0 && <div className="text-[6px] text-fg3/30 tabular-nums">{b.bin?.substring(0, 5)}</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Mini altitude profile chart (SVG sparkline)
+function AltitudeProfile({ trail }) {
+  const W = 460, H = 60, PAD = 2
+  const alts = trail.map(p => p.alt).filter(a => a != null && a > 0)
+  if (alts.length < 2) return null
+  const maxAlt = Math.max(...alts)
+  const minAlt = Math.min(...alts)
+  const range = maxAlt - minAlt || 1
+
+  const points = alts.map((a, i) => {
+    const x = PAD + (i / (alts.length - 1)) * (W - 2 * PAD)
+    const y = PAD + (1 - (a - minAlt) / range) * (H - 2 * PAD)
+    return `${x},${y}`
+  }).join(' ')
+
+  return (
+    <div className="bg-bg2 rounded px-2 py-1">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 50 }}>
+        <polyline points={points} fill="none" stroke="#81a2be" strokeWidth="1.5" strokeLinejoin="round" />
+      </svg>
+      <div className="flex justify-between text-[8px] text-fg3/50 tabular-nums">
+        <span>FL{Math.round(minAlt)}</span>
+        <span>FL{Math.round(maxAlt)}</span>
+      </div>
+    </div>
+  )
 }

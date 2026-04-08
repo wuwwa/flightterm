@@ -1,7 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import clsx from 'clsx'
 import { useSwim } from '../../contexts/SwimContext'
-import NasOverview from './NasOverview'
 import AirportBoard from './AirportBoard'
 
 export default function TfmsPanel({ backendOk }) {
@@ -44,20 +43,8 @@ export default function TfmsPanel({ backendOk }) {
       </div>
 
       {!collapsed && (
-        <div className="grid grid-cols-[220px_1fr] gap-px bg-border" style={{ height: '260px' }}>
-          {/* Left: NAS ranked list */}
-          <div className="bg-bg1 min-h-0">
-            <NasOverview
-              analytics={nasSummary}
-              selectedAirport={selectedAirport}
-              onSelectAirport={setSelectedAirport}
-            />
-          </div>
-
-          {/* Right: Airport board (arrivals + departures + lifecycle) */}
-          <div className="bg-bg1 min-h-0">
-            <AirportBoard backendOk={backendOk} airport={selectedAirport} onAirportChange={setSelectedAirport} />
-          </div>
+        <div className="bg-bg1" style={{ height: '260px' }}>
+          <AirportBoard backendOk={backendOk} airport={selectedAirport} onAirportChange={setSelectedAirport} />
         </div>
       )}
     </div>

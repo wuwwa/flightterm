@@ -146,6 +146,8 @@ export default function NasMap({ backendOk, onSelectAirport }) {
   const [routeDeviations, setRouteDeviations] = useState([])
   const [ifrPositions, setIfrPositions] = useState([])
   const [surfacePositions, setSurfacePositions] = useState([])
+  const [weatherDelays, setWeatherDelays] = useState(null)
+  const [sectorData, setSectorData] = useState([])
 
   // Fetch all map layer data (staggered refresh)
   useEffect(() => {
@@ -162,6 +164,8 @@ export default function NasMap({ backendOk, onSelectAirport }) {
         axios.get('/api/swim/routes/deviations', { params: { limit: 25 } }).then(r => r.data),
         fetchFlightPositions(1000),
         fetchSurfacePositions(500),
+        axios.get('/api/swim/weather-delays').then(r => r.data).catch(() => null),
+        axios.get('/api/swim/sectors').then(r => r.data).catch(() => []),
       ]).then(results => {
         if (cancelled) return
         const val = (i) => results[i].status === 'fulfilled' ? results[i].value : []
@@ -174,6 +178,8 @@ export default function NasMap({ backendOk, onSelectAirport }) {
         setRouteDeviations(val(6) || [])
         setIfrPositions(val(7) || [])
         setSurfacePositions(val(8) || [])
+        setWeatherDelays(val(9) || null)
+        setSectorData(val(10) || [])
       })
     }
     refresh()
@@ -512,18 +518,26 @@ export default function NasMap({ backendOk, onSelectAirport }) {
             </CircleMarker>
           ))}
 
-          {/* ── IFR flight positions (TFMS radar) ─────────────────────────── */}
-          {ifrDots.map((f, i) => (
-            <CircleMarker key={`ifr-${i}`} center={[f.lat, f.lon]} radius={1.5}
-              pathOptions={{ color: '#b5bd68', fillColor: '#b5bd68', fillOpacity: 0.6, weight: 0 }}>
-              <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                <b>{f.acid}</b> [{f.flight_status}]<br />
-                {f.dep_arpt?.replace(/^K/, '') || '?'} → {f.arr_arpt?.replace(/^K/, '') || '?'}<br />
-                {f.reported_alt && `FL${f.reported_alt} `}
-                {f.speed && `${f.speed}kt`}
-              </span></Tooltip>
-            </CircleMarker>
-          ))}
+          {/* ── IFR flight positions (SFDPS en route) ────────────────────── */}
+          {ifrDots.map((f, i) => {
+            const alt = Number(f.reported_alt || f.altitude) || 0
+            const color = alt >= 350 ? '#b5bd68' : alt >= 240 ? '#8abeb7' : alt >= 100 ? '#81a2be' : '#b294bb'
+            return (
+              <CircleMarker key={`ifr-${i}`} center={[f.lat, f.lon]} radius={1.5}
+                pathOptions={{ color, fillColor: color, fillOpacity: 0.7, weight: 0 }}>
+                <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                  <b>{f.acid}</b>{f.aircraft_type ? ` (${f.aircraft_type})` : ''} {f.flight_status ? `[${f.flight_status}]` : ''}<br />
+                  {f.dep_arpt?.replace(/^K/, '') || '?'} → {f.arr_arpt?.replace(/^K/, '') || '?'}
+                  {f.route ? <><br /><span style={{ color: '#999', fontSize: 10 }}>{f.route.length > 50 ? f.route.substring(0, 50) + '…' : f.route}</span></> : null}<br />
+                  {(f.reported_alt || f.altitude) && `FL${f.reported_alt || f.altitude} `}
+                  {f.speed && `${Math.round(f.speed)}kt `}
+                  {f.heading && `HDG ${Math.round(f.heading)}° `}
+                  {f.beacon_code && `SQ ${f.beacon_code}`}
+                  {f.artcc && <><br /><span style={{ color: '#999' }}>{f.artcc}{f.sector ? ` / ${f.sector}` : ''}</span></>}
+                </span></Tooltip>
+              </CircleMarker>
+            )
+          })}
 
           {/* ── ADS-B flight positions ────────────────────────────────────── */}
           {flightDots.map(f => (
@@ -554,6 +568,89 @@ export default function NasMap({ backendOk, onSelectAirport }) {
           ))}
         </MapContainer>
       </div>
+
+      {/* Weather-delay causation + Sector congestion panels */}
+      {/* Weather-delay causation + Sector congestion — only render when there's data */}
+      {(() => {
+        const hasWxDelay = (weatherDelays?.predictions?.length > 0) || (weatherDelays?.confirmed?.some(c => c.hasWeatherCause))
+        const hasSectors = sectorData.length > 0
+        if (!hasWxDelay && !hasSectors) return null
+
+        return (
+          <div className={clsx('grid gap-px bg-border', hasWxDelay && hasSectors ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1')}>
+            {hasWxDelay && (
+              <div className="bg-bg1 p-2">
+                <div className="text-[9px] text-fg3/50 uppercase mb-1.5 flex items-center gap-2">
+                  <span>Weather → Delay Causation</span>
+                  {weatherDelays?.predictions?.length > 0 && (
+                    <span className="text-ylw text-[8px] font-bold animate-pulse">{weatherDelays.predictions.length} predicted</span>
+                  )}
+                </div>
+
+                {weatherDelays?.predictions?.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-[8px] text-ylw/70 uppercase mb-0.5">Predicted delays</div>
+                    {weatherDelays.predictions.slice(0, 5).map((p, i) => (
+                      <div key={i} className="flex items-center gap-2 text-[9px] py-0.5 border-b border-ylw/10 bg-ylw/3 px-1 rounded mb-0.5">
+                        <span className="text-acc font-bold w-10 shrink-0">{p.airport?.replace(/^K/, '')}</span>
+                        <span className="text-ylw">{p.weatherType?.replace(/_/g, ' ')}</span>
+                        <span className="text-fg3">{p.eventCount} events</span>
+                        <span className={`ml-auto font-bold ${p.probability > 0.6 ? 'text-red' : 'text-ylw'}`}>
+                          {Math.round(p.probability * 100)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {weatherDelays?.confirmed?.some(c => c.hasWeatherCause) && (
+                  <div>
+                    <div className="text-[8px] text-fg3/40 uppercase mb-0.5">Active flow programs with weather</div>
+                    {weatherDelays.confirmed.filter(c => c.hasWeatherCause).slice(0, 8).map((c, i) => (
+                      <div key={i} className="flex items-center gap-2 text-[9px] py-0.5 border-b border-white/3">
+                        <span className={`font-bold w-8 shrink-0 ${c.flowType === 'GS' ? 'text-red' : 'text-ylw'}`}>{c.flowType}</span>
+                        <span className="text-acc font-bold w-10 shrink-0">{c.airport?.replace(/^K/, '')}</span>
+                        <span className="text-fg2">{c.weather[0]?.type?.replace(/_/g, ' ')}{c.weather[0]?.offsetMin ? ` (${c.weather[0].offsetMin}m before)` : ''}</span>
+                        {c.delayMin > 0 && <span className="text-fg3/50 ml-auto tabular-nums">{Math.round(c.delayMin)}m</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {hasSectors && (
+              <div className="bg-bg1 p-2">
+                <div className="text-[9px] text-fg3/50 uppercase mb-1.5">ARTCC Sector Load</div>
+                <div>
+                  <div className="flex items-center gap-1 text-[7px] text-fg3/40 mb-0.5 px-1">
+                    <span className="w-10 shrink-0">ARTCC</span>
+                    <span className="w-12 shrink-0 text-right">flights</span>
+                    <span className="w-10 shrink-0 text-right">sectors</span>
+                    <span className="flex-1 ml-2">load</span>
+                  </div>
+                  {sectorData.map((s, i) => {
+                    const load = s.total_flights || 0
+                    const maxLoad = Math.max(...sectorData.map(x => x.total_flights || 1))
+                    const pct = Math.round((load / maxLoad) * 100)
+                    const color = load > 100 ? 'bg-red/60' : load > 50 ? 'bg-ylw/60' : 'bg-grn/60'
+                    return (
+                      <div key={i} className="flex items-center gap-1 text-[9px] py-0.5 px-1 border-b border-white/3">
+                        <span className="text-acc font-bold w-10 shrink-0">{s.artcc}</span>
+                        <span className="text-fg2 w-12 shrink-0 text-right tabular-nums">{s.total_flights}</span>
+                        <span className="text-fg3 w-10 shrink-0 text-right tabular-nums">{s.active_sectors}</span>
+                        <div className="flex-1 ml-2 h-2 bg-bg2 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }

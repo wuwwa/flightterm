@@ -1,0 +1,349 @@
+- generic [ref=e2]:
+  - generic [ref=e6]: fetching flights…
+  - generic [ref=e7]:
+    - generic [ref=e9]:
+      - generic [ref=e10]: flightterm
+      - generic [ref=e11]: "|"
+      - generic [ref=e12]: "-- ac"
+      - generic [ref=e13]: "-- air"
+      - generic [ref=e14]: "|"
+      - generic [ref=e15]:
+        - generic [ref=e18]: FNS
+        - generic [ref=e21]: TFMS
+        - generic [ref=e24]: SFDPS
+        - generic [ref=e27]: ITWS
+        - generic [ref=e30]: STDDS
+      - generic [ref=e31]:
+        - generic [ref=e32]: ❯
+        - textbox "callsign, icao, airline, type, airport…" [ref=e33]
+      - generic [ref=e34]:
+        - button "global" [ref=e35] [cursor=pointer]
+        - button "usa" [ref=e36] [cursor=pointer]
+        - button "europe" [ref=e37] [cursor=pointer]
+        - button "asia" [ref=e38] [cursor=pointer]
+        - button "atlantic" [ref=e39] [cursor=pointer]
+      - generic [ref=e40]: "|"
+      - button "settings" [ref=e41] [cursor=pointer]
+      - button "usage" [ref=e42] [cursor=pointer]
+      - button "clear" [ref=e43] [cursor=pointer]
+      - generic [ref=e44]:
+        - generic [ref=e45]: ○
+        - generic [ref=e46]: 23:48:25z
+    - generic [ref=e48] [cursor=pointer]:
+      - generic [ref=e49]: log
+      - generic [ref=e50]: ·
+      - generic [ref=e51]: 23:48:25
+      - generic [ref=e52]: fetching initial flight data…
+      - generic [ref=e53]: ▼
+    - generic [ref=e55]:
+      - generic [ref=e57]:
+        - generic [ref=e58]: "0"
+        - text: records
+      - generic [ref=e59]: no data — press fetch
+    - generic [ref=e62]:
+      - generic [ref=e64]: aircraft intel
+      - generic [ref=e65]: select a row to inspect
+      - generic [ref=e67]: map
+      - generic [ref=e68]: no position data
+      - generic [ref=e70]: aircraft
+      - generic [ref=e71]:
+        - generic [ref=e72]: type
+        - generic [ref=e73]: —
+      - generic [ref=e74]:
+        - generic [ref=e75]: icao type
+        - generic [ref=e76]: —
+      - generic [ref=e77]:
+        - generic [ref=e78]: manufacturer
+        - generic [ref=e79]: —
+      - generic [ref=e80]:
+        - generic [ref=e81]: registration
+        - generic [ref=e82]: —
+      - generic [ref=e83]:
+        - generic [ref=e84]: owner
+        - generic [ref=e85]: —
+      - generic [ref=e86]:
+        - generic [ref=e87]: country
+        - generic [ref=e88]: —
+      - generic [ref=e90]: live vector
+      - generic [ref=e91]:
+        - generic [ref=e92]: icao24
+        - generic [ref=e93]: —
+      - generic [ref=e94]:
+        - generic [ref=e95]: callsign
+        - generic [ref=e96]: —
+      - generic [ref=e97]:
+        - generic [ref=e98]: altitude
+        - generic [ref=e99]: —
+      - generic [ref=e100]:
+        - generic [ref=e101]: speed
+        - generic [ref=e102]: —
+      - generic [ref=e103]:
+        - generic [ref=e104]: heading
+        - generic [ref=e105]: —
+      - generic [ref=e106]:
+        - generic [ref=e107]: position
+        - generic [ref=e108]: —
+      - generic [ref=e109]:
+        - generic [ref=e110]: squawk
+        - generic [ref=e111]: —
+      - generic [ref=e112]:
+        - generic [ref=e113]: status
+        - generic [ref=e114]: —
+      - generic [ref=e115]:
+        - generic [ref=e116]: country
+        - generic [ref=e117]: —
+      - generic [ref=e118]:
+        - generic [ref=e119]: mach
+        - generic [ref=e120]: —
+      - generic [ref=e121]:
+        - generic [ref=e122]: IAS
+        - generic [ref=e123]: —
+      - generic [ref=e124]:
+        - generic [ref=e125]: adsb.fi telemetry
+        - generic [ref=e126]: "[adsb.fi]"
+      - generic [ref=e127]:
+        - generic [ref=e128]: emergency
+        - generic [ref=e129]: —
+      - generic [ref=e130]:
+        - generic [ref=e131]: vert rate
+        - generic [ref=e132]: —
+      - generic [ref=e133]:
+        - generic [ref=e134]: MCP alt
+        - generic [ref=e135]: —
+      - generic [ref=e136]:
+        - generic [ref=e137]: MCP hdg
+        - generic [ref=e138]: —
+      - generic [ref=e139]:
+        - generic [ref=e140]: reg
+        - generic [ref=e141]: —
+      - generic [ref=e142]:
+        - generic [ref=e143]: type
+        - generic [ref=e144]: —
+      - generic [ref=e145]:
+        - generic [ref=e146]: operator
+        - generic [ref=e147]: —
+      - generic [ref=e148]:
+        - generic [ref=e149]: year
+        - generic [ref=e150]: —
+      - generic [ref=e151]:
+        - generic [ref=e152]: military
+        - generic [ref=e153]: —
+      - generic [ref=e154]:
+        - generic [ref=e155]: category
+        - generic [ref=e156]: —
+      - generic [ref=e158]: track
+      - generic [ref=e159]: tracking — waiting for data (need 2+ samples)
+      - generic [ref=e160]:
+        - generic [ref=e161]: deep telemetry
+        - generic [ref=e162]: "[airplanes.live]"
+      - generic [ref=e163]:
+        - generic [ref=e164]: IAS
+        - generic [ref=e165]: —
+      - generic [ref=e166]:
+        - generic [ref=e167]: TAS
+        - generic [ref=e168]: —
+      - generic [ref=e169]:
+        - generic [ref=e170]: mach
+        - generic [ref=e171]: —
+      - generic [ref=e172]:
+        - generic [ref=e173]: roll
+        - generic [ref=e174]: —
+      - generic [ref=e175]:
+        - generic [ref=e176]: turn rate
+        - generic [ref=e177]: —
+      - generic [ref=e178]:
+        - generic [ref=e179]: MCP alt
+        - generic [ref=e180]: —
+      - generic [ref=e181]:
+        - generic [ref=e182]: FMS alt
+        - generic [ref=e183]: —
+      - generic [ref=e184]:
+        - generic [ref=e185]: sel heading
+        - generic [ref=e186]: —
+      - generic [ref=e187]:
+        - generic [ref=e188]: nav modes
+        - generic [ref=e189]: —
+      - generic [ref=e190]:
+        - generic [ref=e191]: wind
+        - generic [ref=e192]: —
+      - generic [ref=e193]:
+        - generic [ref=e194]: OAT
+        - generic [ref=e195]: —
+      - generic [ref=e197]: route
+      - generic [ref=e198]:
+        - generic [ref=e199]: airline
+        - generic [ref=e200]: —
+      - generic [ref=e201]:
+        - generic [ref=e202]: origin
+        - generic [ref=e203]: —
+      - generic [ref=e204]:
+        - generic [ref=e205]: dest
+        - generic [ref=e206]: —
+      - generic [ref=e208]: flightaware aeroapi
+      - generic [ref=e209]: schedule, delays, flight status & progress
+      - generic [ref=e210]:
+        - generic [ref=e211]: ident
+        - generic [ref=e212]: —
+      - generic [ref=e213]:
+        - generic [ref=e214]: operator
+        - generic [ref=e215]: —
+      - generic [ref=e216]:
+        - generic [ref=e217]: aircraft
+        - generic [ref=e218]: —
+      - generic [ref=e219]:
+        - generic [ref=e220]: origin
+        - generic [ref=e221]: —
+      - generic [ref=e222]:
+        - generic [ref=e223]: dest
+        - generic [ref=e224]: —
+      - generic [ref=e225]:
+        - generic [ref=e226]: status
+        - generic [ref=e227]: —
+    - generic [ref=e229]:
+      - generic [ref=e230]:
+        - generic [ref=e231] [cursor=pointer]:
+          - generic [ref=e232]: airport ops
+          - generic [ref=e233]: ▾
+        - generic [ref=e234]: 0 airports
+      - generic [ref=e236]:
+        - combobox [ref=e238]:
+          - option "select airport"
+          - option "ABQ — Albuquerque"
+          - option "ATL — Atlanta"
+          - option "AUS — Austin"
+          - option "BWI — Baltimore"
+          - option "BOS — Boston"
+          - option "CLT — Charlotte"
+          - option "MDW — Chicago Midway"
+          - option "ORD — Chicago O'Hare"
+          - option "CVG — Cincinnati"
+          - option "CLE — Cleveland"
+          - option "DAL — Dallas Love"
+          - option "DFW — Dallas-Fort Worth"
+          - option "DEN — Denver"
+          - option "DTW — Detroit"
+          - option "FLL — Fort Lauderdale"
+          - option "RSW — Fort Myers"
+          - option "HNL — Honolulu"
+          - option "HOU — Houston Hobby"
+          - option "IAH — Houston IAH"
+          - option "IND — Indianapolis"
+          - option "MCI — Kansas City"
+          - option "LAS — Las Vegas"
+          - option "LAX — Los Angeles"
+          - option "SDF — Louisville"
+          - option "MIA — Miami"
+          - option "MSP — Minneapolis"
+          - option "BNA — Nashville"
+          - option "MSY — New Orleans"
+          - option "JFK — New York JFK" [selected]
+          - option "LGA — New York LGA"
+          - option "EWR — Newark"
+          - option "OAK — Oakland"
+          - option "MCO — Orlando"
+          - option "PHL — Philadelphia"
+          - option "PHX — Phoenix"
+          - option "PIT — Pittsburgh"
+          - option "PDX — Portland"
+          - option "RDU — Raleigh-Durham"
+          - option "SMF — Sacramento"
+          - option "SLC — Salt Lake City"
+          - option "SAT — San Antonio"
+          - option "SAN — San Diego"
+          - option "SFO — San Francisco"
+          - option "SJC — San Jose"
+          - option "SEA — Seattle"
+          - option "STL — St. Louis"
+          - option "SYR — Syracuse"
+          - option "TPA — Tampa"
+          - option "DCA — Washington DCA"
+          - option "IAD — Washington IAD"
+          - option "PBI — West Palm Beach"
+        - generic [ref=e239]:
+          - button "Flights" [ref=e240] [cursor=pointer]
+          - button "Weather" [ref=e241] [cursor=pointer]
+          - button "NOTAMs" [ref=e242] [cursor=pointer]
+          - button "Surface" [ref=e243] [cursor=pointer]
+          - button "Flow" [ref=e244] [cursor=pointer]
+        - generic [ref=e246]:
+          - generic [ref=e247]:
+            - generic [ref=e248]:
+              - generic [ref=e249]: ARRIVALS
+              - generic [ref=e250]: 0 inbound
+            - generic [ref=e251]:
+              - generic [ref=e252]: Flight
+              - generic [ref=e253]: From
+              - generic [ref=e254]: Status
+              - generic [ref=e255]: ETA
+            - generic [ref=e257]: no arrivals
+          - generic [ref=e258]:
+            - generic [ref=e259]:
+              - generic [ref=e260]: DEPARTURES
+              - generic [ref=e261]: 0 outbound
+            - generic [ref=e262]:
+              - generic [ref=e263]: Flight
+              - generic [ref=e264]: To
+              - generic [ref=e265]: Status
+              - generic [ref=e266]: ETD
+            - generic [ref=e268]: no departures
+          - generic [ref=e269]:
+            - generic [ref=e271]: FLIGHT DETAIL
+            - generic [ref=e272]:
+              - generic [ref=e273]: click a flight
+              - generic [ref=e274]: timeline, delays, taxi times, route
+    - generic [ref=e276]:
+      - generic [ref=e277] [cursor=pointer]:
+        - generic [ref=e278]: FAA SWIM
+        - generic [ref=e279]: NAS health · NOTAMs · live feed · terminal weather
+        - generic [ref=e280]: ▾
+      - generic [ref=e281]:
+        - generic [ref=e282]:
+          - generic [ref=e283]:
+            - generic [ref=e284]: NAS status
+            - generic [ref=e286]: no feeds
+          - generic [ref=e288]: SWIM feeds not connected — configure in .env
+        - generic [ref=e289]:
+          - generic [ref=e290]:
+            - generic [ref=e291]: NOTAMs & TFRs
+            - generic [ref=e293]: "--"
+          - generic [ref=e295]: FNS feed not connected
+        - generic [ref=e296]:
+          - generic [ref=e297]:
+            - generic [ref=e298]: live feed
+            - generic [ref=e299]:
+              - button "● live" [ref=e300] [cursor=pointer]
+              - generic [ref=e301]: "0"
+          - generic [ref=e302]:
+            - button "FLOW" [ref=e303] [cursor=pointer]
+            - button "WX" [ref=e304] [cursor=pointer]
+            - button "ANOM" [ref=e305] [cursor=pointer]
+            - button "OPS" [ref=e306] [cursor=pointer]
+            - button "TFR" [ref=e307] [cursor=pointer]
+          - generic [ref=e309]: waiting for events...
+        - generic [ref=e310]:
+          - generic [ref=e311]:
+            - generic [ref=e312]: terminal weather
+            - generic [ref=e313]: 0 sites
+          - generic [ref=e314]: no terminal weather data yet
+  - generic [ref=e318]:
+    - generic [ref=e319]:
+      - generic [ref=e321]: US airspace
+      - generic [ref=e322]:
+        - button "TFRs" [ref=e323] [cursor=pointer]
+        - button "WX" [ref=e324] [cursor=pointer]
+        - button "PIREPs" [ref=e325] [cursor=pointer]
+        - button "anomalies" [ref=e326] [cursor=pointer]
+        - button "ITWS" [ref=e327] [cursor=pointer]
+        - button "off-route" [ref=e328] [cursor=pointer]
+        - button "flow" [ref=e329] [cursor=pointer]
+        - button "NOTAMs" [ref=e330] [cursor=pointer]
+        - button "cascades" [ref=e331] [cursor=pointer]
+        - button "IFR" [ref=e332] [cursor=pointer]
+        - button "TRACON" [ref=e333] [cursor=pointer]
+        - button "ADS-B" [ref=e334] [cursor=pointer]
+    - generic [ref=e337]:
+      - button "Zoom in" [ref=e338] [cursor=pointer]: +
+      - button "Zoom out" [ref=e339] [cursor=pointer]: −
+  - generic [ref=e345]:
+    - generic [ref=e346]: NORMALopensky-network.org + api.adsbdb.com
+    - generic [ref=e347]: idle

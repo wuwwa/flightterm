@@ -1116,6 +1116,65 @@ app.get('/api/anomalies/feedback/stats', (_req, res) => {
   res.json(getFeedbackStats())
 })
 
+// ── Internal SWIM endpoints (called by swim worker service via HTTP) ───────
+// Protected by SWIM_INTERNAL_SECRET. These accept data from the worker and
+// write it to SQLite — the worker has no direct DB access.
+
+function requireInternalAuth(req, res, next) {
+  const secret = process.env.SWIM_INTERNAL_SECRET
+  if (!secret) return res.status(503).json({ error: 'internal API not configured' })
+  const token = (req.headers.authorization || '').replace('Bearer ', '')
+  if (token !== secret) return res.status(401).json({ error: 'unauthorized' })
+  next()
+}
+
+app.post('/internal/swim/notams', requireInternalAuth, (req, res) => {
+  try {
+    const { upsertNotamBatch } = require('./db')
+    const count = upsertNotamBatch(req.body.notams, req.body.rawXmls)
+    res.json({ ok: true, count })
+  } catch (err) {
+    console.error('internal/swim/notams error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/internal/swim/flights', requireInternalAuth, (req, res) => {
+  try {
+    const { upsertFlightPlanBatch } = require('./db')
+    upsertFlightPlanBatch(req.body.plans)
+    res.json({ ok: true, count: req.body.plans.length })
+  } catch (err) {
+    console.error('internal/swim/flights error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/internal/swim/flow', requireInternalAuth, (req, res) => {
+  try {
+    const { db: rawDb, insertFlowEvent } = require('./db')
+    const insertBatch = rawDb.transaction((events) => {
+      for (const event of events) insertFlowEvent(event)
+    })
+    insertBatch(req.body.events)
+    res.json({ ok: true, count: req.body.events.length })
+  } catch (err) {
+    console.error('internal/swim/flow error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/internal/swim/routes', requireInternalAuth, (req, res) => {
+  try {
+    const { upsertRoutesBatch } = require('./db')
+    upsertRoutesBatch(req.body.routes)
+    res.json({ ok: true, count: req.body.routes.length })
+  } catch (err) {
+    console.error('internal/swim/routes error:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // SWIM feed status
 // GET /api/swim/status
 app.get('/api/swim/status', (_req, res) => {
@@ -1329,12 +1388,34 @@ app.get('/api/swim/airport/:icao/ops', (req, res) => {
   }
 })
 
-// GET /api/swim/flight/:callsign/lifecycle — stitched TFMS + STDDS flight lifecycle
+// GET /api/swim/flight/:callsign/lifecycle — stitched TFMS + STDDS + SFDPS flight lifecycle
 app.get('/api/swim/flight/:callsign/lifecycle', (req, res) => {
   cachePublic(res, 10)
   try {
-    const { getFlightLifecycle } = require('./db')
-    res.json(getFlightLifecycle(req.params.callsign.toUpperCase()))
+    const { getFlightLifecycleEnhanced } = require('./db')
+    res.json(getFlightLifecycleEnhanced(req.params.callsign.toUpperCase()))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/swim/flight/:callsign/positions — SFDPS position trail for altitude profile
+app.get('/api/swim/flight/:callsign/positions', (req, res) => {
+  cachePublic(res, 10)
+  try {
+    const { getPositionTrail } = require('./db')
+    res.json(getPositionTrail(req.params.callsign.toUpperCase()))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/swim/airport/:icao/surface-flow — departure queue, throughput, ground movements
+app.get('/api/swim/airport/:icao/surface-flow', (req, res) => {
+  cachePublic(res, 10)
+  try {
+    const { getSurfaceFlow } = require('./db')
+    res.json(getSurfaceFlow(req.params.icao.toUpperCase()))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1358,6 +1439,51 @@ app.get('/api/swim/routes/deviations', (req, res) => {
     }
     merged.sort((a, b) => b.avg_km - a.avg_km)
     res.json(merged.slice(0, limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/swim/live-feed — unified real-time event stream from all sources
+app.get('/api/swim/live-feed', (req, res) => {
+  cachePublic(res, 5)
+  try {
+    const { getLiveFeed } = require('./db')
+    const limit = Math.min(Number(req.query.limit) || 60, 200)
+    res.json(getLiveFeed(limit))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/swim/weather-delays — weather-delay causation + predictions
+app.get('/api/swim/weather-delays', (_req, res) => {
+  cachePublic(res, 15)
+  try {
+    const { getWeatherDelayCausation } = require('./db')
+    res.json(getWeatherDelayCausation())
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/swim/sectors — ARTCC sector congestion from SFDPS data
+app.get('/api/swim/sectors', (_req, res) => {
+  cachePublic(res, 10)
+  try {
+    const { getSectorCongestion } = require('./db')
+    res.json(getSectorCongestion())
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// GET /api/swim/sectors/:artcc — sector detail + history for an ARTCC
+app.get('/api/swim/sectors/:artcc', (req, res) => {
+  cachePublic(res, 10)
+  try {
+    const { getSectorDetail } = require('./db')
+    res.json(getSectorDetail(req.params.artcc.toUpperCase()))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1588,11 +1714,11 @@ if (!process.env.VITEST) _server = app.listen(PORT, () => {
     console.log('  ℹ  Anomaly poller disabled — set POLLER_ENABLED=true to enable')
   }
 
-  // Start SWIM feed consumers if configured
-  if (process.env.SWIM_USERNAME && process.env.SWIM_PASSWORD) {
-    swim.startAll().catch(err => console.error('swim: startup error:', err.message))
+  // Start polling SWIM worker service for ephemeral data snapshots
+  if (process.env.SWIM_WORKER_URL) {
+    swim.startAll()
   } else {
-    console.log('  ℹ  SWIM feeds disabled — set SWIM_USERNAME + SWIM_PASSWORD to enable')
+    console.log('  ℹ  SWIM worker not configured — set SWIM_WORKER_URL to enable')
   }
 
   // ── Event loop lag monitor (diagnostic) ──────────────────────────────────

@@ -18,8 +18,9 @@ factoryProps.profile = solace.SolclientFactoryProfiles.version10
 factoryProps.logLevel = solace.LogLevel.WARN
 solace.SolclientFactory.init(factoryProps)
 
-const PROCESS_BATCH = 20         // messages per processing tick
-const PROCESS_INTERVAL_MS = 100  // ms between processing ticks
+const PROCESS_BATCH = 10         // messages per processing tick
+const PROCESS_INTERVAL_MS = 200  // ms between processing ticks
+const MAX_QUEUE_SIZE = 5000      // drop oldest if queue exceeds this (OOM protection)
 
 class ScdsConsumer {
   constructor(config, handler) {
@@ -136,6 +137,12 @@ class ScdsConsumer {
     messageConsumer.on(solace.MessageConsumerEventName.MESSAGE, (message) => {
       this._queue.push(message)
       this.stats.received++
+      // OOM protection: drop oldest unprocessed messages if queue is too deep
+      if (this._queue.length > MAX_QUEUE_SIZE) {
+        const dropped = this._queue.splice(0, this._queue.length - MAX_QUEUE_SIZE)
+        for (const msg of dropped) { try { msg.acknowledge() } catch {} }
+        this.stats.dropped = (this.stats.dropped || 0) + dropped.length
+      }
     })
 
     messageConsumer.connect()

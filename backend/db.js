@@ -5,7 +5,7 @@ const { isEnabled: s3Enabled, archiveBeforePurge } = require('./s3archive')
 
 const DB_DIR = process.env.DB_DIR || __dirname
 const DB_PATH = path.join(DB_DIR, 'flightterm.db')
-const db = new Database(DB_PATH)
+const db = new Database(DB_PATH, { timeout: 10000 }) // 10s busy timeout for multi-process access
 
 // ── pragmas for performance ─────────────────────────────────────────────────
 db.pragma('journal_mode = WAL')
@@ -543,6 +543,28 @@ db.exec(`
   -- Compound indexes for analytics joins (taxi times, airline perf, turnarounds)
   CREATE INDEX IF NOT EXISTS idx_se_airport_type_received ON surface_events(airport, event_type, received_at);
   CREATE INDEX IF NOT EXISTS idx_se_callsign_type_received ON surface_events(callsign, event_type, received_at);
+`)
+
+// ── SFDPS flight position trail ─────────────────────────────────────────────
+// Selectively persisted from SFDPS snapshots for flights with matching flight plans.
+// Used for altitude profiles, phase duration analysis, and en-route tracking.
+// Purged after 6 hours to keep table lean.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS flight_positions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    callsign    TEXT NOT NULL,
+    lat         REAL,
+    lon         REAL,
+    altitude    REAL,
+    speed       REAL,
+    heading     REAL,
+    sector      TEXT,
+    artcc       TEXT,
+    recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_fpos_callsign ON flight_positions(callsign);
+  CREATE INDEX IF NOT EXISTS idx_fpos_recorded ON flight_positions(recorded_at);
+  CREATE INDEX IF NOT EXISTS idx_fpos_cs_rec ON flight_positions(callsign, recorded_at);
 `)
 
 // ── prepared statements (pre-compiled once) ─────────────────────────────────
@@ -2136,6 +2158,10 @@ async function runPurgeCycle({ vacuum = true } = {}) {
     if (wx.changes > 0) console.log(`  purge: ${wx.changes} terminal weather events`)
     const notams = purgeExpiredNotams()
     if (notams.changes > 0) console.log(`  purge: ${notams.changes} expired NOTAMs`)
+    const positions = purgeOldPositions()
+    if (positions > 0) console.log(`  purge: ${positions} old flight positions`)
+    const sectors = purgeSectorCounts()
+    if (sectors > 0) console.log(`  purge: ${sectors} old sector counts`)
   } catch (err) {
     console.warn('  purge: SWIM data purge error:', err.message)
   }
@@ -2995,6 +3021,550 @@ function getFlightLifecycle(callsign) {
   }
 }
 
+// ── Unified live event feed ─────────────────────────────────────────────────
+// Merges recent events from all data sources into a single time-sorted stream.
+
+const _stmtFeedSurface = db.prepare(`
+  SELECT id, event_type, airport, callsign, runway, gate, text, received_at
+  FROM surface_events
+  WHERE event_type IN ('OFF', 'ON', 'SPOT_OUT', 'SPOT_IN')
+    AND received_at > datetime('now', '-30 minutes')
+  ORDER BY received_at DESC LIMIT ?
+`)
+
+const _stmtFeedFlow = db.prepare(`
+  SELECT id, event_type, airport, status, reason, text, delay_minutes, received_at
+  FROM flow_events
+  WHERE event_type IN ('GS', 'GDP', 'AFP', 'REROUTE', 'CTOP')
+    AND received_at > datetime('now', '-2 hours')
+  ORDER BY received_at DESC LIMIT ?
+`)
+
+const _stmtFeedWeather = db.prepare(`
+  SELECT id, event_type, airport, severity, text, received_at
+  FROM terminal_weather
+  WHERE event_type IN ('TORNADO', 'MICROBURST', 'WINDSHEAR', 'GUST_FRONT')
+    AND received_at > datetime('now', '-30 minutes')
+  ORDER BY received_at DESC LIMIT ?
+`)
+
+const _stmtFeedNotams = db.prepare(`
+  SELECT id, location, keyword, text, received_at
+  FROM notams
+  WHERE is_tfr = 1
+    AND received_at > datetime('now', '-2 hours')
+  ORDER BY received_at DESC LIMIT ?
+`)
+
+function getLiveFeed(limit = 60) {
+  const events = []
+
+  // Surface movements (STDDS)
+  try {
+    for (const e of _stmtFeedSurface.all(40)) {
+      const verb = e.event_type === 'OFF' ? 'departed'
+        : e.event_type === 'ON' ? 'landed at'
+        : e.event_type === 'SPOT_OUT' ? 'pushback at'
+        : 'at gate'
+      const sev = (e.event_type === 'OFF' || e.event_type === 'ON') ? 'high' : 'info'
+      events.push({
+        type: 'surface',
+        kind: e.event_type,
+        sev,
+        time: e.received_at,
+        airport: e.airport,
+        callsign: e.callsign,
+        title: `${e.callsign || '?'} ${verb} ${(e.airport || '?').replace(/^K/, '')}`,
+        detail: e.runway ? `rwy ${e.runway.split('/')[0]}` : (e.gate ? `gate ${e.gate}` : null),
+      })
+    }
+  } catch {}
+
+  // Flow events (TFMS)
+  try {
+    for (const e of _stmtFeedFlow.all(20)) {
+      const sev = e.event_type === 'GS' ? 'critical' : 'high'
+      const label = e.event_type === 'GS' ? 'GROUND STOP'
+        : e.event_type === 'GDP' ? 'GROUND DELAY'
+        : e.event_type === 'AFP' ? 'AIRSPACE FLOW'
+        : e.event_type === 'REROUTE' ? 'REROUTE'
+        : e.event_type
+      events.push({
+        type: 'flow',
+        kind: e.event_type,
+        sev,
+        time: e.received_at,
+        airport: e.airport,
+        title: `${label} ${(e.airport || '').replace(/^K/, '')}${e.delay_minutes ? ` — ${Math.round(e.delay_minutes)}m delay` : ''}`,
+        detail: e.reason ? e.reason.toLowerCase().substring(0, 60) : null,
+      })
+    }
+  } catch {}
+
+  // Severe weather (ITWS)
+  try {
+    for (const e of _stmtFeedWeather.all(20)) {
+      const sev = (e.event_type === 'TORNADO' || e.severity === 'CRITICAL') ? 'critical' : 'high'
+      events.push({
+        type: 'weather',
+        kind: e.event_type,
+        sev,
+        time: e.received_at,
+        airport: e.airport,
+        title: `${e.event_type.replace(/_/g, ' ')} at ${(e.airport || '?').replace(/^K/, '')}`,
+        detail: e.text ? e.text.substring(0, 70) : null,
+      })
+    }
+  } catch {}
+
+  // TFRs (FNS)
+  try {
+    for (const e of _stmtFeedNotams.all(10)) {
+      events.push({
+        type: 'tfr',
+        kind: 'TFR',
+        sev: 'high',
+        time: e.received_at,
+        airport: e.location,
+        title: `TFR ${e.location || ''}`,
+        detail: e.text ? e.text.substring(0, 70) : null,
+      })
+    }
+  } catch {}
+
+  // Critical/high anomalies (poller)
+  try {
+    const anomalies = getRecentAnomalies(30)
+    for (const a of anomalies) {
+      if (a.severity !== 'CRITICAL' && a.severity !== 'HIGH') continue
+      const sev = a.severity === 'CRITICAL' ? 'critical' : 'high'
+      events.push({
+        type: 'anomaly',
+        kind: a.category,
+        sev,
+        time: a.detected_at,
+        callsign: a.callsign,
+        title: `${a.callsign || a.icao} ${a.category?.toLowerCase() || 'anomaly'}`,
+        detail: Array.isArray(a.reasons) ? a.reasons.slice(0, 2).join(', ') : null,
+      })
+    }
+  } catch {}
+
+  // Sort all events by time, newest first, return top N
+  events.sort((a, b) => (b.time || '').localeCompare(a.time || ''))
+  return events.slice(0, limit)
+}
+
+// ── Weather-delay causation (NAS-wide) ──────────────────────────────────────
+
+// All active flow events with their correlated weather
+const _stmtWeatherDelayCausation = db.prepare(`
+  SELECT
+    fe.id AS flow_id, fe.event_type AS flow_type, fe.airport,
+    fe.received_at AS flow_start, fe.end_time AS flow_end,
+    fe.delay_minutes, fe.reason AS flow_reason,
+    tw.event_type AS weather_type, tw.severity,
+    tw.received_at AS weather_time, tw.text AS weather_text,
+    CAST((julianday(fe.received_at) - julianday(tw.received_at)) * 1440 AS INTEGER) AS offset_min
+  FROM flow_events fe
+  LEFT JOIN terminal_weather tw
+    ON tw.airport = fe.airport
+    AND tw.received_at BETWEEN datetime(fe.received_at, '-60 minutes') AND fe.received_at
+    AND tw.event_type IN ('TORNADO', 'MICROBURST', 'WINDSHEAR', 'GUST_FRONT', 'PRECIP', 'STORM_MOTION')
+  WHERE fe.event_type IN ('GS', 'GDP', 'AFP')
+    AND fe.received_at > datetime('now', '-6 hours')
+  ORDER BY fe.received_at DESC
+`)
+
+// Airports with active severe weather but no flow program (prediction candidates)
+const _stmtWeatherNoProgramAirports = db.prepare(`
+  SELECT tw.airport, tw.event_type, tw.severity, tw.received_at, tw.text,
+    COUNT(*) AS event_count
+  FROM terminal_weather tw
+  WHERE tw.received_at > datetime('now', '-30 minutes')
+    AND tw.event_type IN ('TORNADO', 'MICROBURST', 'WINDSHEAR', 'GUST_FRONT')
+    AND tw.severity IN ('CRITICAL', 'HIGH')
+    AND tw.airport IS NOT NULL
+    AND tw.airport NOT IN (
+      SELECT DISTINCT airport FROM flow_events
+      WHERE event_type IN ('GS', 'GDP') AND received_at > datetime('now', '-2 hours')
+      AND airport IS NOT NULL
+    )
+  GROUP BY tw.airport
+  ORDER BY event_count DESC
+  LIMIT 20
+`)
+
+// Historical: how often did severe weather at an airport lead to a flow event?
+const _stmtWeatherToFlowHistory = db.prepare(`
+  SELECT tw.airport,
+    COUNT(DISTINCT fe.id) AS flow_count,
+    COUNT(DISTINCT tw.id) AS weather_count
+  FROM terminal_weather tw
+  LEFT JOIN flow_events fe
+    ON fe.airport = tw.airport
+    AND fe.event_type IN ('GS', 'GDP')
+    AND fe.received_at BETWEEN tw.received_at AND datetime(tw.received_at, '+90 minutes')
+  WHERE tw.airport = ?
+    AND tw.event_type IN ('TORNADO', 'MICROBURST', 'WINDSHEAR', 'GUST_FRONT')
+    AND tw.severity IN ('CRITICAL', 'HIGH')
+    AND tw.received_at > datetime('now', '-24 hours')
+`)
+
+function getWeatherDelayCausation() {
+  const raw = _stmtWeatherDelayCausation.all()
+
+  // Group by flow event, collect all correlated weather
+  const byFlow = new Map()
+  for (const r of raw) {
+    if (!byFlow.has(r.flow_id)) {
+      byFlow.set(r.flow_id, {
+        flowId: r.flow_id, flowType: r.flow_type, airport: r.airport,
+        flowStart: r.flow_start, flowEnd: r.flow_end,
+        delayMin: r.delay_minutes, reason: r.flow_reason,
+        weather: [],
+      })
+    }
+    if (r.weather_type) {
+      byFlow.get(r.flow_id).weather.push({
+        type: r.weather_type, severity: r.severity,
+        time: r.weather_time, text: r.weather_text, offsetMin: r.offset_min,
+      })
+    }
+  }
+
+  // Deduplicate weather per flow event
+  const confirmed = Array.from(byFlow.values()).map(f => ({
+    ...f,
+    weather: f.weather.filter((w, i, arr) =>
+      arr.findIndex(x => x.type === w.type && x.time === w.time) === i
+    ).slice(0, 5),
+    hasWeatherCause: f.weather.length > 0,
+  }))
+
+  // Predictions: airports with severe weather but no program yet
+  const predictions = _stmtWeatherNoProgramAirports.all().map(p => {
+    const hist = _stmtWeatherToFlowHistory.get(p.airport)
+    const probability = hist && hist.weather_count > 0
+      ? Math.min(0.95, Math.round((hist.flow_count / hist.weather_count) * 100) / 100)
+      : 0.5 // default 50% for unknown airports
+    return {
+      airport: p.airport, weatherType: p.event_type, severity: p.severity,
+      weatherTime: p.received_at, text: p.text, eventCount: p.event_count,
+      probability, prediction: probability > 0.3 ? 'LIKELY' : 'POSSIBLE',
+    }
+  })
+
+  return { confirmed, predictions }
+}
+
+// ── Sector congestion (SFDPS) ───────────────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sector_counts (
+    artcc       TEXT NOT NULL,
+    sector      TEXT,
+    flight_count INTEGER NOT NULL DEFAULT 0,
+    sampled_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_sc_sampled ON sector_counts(sampled_at);
+  CREATE INDEX IF NOT EXISTS idx_sc_artcc ON sector_counts(artcc, sampled_at);
+`)
+
+const _stmtInsertSectorCount = db.prepare(`
+  INSERT INTO sector_counts (artcc, sector, flight_count, sampled_at)
+  VALUES (@artcc, @sector, @flight_count, @sampled_at)
+`)
+const _insertSectorBatch = db.transaction((rows) => {
+  for (const r of rows) _stmtInsertSectorCount.run(r)
+})
+
+function persistSectorCounts(sfdpsSnapshot) {
+  if (!sfdpsSnapshot || sfdpsSnapshot.length === 0) return 0
+  const now = new Date().toISOString()
+  const counts = new Map()
+  for (const t of sfdpsSnapshot) {
+    const artcc = t.artcc
+    if (!artcc) continue
+    const key = `${artcc}:${t.sector || '_'}`
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  const rows = Array.from(counts.entries()).map(([key, count]) => {
+    const [artcc, sector] = key.split(':')
+    return { artcc, sector: sector === '_' ? null : sector, flight_count: count, sampled_at: now }
+  })
+  if (rows.length === 0) return 0
+  _insertSectorBatch(rows)
+  return rows.length
+}
+
+const _stmtSectorCongestion = db.prepare(`
+  SELECT artcc, SUM(flight_count) AS total_flights,
+    COUNT(DISTINCT sector) AS active_sectors,
+    MAX(flight_count) AS busiest_sector_count
+  FROM sector_counts
+  WHERE sampled_at > datetime('now', '-5 minutes')
+  GROUP BY artcc
+  ORDER BY total_flights DESC
+`)
+
+const _stmtSectorDetail = db.prepare(`
+  SELECT sector, AVG(flight_count) AS avg_count, MAX(flight_count) AS max_count,
+    COUNT(*) AS samples
+  FROM sector_counts
+  WHERE artcc = ? AND sampled_at > datetime('now', '-30 minutes')
+    AND sector IS NOT NULL
+  GROUP BY sector
+  ORDER BY avg_count DESC LIMIT ?
+`)
+
+const _stmtArtccHistory = db.prepare(`
+  SELECT
+    strftime('%H:%M', sampled_at, 'start of minute',
+      '-' || (CAST(strftime('%M', sampled_at) AS INTEGER) % 5) || ' minutes') AS bin,
+    SUM(flight_count) AS total
+  FROM sector_counts
+  WHERE artcc = ? AND sampled_at > datetime('now', '-2 hours')
+  GROUP BY bin ORDER BY bin ASC
+`)
+
+const _stmtPurgeSectorCounts = db.prepare(`
+  DELETE FROM sector_counts WHERE sampled_at < datetime('now', '-3 hours')
+`)
+
+function getSectorCongestion() {
+  return _stmtSectorCongestion.all()
+}
+
+function getSectorDetail(artcc, limit = 20) {
+  return {
+    artcc,
+    sectors: _stmtSectorDetail.all(artcc, limit),
+    history: _stmtArtccHistory.all(artcc),
+  }
+}
+
+function purgeSectorCounts() {
+  return _stmtPurgeSectorCounts.run().changes
+}
+
+// ── Flight positions: persist + query (SFDPS en-route trail) ────────────────
+
+const _stmtInsertPosition = db.prepare(`
+  INSERT INTO flight_positions (callsign, lat, lon, altitude, speed, heading, sector, artcc, recorded_at)
+  VALUES (@callsign, @lat, @lon, @altitude, @speed, @heading, @sector, @artcc, @recorded_at)
+`)
+const _insertPositionBatch = db.transaction((rows) => {
+  for (const r of rows) _stmtInsertPosition.run(r)
+})
+
+function persistFlightPositions(sfdpsSnapshot) {
+  if (!sfdpsSnapshot || sfdpsSnapshot.length === 0) return 0
+  // Only persist for flights with a matching flight_plan (IFR flights we care about)
+  const knownCallsigns = new Set()
+  const check = db.prepare(`SELECT acid FROM flight_plans WHERE updated_at > datetime('now', '-2 hours')`)
+  for (const row of check.iterate()) knownCallsigns.add(row.acid)
+
+  // Deduplicate: keep latest position per callsign in this snapshot
+  const latest = new Map()
+  const now = new Date().toISOString()
+  for (const t of sfdpsSnapshot) {
+    const cs = t.acid || t.callsign
+    if (!cs || !knownCallsigns.has(cs)) continue
+    if (t.lat == null || t.lon == null) continue
+    latest.set(cs, {
+      callsign: cs,
+      lat: t.lat, lon: t.lon,
+      altitude: Number(t.altitude || t.reported_alt) || null,
+      speed: Number(t.speed) || null,
+      heading: Number(t.heading) || null,
+      sector: t.sector || null,
+      artcc: t.artcc || null,
+      recorded_at: now,
+    })
+  }
+  const rows = Array.from(latest.values())
+  if (rows.length === 0) return 0
+  _insertPositionBatch(rows)
+  return rows.length
+}
+
+const _stmtGetPositionTrail = db.prepare(`
+  SELECT callsign, lat, lon, altitude, speed, heading, sector, artcc, recorded_at
+  FROM flight_positions
+  WHERE callsign = ?
+    AND recorded_at > datetime('now', '-6 hours')
+  ORDER BY recorded_at ASC
+`)
+
+function getPositionTrail(callsign) {
+  return _stmtGetPositionTrail.all(callsign)
+}
+
+const _stmtPurgeOldPositions = db.prepare(`
+  DELETE FROM flight_positions WHERE recorded_at < datetime('now', '-6 hours')
+`)
+
+function purgeOldPositions() {
+  return _stmtPurgeOldPositions.run().changes
+}
+
+// ── Surface flow analytics ──────────────────────────────────────────────────
+
+// Departure queue: flights that pushed back (SPOT_OUT) but haven't taken off (no OFF)
+const _stmtDepQueue = db.prepare(`
+  SELECT a.callsign, a.airport, a.received_at AS pushback_time,
+    CAST((julianday('now') - julianday(a.received_at)) * 1440 AS REAL) AS wait_min
+  FROM surface_events a
+  WHERE a.airport = ? AND a.event_type = 'SPOT_OUT'
+    AND a.received_at > datetime('now', '-60 minutes')
+    AND NOT EXISTS (
+      SELECT 1 FROM surface_events b
+      WHERE b.callsign = a.callsign AND b.event_type = 'OFF' AND b.airport = a.airport
+        AND b.received_at > a.received_at AND b.received_at < datetime(a.received_at, '+60 minutes')
+    )
+  ORDER BY a.received_at ASC
+`)
+
+// Hourly throughput: dep/arr counts in 15-min bins over last 3 hours
+const _stmtThroughputBins = db.prepare(`
+  SELECT
+    strftime('%H:%M', received_at, 'start of minute',
+      '-' || (CAST(strftime('%M', received_at) AS INTEGER) % 15) || ' minutes') AS bin,
+    SUM(CASE WHEN event_type = 'OFF' THEN 1 ELSE 0 END) AS departures,
+    SUM(CASE WHEN event_type = 'ON' THEN 1 ELSE 0 END) AS arrivals
+  FROM surface_events
+  WHERE airport = ?
+    AND event_type IN ('OFF', 'ON')
+    AND received_at > datetime('now', '-3 hours')
+  GROUP BY bin
+  ORDER BY bin ASC
+`)
+
+// Active ground movements (SMES/TAIS positions in last 5 min)
+const _stmtActiveGround = db.prepare(`
+  SELECT COUNT(DISTINCT callsign) AS count
+  FROM surface_events
+  WHERE airport = ?
+    AND service IN ('SMES', 'TAIS')
+    AND lat IS NOT NULL
+    AND received_at > datetime('now', '-5 minutes')
+`)
+
+// Runway utilization: count of OFF/ON by runway in last 2 hours
+const _stmtRunwayUtil = db.prepare(`
+  SELECT runway, event_type,
+    COUNT(*) AS ops
+  FROM surface_events
+  WHERE airport = ?
+    AND event_type IN ('OFF', 'ON')
+    AND runway IS NOT NULL AND runway != ''
+    AND received_at > datetime('now', '-2 hours')
+  GROUP BY runway, event_type
+  ORDER BY ops DESC
+`)
+
+function getSurfaceFlow(airport) {
+  const queue = _stmtDepQueue.all(airport)
+  const throughput = _stmtThroughputBins.all(airport)
+  const activeGround = _stmtActiveGround.get(airport)?.count || 0
+  const runways = _stmtRunwayUtil.all(airport)
+
+  return {
+    airport,
+    depQueue: { count: queue.length, flights: queue },
+    throughput,
+    activeGroundMovements: activeGround,
+    runways,
+  }
+}
+
+// ── Enhanced flight lifecycle with phase durations ──────────────────────────
+
+function getFlightLifecycleEnhanced(callsign) {
+  // Get the base lifecycle
+  const base = getFlightLifecycle(callsign)
+
+  // Get position trail for en-route phase analysis
+  const trail = getPositionTrail(callsign)
+
+  // Compute phase durations from altitude profile
+  let phases = []
+  if (trail.length >= 2) {
+    let currentPhase = null
+    let phaseStart = trail[0]
+
+    for (let i = 1; i < trail.length; i++) {
+      const prev = trail[i - 1]
+      const curr = trail[i]
+      if (prev.altitude == null || curr.altitude == null) continue
+
+      const altDelta = curr.altitude - prev.altitude
+      let phase
+      if (altDelta > 5) phase = 'CLIMB'
+      else if (altDelta < -5) phase = 'DESCENT'
+      else phase = 'CRUISE'
+
+      if (phase !== currentPhase) {
+        if (currentPhase && phaseStart) {
+          const dur = (new Date(curr.recorded_at) - new Date(phaseStart.recorded_at)) / 60000
+          if (dur > 0.5) { // ignore phases shorter than 30s
+            phases.push({
+              phase: currentPhase,
+              startTime: phaseStart.recorded_at,
+              endTime: curr.recorded_at,
+              durationMin: +dur.toFixed(1),
+              startAlt: phaseStart.altitude,
+              endAlt: prev.altitude,
+              startSector: phaseStart.sector,
+              startArtcc: phaseStart.artcc,
+            })
+          }
+        }
+        currentPhase = phase
+        phaseStart = curr
+      }
+    }
+    // Close final phase
+    if (currentPhase && phaseStart && trail.length > 1) {
+      const last = trail[trail.length - 1]
+      const dur = (new Date(last.recorded_at) - new Date(phaseStart.recorded_at)) / 60000
+      if (dur > 0.5) {
+        phases.push({
+          phase: currentPhase,
+          startTime: phaseStart.recorded_at,
+          endTime: last.recorded_at,
+          durationMin: +dur.toFixed(1),
+          startAlt: phaseStart.altitude,
+          endAlt: last.altitude,
+          startSector: phaseStart.sector,
+          startArtcc: phaseStart.artcc,
+        })
+      }
+    }
+  }
+
+  // ARTCC progression: unique ARTCCs visited in order
+  const artccProgression = []
+  let lastArtcc = null
+  for (const p of trail) {
+    if (p.artcc && p.artcc !== lastArtcc) {
+      artccProgression.push({ artcc: p.artcc, sector: p.sector, time: p.recorded_at })
+      lastArtcc = p.artcc
+    }
+  }
+
+  return {
+    ...base,
+    trail: trail.map(p => ({
+      lat: p.lat, lon: p.lon, alt: p.altitude, spd: p.speed,
+      hdg: p.heading, sector: p.sector, artcc: p.artcc, t: p.recorded_at,
+    })),
+    phases,
+    artccProgression,
+  }
+}
+
 // ── exports ─────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -3087,7 +3657,18 @@ module.exports = {
   getAirportOps,
   getNasSummary,
   getFlightLifecycle,
+  getFlightLifecycleEnhanced,
   getRouteDeviations,
   getNasAnalytics,
+  persistFlightPositions,
+  getPositionTrail,
+  purgeOldPositions,
+  getSurfaceFlow,
+  getLiveFeed,
+  getWeatherDelayCausation,
+  persistSectorCounts,
+  getSectorCongestion,
+  getSectorDetail,
+  purgeSectorCounts,
   close,
 }

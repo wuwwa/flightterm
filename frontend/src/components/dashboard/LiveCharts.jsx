@@ -199,9 +199,11 @@ export default function LiveCharts({ flights = [], trackHistory = {}, enrichCach
 }
 
 function KPI({ label, value, color }) {
+  // Mute zero/empty values so they don't visually shout when there's no data
+  const isEmpty = value === '0' || value === 0 || value === '—' || value == null
   return (
     <div className="bg-bg1 px-2 py-1 text-center">
-      <div className={`text-sm font-bold tabular-nums ${color}`}>{value}</div>
+      <div className={`text-sm font-bold tabular-nums ${isEmpty ? 'text-fg3/30' : color}`}>{isEmpty ? '—' : value}</div>
       <div className="text-[7px] text-fg3/50">{label}</div>
     </div>
   )

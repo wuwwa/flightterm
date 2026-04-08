@@ -1,0 +1,80 @@
+[      72ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:21550
+[     160ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775605733432:174
+[     160ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775605733432:178
+[     163ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775605733432:174
+[     163ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775605733432:178
+[     182ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 6581 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775605733432:185
+[     182ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775605733432:213
+[     183ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775605733432:220
+[     242ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5908, serverFetchedAt: 1775605945370, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[     242ms] [LOG] [fetch] result: 5908 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[     332ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/favicon.ico:0
+[     342ms] [LOG] [boot] live sync enabled @ http://localhost:5173/src/App.jsx?t=1775605733432:225
+[     342ms] [LOG] [boot] complete @ http://localhost:5173/src/App.jsx?t=1775605733432:230
+[    1021ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N406Z:0
+[   16175ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N309RR:0
+[   22877ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5896, serverFetchedAt: 1775605991012, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[   22877ms] [LOG] [fetch] result: 5896 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[   31323ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N74CD:0
+[   45381ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5896, serverFetchedAt: 1775605991012, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[   45382ms] [LOG] [fetch] result: 5896 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[   47198ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N35325:0
+[   62362ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N40KG:0
+[   67885ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5888, serverFetchedAt: 1775606038702, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[   67885ms] [LOG] [fetch] result: 5888 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[   77513ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N401TP:0
+[   90386ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5888, serverFetchedAt: 1775606038702, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[   90386ms] [LOG] [fetch] result: 5888 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[   92661ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3815S:0
+[  107805ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N3517S:0
+[  112883ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5885, serverFetchedAt: 1775606080277, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  112883ms] [LOG] [fetch] result: 5885 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  122949ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N241TD:0
+[  135390ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5885, serverFetchedAt: 1775606080277, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  135391ms] [LOG] [fetch] result: 5885 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  138099ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGBFY:0
+[  153250ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N7MP:0
+[  157903ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5895, serverFetchedAt: 1775606125545, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  157904ms] [LOG] [fetch] result: 5895 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  168394ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N88JA:0
+[  180391ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5895, serverFetchedAt: 1775606125545, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  180392ms] [LOG] [fetch] result: 5895 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  183558ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/XBOYD:0
+[  198704ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/CGBFJ:0
+[  202886ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5885, serverFetchedAt: 1775606170208, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  202886ms] [LOG] [fetch] result: 5885 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  214423ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/SCA35:0
+[  225396ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5885, serverFetchedAt: 1775606170208, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  225397ms] [LOG] [fetch] result: 5885 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  229573ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N627HE:0
+[  245409ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/BULLY68:0
+[  247891ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5886, serverFetchedAt: 1775606215429, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  247892ms] [LOG] [fetch] result: 5886 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  261129ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N905WS:0
+[  270385ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5886, serverFetchedAt: 1775606215429, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  270386ms] [LOG] [fetch] result: 5886 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  276811ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/SCU50:0
+[  292571ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N647MC:0
+[  292882ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5870, serverFetchedAt: 1775606260376, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  292883ms] [LOG] [fetch] result: 5870 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  308291ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N853PA:0
+[  315380ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5870, serverFetchedAt: 1775606260376, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  315380ms] [LOG] [fetch] result: 5870 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  325635ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/AUB147:0
+[  337882ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5857, serverFetchedAt: 1775606305492, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  337883ms] [LOG] [fetch] result: 5857 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  343424ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/GAQV:0
+[  359253ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N281MW:0
+[  360381ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5857, serverFetchedAt: 1775606305492, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  360381ms] [LOG] [fetch] result: 5857 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  375061ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N930PA:0
+[  382890ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5864, serverFetchedAt: 1775606350933, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  382890ms] [LOG] [fetch] result: 5864 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  390790ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/GFY562:0
+[  405389ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5864, serverFetchedAt: 1775606350933, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  405389ms] [LOG] [fetch] result: 5864 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  406492ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/BOXER44:0
+[  422211ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/TORA81:0
+[  427893ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5846, serverFetchedAt: 1775606395172, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  427893ms] [LOG] [fetch] result: 5846 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  437927ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N8283W:0

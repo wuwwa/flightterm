@@ -5,6 +5,7 @@
 const axios = require('axios')
 const { EventEmitter } = require('events')
 const { scoreAnomaly, ANOMALY_THRESHOLD } = require('./anomaly')
+const { parseRoute, polylineCrossTrackDistKm } = require('./route-parser')
 const db = require('./db')
 
 // ── Event bus ────────────────────────────────────────────────────────────────
@@ -487,18 +488,51 @@ function buildEnrichment(f) {
   }
 
   // ── Off-route deviation detection ─────────────────────────────────────────
-  // If we have a TFMS route with dep/arr coords and a current ADS-B position,
-  // compute how far the aircraft is from the great-circle path.
+  // Phase 4: prefer waypoint-based polyline deviation using the filed route
+  // string (from SFDPS/TFMS). Falls back to great-circle between dep/arr
+  // airports if no route string or parsing yields <2 waypoints.
   if (enrich.flightroute && f.lat != null && f.lon != null) {
     const orig = enrich.flightroute.origin
     const dest = enrich.flightroute.destination
+
     if (orig?.latitude && dest?.latitude) {
-      const deviation = crossTrackDistKm(
-        f.lat, f.lon,
-        orig.latitude, orig.longitude,
-        dest.latitude, dest.longitude
-      )
+      let deviation = null
+      let mode = 'gc' // 'polyline' | 'gc'
+
+      // Try waypoint-based deviation using the filed route string
+      const routeStr = enrich.tfms?.route || enrich.flightroute?.route || null
+      if (routeStr) {
+        try {
+          const waypoints = parseRoute(routeStr)
+          // Prepend origin and append destination so the polyline is anchored
+          // to the airports even if the filed route only lists en-route fixes.
+          const anchored = [
+            { name: orig.icao_code || 'ORIG', lat: orig.latitude, lon: orig.longitude },
+            ...waypoints,
+            { name: dest.icao_code || 'DEST', lat: dest.latitude, lon: dest.longitude },
+          ]
+          if (anchored.length >= 2) {
+            const polyDist = polylineCrossTrackDistKm(f.lat, f.lon, anchored)
+            if (Number.isFinite(polyDist)) {
+              deviation = polyDist
+              // Only count as polyline-mode if we resolved at least one intermediate fix
+              if (waypoints.length >= 1) mode = 'polyline'
+            }
+          }
+        } catch {}
+      }
+
+      // Fall back to straight great-circle between dep and arr
+      if (deviation == null) {
+        deviation = crossTrackDistKm(
+          f.lat, f.lon,
+          orig.latitude, orig.longitude,
+          dest.latitude, dest.longitude
+        )
+      }
+
       enrich.routeDeviation = Math.round(deviation)
+      enrich.routeDeviationMode = mode
     }
   }
 
@@ -943,6 +977,7 @@ function getFlights() {
     }
     if (enrich?.routeDeviation != null) {
       out.routeDeviation = enrich.routeDeviation
+      out.routeDeviationMode = enrich.routeDeviationMode || 'gc'
     }
     return out
   })
@@ -1001,6 +1036,8 @@ module.exports = {
     trackHistory,
     activeAnomalies,
     anomalyMisses,
+    enrichCache,
     resetFlights() { latestFlights = []; lastFetchAt = null },
+    _setTestFlights(flights) { latestFlights = flights || [] },
   },
 }

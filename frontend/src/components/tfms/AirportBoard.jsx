@@ -95,10 +95,15 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
         .catch(() => setNotams([]))
         .finally(() => setTabLoading(false))
     } else if (tab === 'surface') {
-      axios.get(`/api/swim/surface/${airport}`, { params: { limit: 30 } })
-        .then(r => setSurface(r.data))
-        .catch(() => setSurface([]))
-        .finally(() => setTabLoading(false))
+      Promise.allSettled([
+        axios.get(`/api/swim/surface/${airport}`, { params: { limit: 30 } }),
+        axios.get(`/api/swim/airport/${airport}/surface-flow`),
+      ]).then(([movRes, flowRes]) => {
+        setSurface({
+          events: movRes.status === 'fulfilled' ? movRes.value.data : [],
+          flow: flowRes.status === 'fulfilled' ? flowRes.value.data : null,
+        })
+      }).finally(() => setTabLoading(false))
     } else if (tab === 'flow') {
       axios.get(`/api/swim/flow/${airport}`, { params: { limit: 20 } })
         .then(r => setFlowDetail(r.data))
@@ -380,6 +385,32 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
               {lifecycle.delays?.departure != null && <div className="flex justify-between"><span className="text-fg3">dep delay</span><span className={lifecycle.delays.departure > 15 ? 'text-red' : lifecycle.delays.departure > 5 ? 'text-ylw' : 'text-grn'}>{lifecycle.delays.departure > 0 ? '+' : ''}{lifecycle.delays.departure}m</span></div>}
               {lifecycle.delays?.arrival != null && <div className="flex justify-between"><span className="text-fg3">arr delay</span><span className={lifecycle.delays.arrival > 15 ? 'text-red' : lifecycle.delays.arrival > 5 ? 'text-ylw' : 'text-grn'}>{lifecycle.delays.arrival > 0 ? '+' : ''}{lifecycle.delays.arrival}m</span></div>}
             </div>
+            {/* En-route phases */}
+            {lifecycle.phases?.length > 0 && (
+              <div className="px-2 mt-1.5 pt-1.5 border-t border-white/5 text-[8px] space-y-0.5">
+                <div className="text-[7px] text-fg3/50 uppercase">En-Route</div>
+                {lifecycle.phases.map((p, i) => (
+                  <div key={i} className="flex justify-between">
+                    <span className={p.phase === 'CLIMB' ? 'text-grn' : p.phase === 'DESCENT' ? 'text-cyn' : 'text-fg3'}>{p.phase}</span>
+                    <span className="text-fg2 tabular-nums">
+                      {p.startAlt != null ? `FL${Math.round(p.startAlt)}→${Math.round(p.endAlt)}` : ''} {p.durationMin}m
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* ARTCC progression */}
+            {lifecycle.artccProgression?.length > 0 && (
+              <div className="px-2 mt-1 text-[7px] text-fg3">
+                {lifecycle.artccProgression.map(a => a.artcc).join(' → ')}
+              </div>
+            )}
+            {/* Altitude profile */}
+            {lifecycle.trail?.length > 2 && (
+              <div className="px-2 mt-1">
+                <AltMini trail={lifecycle.trail} />
+              </div>
+            )}
             {lifecycle.plan?.route && <div className="px-2 py-1.5 mt-1 border-t border-white/5"><span className="text-[7px] text-fg3 break-all">{lifecycle.plan.route}</span></div>}
           </div>
         ) : <div className="flex-1 flex items-center justify-center text-fg3 text-[8px]">no lifecycle data</div>}
@@ -457,17 +488,102 @@ const SVERB = { OFF: 'Departed', ON: 'Landed', SPOT_OUT: 'Pushback', SPOT_IN: 'A
 const SCOLOR = { OFF: 'text-grn', ON: 'text-cyn', SPOT_OUT: 'text-ylw', SPOT_IN: 'text-acc' }
 
 function SurfaceTab({ surface }) {
-  const oooi = (surface || []).filter(e => ['OFF', 'ON', 'SPOT_OUT', 'SPOT_IN'].includes(e.event_type))
-  if (oooi.length === 0) return <div className="flex-1 flex items-center justify-center text-fg3 text-[10px]">No recent surface movements</div>
+  const events = surface?.events || (Array.isArray(surface) ? surface : [])
+  const flow = surface?.flow || null
+  const oooi = events.filter(e => ['OFF', 'ON', 'SPOT_OUT', 'SPOT_IN'].includes(e.event_type))
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
-      {oooi.map((e, i) => (
-        <div key={e.id || i} className="flex items-center gap-2 text-[9px] py-0.5 px-2 border-b border-white/3">
-          <span className="text-fg2 font-bold w-14 shrink-0">{e.callsign || '—'}</span>
-          <span className={clsx('w-14 shrink-0', SCOLOR[e.event_type])}>{SVERB[e.event_type]}</span>
-          {e.runway && <span className="text-fg3">rwy {e.runway.split('/')[0]}</span>}
-          {e.gate && <span className="text-fg3">gate {e.gate}</span>}
-          <span className="ml-auto text-fg3/50 tabular-nums shrink-0">{e.received_at?.substring(11, 19)}z</span>
+      {/* Surface flow stats */}
+      {flow && (
+        <div className="p-2 border-b border-border space-y-2">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-bg2 rounded py-1 px-2">
+              <div className={clsx('text-sm font-bold tabular-nums', flow.depQueue?.count > 5 ? 'text-red' : flow.depQueue?.count > 0 ? 'text-ylw' : 'text-grn')}>
+                {flow.depQueue?.count || 0}
+              </div>
+              <div className="text-[7px] text-fg3">dep queue</div>
+            </div>
+            <div className="bg-bg2 rounded py-1 px-2">
+              <div className="text-sm font-bold text-fg2 tabular-nums">{flow.activeGroundMovements || 0}</div>
+              <div className="text-[7px] text-fg3">ground movements</div>
+            </div>
+            <div className="bg-bg2 rounded py-1 px-2">
+              <div className="text-sm font-bold text-acc tabular-nums">{flow.runways?.length || 0}</div>
+              <div className="text-[7px] text-fg3">active runways</div>
+            </div>
+          </div>
+
+          {/* Departure queue */}
+          {flow.depQueue?.count > 0 && (
+            <div>
+              <div className="text-[8px] text-fg3/50 uppercase mb-0.5">Waiting to depart</div>
+              {flow.depQueue.flights.slice(0, 6).map((f, i) => (
+                <div key={i} className="flex items-center gap-2 text-[9px] py-0.5 border-b border-white/3">
+                  <span className="text-fg2 font-bold w-14">{f.callsign}</span>
+                  <span className="text-ylw tabular-nums">{Math.round(f.wait_min)}m</span>
+                  <span className="ml-auto text-fg3/50 tabular-nums">{f.pushback_time?.substring(11, 16)}z</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Runway utilization */}
+          {flow.runways?.length > 0 && (
+            <div>
+              <div className="text-[8px] text-fg3/50 uppercase mb-0.5">Runway ops (2hr)</div>
+              <div className="flex flex-wrap gap-1.5">
+                {flow.runways.map((r, i) => (
+                  <span key={i} className="text-[9px] bg-bg2 rounded px-1.5 py-0.5">
+                    <span className="text-fg2 font-bold">{r.runway}</span>
+                    <span className={clsx('ml-1', r.event_type === 'OFF' ? 'text-grn' : 'text-cyn')}>
+                      {r.ops} {r.event_type === 'OFF' ? 'dep' : 'arr'}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Throughput chart */}
+          {flow.throughput?.length > 0 && (
+            <div>
+              <div className="text-[8px] text-fg3/50 uppercase mb-0.5">Throughput (15-min bins, <span className="text-grn">dep</span> / <span className="text-cyn">arr</span>)</div>
+              <ThroughputMini bins={flow.throughput} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Movement list */}
+      {oooi.length > 0 ? (
+        <div>
+          <div className="px-2 py-0.5 text-[8px] text-fg3/50 uppercase bg-bg2/50 border-b border-white/5">Recent movements</div>
+          {oooi.map((e, i) => (
+            <div key={e.id || i} className="flex items-center gap-2 text-[9px] py-0.5 px-2 border-b border-white/3">
+              <span className="text-fg2 font-bold w-14 shrink-0">{e.callsign || '—'}</span>
+              <span className={clsx('w-14 shrink-0', SCOLOR[e.event_type])}>{SVERB[e.event_type]}</span>
+              {e.runway && <span className="text-fg3">rwy {e.runway.split('/')[0]}</span>}
+              {e.gate && <span className="text-fg3">gate {e.gate}</span>}
+              <span className="ml-auto text-fg3/50 tabular-nums shrink-0">{e.received_at?.substring(11, 19)}z</span>
+            </div>
+          ))}
+        </div>
+      ) : !flow && (
+        <div className="flex-1 flex items-center justify-center text-fg3 text-[10px] py-4">No surface data</div>
+      )}
+    </div>
+  )
+}
+
+function ThroughputMini({ bins }) {
+  const max = Math.max(...bins.map(b => Math.max(b.departures || 0, b.arrivals || 0)), 1)
+  return (
+    <div className="flex items-end gap-0.5" style={{ height: 28 }}>
+      {bins.map((b, i) => (
+        <div key={i} className="flex-1 flex gap-px justify-center" title={`${b.bin} — ${b.departures || 0} dep, ${b.arrivals || 0} arr`}>
+          <div className="w-1/2 bg-grn/60 rounded-t-sm self-end" style={{ height: `${((b.departures || 0) / max) * 100}%`, minHeight: (b.departures || 0) > 0 ? 2 : 0 }} />
+          <div className="w-1/2 bg-cyn/60 rounded-t-sm self-end" style={{ height: `${((b.arrivals || 0) / max) * 100}%`, minHeight: (b.arrivals || 0) > 0 ? 2 : 0 }} />
         </div>
       ))}
     </div>
@@ -519,6 +635,24 @@ function PhaseBar({ milestones }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function AltMini({ trail }) {
+  const alts = trail.map(p => p.alt).filter(a => a != null && a > 0)
+  if (alts.length < 2) return null
+  const maxA = Math.max(...alts), minA = Math.min(...alts), range = maxA - minA || 1
+  const pts = alts.map((a, i) => `${2 + (i / (alts.length - 1)) * 196},${2 + (1 - (a - minA) / range) * 22}`).join(' ')
+  return (
+    <div className="bg-bg2 rounded px-1 py-0.5">
+      <svg viewBox="0 0 200 26" className="w-full" style={{ height: 22 }}>
+        <polyline points={pts} fill="none" stroke="#81a2be" strokeWidth="1" strokeLinejoin="round" />
+      </svg>
+      <div className="flex justify-between text-[6px] text-fg3/40 tabular-nums">
+        <span>FL{Math.round(minA)}</span>
+        <span>FL{Math.round(maxA)}</span>
+      </div>
     </div>
   )
 }

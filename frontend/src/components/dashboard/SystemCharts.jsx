@@ -241,9 +241,10 @@ export default function SystemCharts({ backendOk, flights = [], trackHistory = {
 }
 
 function KPI({ label, value, color }) {
+  const isEmpty = value === '0' || value === 0 || value === '—' || value == null
   return (
     <div className="bg-bg1 px-2 py-1 text-center">
-      <div className={clsx('text-sm font-bold tabular-nums', color)}>{value}</div>
+      <div className={clsx('text-sm font-bold tabular-nums', isEmpty ? 'text-fg3/30' : color)}>{isEmpty ? '—' : value}</div>
       <div className="text-[7px] text-fg3/50">{label}</div>
     </div>
   )

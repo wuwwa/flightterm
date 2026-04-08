@@ -51,10 +51,12 @@ function parseSfdpsMessage(xml, props) {
       heading: null,
       beaconCode: null,
       sector: null,
-      artcc: facility,
+      artcc: f['@_centre'] || facility,
+      aircraftType: null,
+      route: null,
       flightStatus: null,
       msgType: msgType,
-      timestamp: null,
+      timestamp: f['@_timestamp'] || null,
       source: 'SFDPS',
     }
 
@@ -99,12 +101,22 @@ function parseSfdpsMessage(xml, props) {
     track.sector = findVal(f, 'sector') || findVal(f, 'controlSector')
       || findVal(f, 'sectorId')
 
-    // Status
-    track.flightStatus = findVal(f, 'flightStatus') || findVal(f, 'status')
-      || f['@_flightStatus']
+    // Aircraft type (FIXM: aircraftDescription > aircraftType > icaoModelIdentifier)
+    track.aircraftType = findVal(f, 'icaoModelIdentifier') || findVal(f, 'aircraftType')
+      || f['@_aircraftType']
+    // Avoid setting aircraftType to nested object
+    if (typeof track.aircraftType === 'object') track.aircraftType = null
 
-    // Timestamp
-    track.timestamp = findVal(f, 'timeAtPosition') || findVal(f, 'timestamp')
+    // Route text (FIXM: agreed > route > nasRouteText)
+    track.route = findVal(f, 'nasRouteText') || findVal(f, 'routeText')
+      || findVal(f, 'routeOfFlight') || f['@_route']
+
+    // Status
+    track.flightStatus = findVal(f, 'fdpsFlightStatus') || findVal(f, 'flightStatus')
+      || findVal(f, 'status') || f['@_flightStatus']
+
+    // Timestamp (prefer XML attribute, then nested fields)
+    track.timestamp = track.timestamp || findVal(f, 'timeAtPosition')
       || findVal(f, 'time') || f['@_sourceTimeStamp']
 
     if (track.acid) results.push(track)

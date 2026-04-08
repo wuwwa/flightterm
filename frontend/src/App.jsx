@@ -674,14 +674,14 @@ export default function App() {
             </div>
           </div>
         )}
-        {/* FAA SWIM / NAS section */}
+        {/* TFMS — flight plans, map, airport board, delays */}
         <div className="col-span-full row-start-4 overflow-y-auto">
-          <NasPanel backendOk={backendOk} region={region} />
+          <TfmsPanel backendOk={backendOk} />
         </div>
 
-        {/* TFMS — flight plans, map, airport board, delays */}
+        {/* FAA SWIM / NAS section */}
         <div className="col-span-full row-start-5 overflow-y-auto">
-          <TfmsPanel backendOk={backendOk} />
+          <NasPanel backendOk={backendOk} region={region} />
         </div>
       </div>
 

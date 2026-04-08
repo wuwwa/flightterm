@@ -459,8 +459,8 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                       <span className="text-fg3/40">→</span>
                       {f.tfms.arr_arpt.replace(/^K/, '')}
                       {f.routeDeviation > 50 && (
-                        <span className={clsx('ml-1 text-[8px]', f.routeDeviation > 100 ? 'text-red' : 'text-ylw')} title={`${f.routeDeviation}km off filed route`}>
-                          {f.routeDeviation}km
+                        <span className={clsx('ml-1 text-[8px]', f.routeDeviation > 100 ? 'text-red' : 'text-ylw')} title={`${f.routeDeviation}km off ${f.routeDeviationMode === 'polyline' ? 'filed waypoints' : 'great-circle path'}`}>
+                          {f.routeDeviation}km{f.routeDeviationMode === 'polyline' ? '*' : ''}
                         </span>
                       )}
                     </span>

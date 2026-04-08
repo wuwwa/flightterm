@@ -15,7 +15,16 @@
       "Bash(node -c \"c:\\\\Users\\\\wilso\\\\Documents\\\\Flight\\\\flightterm\\\\backend\\\\index.js\")",
       "Bash(xargs echo:*)",
       "Read(//c/Users/wilso/.claude/projects/c--Users-wilso-Documents-Flight-flightterm/memory/**)",
-      "Bash(node -e \"console.log\\(require\\(''./node_modules/axios/package.json''\\).version\\)\")"
+      "Bash(node -e \"console.log\\(require\\(''./node_modules/axios/package.json''\\).version\\)\")",
+      "Bash(bash deploy-v2.sh)",
+      "Bash(fly secrets:*)",
+      "Bash(fly ssh:*)",
+      "Bash(fly deploy:*)",
+      "Bash(fly machine:*)",
+      "Bash(fly apps:*)",
+      "Bash(fly volumes:*)",
+      "Bash(fly config:*)",
+      "mcp__playwright__browser_navigate"
     ],
     "additionalDirectories": [
       "c:\\Users\\wilso\\.claude\\projects\\c--Users-wilso-Documents-Flight-flightterm\\memory"
