@@ -583,9 +583,10 @@ export default function App() {
       )}
 
       {/* Page 1: flight tracker — fills one viewport */}
+      {/* Sidebar auto-collapses to 0 when no flight selected so FlightTable gets full width */}
       <div
         className="grid grid-rows-[auto_auto_minmax(0,1fr)_auto_auto] grid-cols-1 md:grid-cols-[1fr_var(--sidebar-w)] h-screen overflow-hidden"
-        style={{ '--sidebar-w': `${sidebarW}px` }}
+        style={{ '--sidebar-w': selectedFlight ? `${sidebarW}px` : '0px' }}
       >
         {/* Combined command bar: branding, stats, filter, region, controls, SWIM indicators, clock */}
         <div className="col-span-full row-start-1">
@@ -626,28 +627,28 @@ export default function App() {
           />
         </div>
 
-        {/* Detail panel — desktop sidebar */}
-        <div className="row-start-3 overflow-y-auto min-h-0 hidden md:block relative">
-          {/* Resize handle */}
-          <div
-            className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-acc/30 active:bg-acc/50 transition-colors"
-            onMouseDown={(e) => { e.preventDefault(); draggingRef.current = true; document.body.style.cursor = 'col-resize' }}
-          />
-          <DetailPanel
-            flight={selectedFlight}
-            flights={flights}
-            enrichData={
-              selectedFlight ? enrichCache[selectedFlight.icao] : null
-            }
-            aeroCache={aeroCache}
-            aeroSpend={aeroSpend}
-            userAeroKey={settings.userAeroKey}
-            trackHistory={selectedFlight ? trackHistory[selectedFlight.icao] : null}
-            onClose={() => setSelectedFlight(null)}
-            onAeroFetched={handleAeroFetched}
-            backendOk={backendOk}
-          />
-        </div>
+        {/* Detail panel — desktop sidebar (only renders when a flight is selected) */}
+        {selectedFlight && (
+          <div className="row-start-3 overflow-y-auto min-h-0 hidden md:block relative">
+            {/* Resize handle */}
+            <div
+              className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 hover:bg-acc/30 active:bg-acc/50 transition-colors"
+              onMouseDown={(e) => { e.preventDefault(); draggingRef.current = true; document.body.style.cursor = 'col-resize' }}
+            />
+            <DetailPanel
+              flight={selectedFlight}
+              flights={flights}
+              enrichData={enrichCache[selectedFlight.icao]}
+              aeroCache={aeroCache}
+              aeroSpend={aeroSpend}
+              userAeroKey={settings.userAeroKey}
+              trackHistory={trackHistory[selectedFlight.icao]}
+              onClose={() => setSelectedFlight(null)}
+              onAeroFetched={handleAeroFetched}
+              backendOk={backendOk}
+            />
+          </div>
+        )}
 
         {/* Detail panel — mobile slide-up sheet */}
         {selectedFlight && (

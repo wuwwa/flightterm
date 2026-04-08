@@ -40,7 +40,7 @@ function LoadingDots() {
 
 export default function DashboardPanel({ backendOk, flights, trackHistory, enrichCache }) {
   return (
-    <div className="bg-bg1 border-t border-border">
+    <div className="bg-bg1 border-t-2 border-acc/40">
       {/* US airspace map */}
       <NasMap backendOk={backendOk} />
 

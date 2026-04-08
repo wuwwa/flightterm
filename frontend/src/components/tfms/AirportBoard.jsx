@@ -151,11 +151,11 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
   }, [ops, arrivals, departures])
 
   const TABS = [
-    { id: 'flights', label: 'Flights' },
-    { id: 'weather', label: 'Weather' },
+    { id: 'flights', label: 'Flights', count: arrivals.length + departures.length || null },
+    { id: 'weather', label: 'Weather', count: ops?.weather?.length || null },
     { id: 'notams', label: 'NOTAMs', count: notams?.length },
-    { id: 'surface', label: 'Surface' },
-    { id: 'flow', label: 'Flow', count: flowDetail?.length },
+    { id: 'surface', label: 'Surface', count: surface?.events?.length ?? (Array.isArray(surface) ? surface.length : null) },
+    { id: 'flow', label: 'Flow', count: flowDetail?.length ?? ops?.flow?.events?.length },
   ]
 
   return (
@@ -206,42 +206,42 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
           {/* Metrics bar */}
           {ops && (
             <div className="grid grid-cols-4 gap-px bg-border shrink-0">
-              <div className="bg-bg1 px-2 py-0.5">
-                <div className="text-[7px] text-fg3/50 mb-0.5">Traffic</div>
-                <div className="flex gap-2 text-[9px] tabular-nums">
-                  <span><span className="text-cyn">{cap?.inbound || 0}</span> <span className="text-fg3 text-[7px]">in</span></span>
-                  <span><span className="text-grn">{cap?.outbound || 0}</span> <span className="text-fg3 text-[7px]">out</span></span>
+              <div className="bg-bg1 px-2 py-1">
+                <div className="text-[9px] text-fg3 uppercase tracking-wide mb-0.5">Traffic</div>
+                <div className="flex gap-3 text-[14px] tabular-nums leading-none">
+                  <span><span className="text-cyn font-bold">{cap?.inbound || 0}</span> <span className="text-fg3 text-[9px]">in</span></span>
+                  <span><span className="text-grn font-bold">{cap?.outbound || 0}</span> <span className="text-fg3 text-[9px]">out</span></span>
                 </div>
               </div>
-              <div className="bg-bg1 px-2 py-0.5">
-                <div className="text-[7px] text-fg3/50 mb-0.5">Capacity</div>
-                <div className="flex gap-2 text-[9px] tabular-nums">
-                  {cap?.arrRate ? <span><span className="text-fg2">{cap.arrRate}</span><span className="text-fg3 text-[7px]">/hr arr</span></span> : <span className="text-fg3 text-[7px]">—</span>}
-                  {cap?.depRate ? <span><span className="text-fg2">{cap.depRate}</span><span className="text-fg3 text-[7px]">/hr dep</span></span> : null}
+              <div className="bg-bg1 px-2 py-1">
+                <div className="text-[9px] text-fg3 uppercase tracking-wide mb-0.5">Capacity</div>
+                <div className="flex gap-3 text-[14px] tabular-nums leading-none">
+                  {cap?.arrRate ? <span><span className="text-fg2 font-bold">{cap.arrRate}</span><span className="text-fg3 text-[9px]">/hr arr</span></span> : <span className="text-fg3/40 text-[14px]">—</span>}
+                  {cap?.depRate ? <span><span className="text-fg2 font-bold">{cap.depRate}</span><span className="text-fg3 text-[9px]">/hr dep</span></span> : null}
                 </div>
               </div>
-              <div className="bg-bg1 px-2 py-0.5">
-                <div className="text-[7px] text-fg3/50 mb-0.5">Avg Delay</div>
-                <div className="flex gap-2 text-[9px] tabular-nums">
+              <div className="bg-bg1 px-2 py-1">
+                <div className="text-[9px] text-fg3 uppercase tracking-wide mb-0.5">Avg Delay</div>
+                <div className="flex gap-3 text-[14px] tabular-nums leading-none">
                   <span>
-                    <span className={delays?.departures?.avg > 15 ? 'text-red' : delays?.departures?.avg > 5 ? 'text-ylw' : 'text-grn'}>
+                    <span className={clsx('font-bold', delays?.departures?.avg > 15 ? 'text-red' : delays?.departures?.avg > 5 ? 'text-ylw' : delays?.departures?.avg != null ? 'text-grn' : 'text-fg3/40')}>
                       {delays?.departures?.avg != null ? `${delays.departures.avg > 0 ? '+' : ''}${delays.departures.avg}m` : '—'}
                     </span>
-                    <span className="text-fg3 text-[7px]"> dep</span>
+                    <span className="text-fg3 text-[9px]"> dep</span>
                   </span>
                   <span>
-                    <span className={delays?.arrivals?.avg > 15 ? 'text-red' : delays?.arrivals?.avg > 5 ? 'text-ylw' : 'text-grn'}>
+                    <span className={clsx('font-bold', delays?.arrivals?.avg > 15 ? 'text-red' : delays?.arrivals?.avg > 5 ? 'text-ylw' : delays?.arrivals?.avg != null ? 'text-grn' : 'text-fg3/40')}>
                       {delays?.arrivals?.avg != null ? `${delays.arrivals.avg > 0 ? '+' : ''}${delays.arrivals.avg}m` : '—'}
                     </span>
-                    <span className="text-fg3 text-[7px]"> arr</span>
+                    <span className="text-fg3 text-[9px]"> arr</span>
                   </span>
                 </div>
               </div>
-              <div className="bg-bg1 px-2 py-0.5">
-                <div className="text-[7px] text-fg3/50 mb-0.5">Taxi Time</div>
-                <div className="flex gap-2 text-[9px] tabular-nums">
-                  <span><span className={taxi?.out?.avg > 20 ? 'text-ylw' : 'text-fg2'}>{taxi?.out?.avg != null ? `${taxi.out.avg}m` : '—'}</span><span className="text-fg3 text-[7px]"> out</span></span>
-                  <span><span className={taxi?.in?.avg > 15 ? 'text-ylw' : 'text-fg2'}>{taxi?.in?.avg != null ? `${taxi.in.avg}m` : '—'}</span><span className="text-fg3 text-[7px]"> in</span></span>
+              <div className="bg-bg1 px-2 py-1">
+                <div className="text-[9px] text-fg3 uppercase tracking-wide mb-0.5">Taxi Time</div>
+                <div className="flex gap-3 text-[14px] tabular-nums leading-none">
+                  <span><span className={clsx('font-bold', taxi?.out?.avg > 20 ? 'text-ylw' : taxi?.out?.avg != null ? 'text-fg2' : 'text-fg3/40')}>{taxi?.out?.avg != null ? `${taxi.out.avg}m` : '—'}</span><span className="text-fg3 text-[9px]"> out</span></span>
+                  <span><span className={clsx('font-bold', taxi?.in?.avg > 15 ? 'text-ylw' : taxi?.in?.avg != null ? 'text-fg2' : 'text-fg3/40')}>{taxi?.in?.avg != null ? `${taxi.in.avg}m` : '—'}</span><span className="text-fg3 text-[9px]"> in</span></span>
                 </div>
               </div>
             </div>
@@ -292,7 +292,7 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
       {/* Arrivals */}
       <div className="bg-bg1 flex flex-col min-h-0">
         <div className="px-2 py-0.5 text-[8px] bg-bg2 border-b border-border shrink-0 flex justify-between">
-          <span className="text-cyn">ARRIVALS</span>
+          <span className="text-cyn font-bold text-[10px]">ARRIVALS</span>
           <span className="text-fg3">{arrivals.length} inbound{recentArrivals.length > 0 ? ` · ${recentArrivals.length} landed` : ''}</span>
         </div>
         <div className="flex items-center gap-1 py-0 px-2 text-[7px] text-fg3/40 border-b border-white/3 shrink-0">
@@ -328,7 +328,7 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
       {/* Departures */}
       <div className="bg-bg1 flex flex-col min-h-0">
         <div className="px-2 py-0.5 text-[8px] bg-bg2 border-b border-border shrink-0 flex justify-between">
-          <span className="text-grn">DEPARTURES</span>
+          <span className="text-grn font-bold text-[10px]">DEPARTURES</span>
           <span className="text-fg3">{departures.length} outbound</span>
         </div>
         <div className="flex items-center gap-1 py-0 px-2 text-[7px] text-fg3/40 border-b border-white/3 shrink-0">
@@ -350,7 +350,7 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
       {/* Lifecycle sidebar */}
       <div className="bg-bg1 flex flex-col min-h-0">
         <div className="px-2 py-0.5 text-[8px] bg-bg2 border-b border-border shrink-0 flex justify-between items-center">
-          <span className="text-fg3">FLIGHT DETAIL</span>
+          <span className="text-fg2 font-bold text-[10px]">FLIGHT DETAIL</span>
           {selectedFlight && <button onClick={() => setSelectedFlight(null)} className="text-fg3 hover:text-fg2 px-1 cursor-pointer">✕</button>}
         </div>
         {!selectedFlight ? (

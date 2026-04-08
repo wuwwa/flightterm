@@ -73,24 +73,32 @@ export default function LogPanel({ entries }) {
   if (collapsed) {
     return (
       <div
-        className="bg-bg border-b border-border py-0.5 px-2.5 flex items-center gap-2 text-[10px] cursor-pointer hover:bg-bg1 transition-colors"
+        className="bg-bg border-b border-border py-0.5 px-2.5 flex items-center gap-2 text-[10px] cursor-pointer hover:bg-bg1 transition-colors group"
         onClick={() => setCollapsed(false)}
+        title="click to expand log"
       >
-        <span className="text-fg3 shrink-0">log</span>
-        {errCount > 0 && <span className="text-red shrink-0">{errCount} err</span>}
-        {warnCount > 0 && <span className="text-ylw shrink-0">{warnCount} warn</span>}
-        <span className="text-fg3 shrink-0">·</span>
+        <span className="text-fg3/60 text-[8px] uppercase tracking-wide shrink-0">log</span>
+        {errCount > 0 && (
+          <span className="bg-red/15 text-red text-[8px] font-bold uppercase px-1 py-px rounded border border-red/30 shrink-0">
+            {errCount} err
+          </span>
+        )}
+        {warnCount > 0 && (
+          <span className="bg-ylw/15 text-ylw text-[8px] font-bold uppercase px-1 py-px rounded border border-ylw/30 shrink-0">
+            {warnCount} warn
+          </span>
+        )}
         {lastEntry ? (
           <>
-            <span className="text-fg3 shrink-0">{lastEntry.time}</span>
+            <span className="text-fg3/40 shrink-0 tabular-nums">{lastEntry.time}</span>
             <span className={clsx('truncate', TYPE_CLASS[lastEntry.type] || TYPE_CLASS[''])}>
               {lastEntry.msg}
             </span>
           </>
         ) : (
-          <span className="text-fg3">no messages</span>
+          <span className="text-fg3/40 italic">waiting…</span>
         )}
-        <span className="ml-auto text-fg3 shrink-0">▼</span>
+        <span className="ml-auto text-fg3/30 shrink-0 group-hover:text-fg3 transition-colors">▼</span>
       </div>
     )
   }

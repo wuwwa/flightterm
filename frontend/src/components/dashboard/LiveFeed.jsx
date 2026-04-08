@@ -87,10 +87,10 @@ export default function LiveFeed({ backendOk }) {
   for (const e of events) counts[e.type] = (counts[e.type] || 0) + 1
 
   return (
-    <div className="bg-bg1 h-full min-h-0 flex flex-col">
+    <div className="bg-bg1 h-full min-h-0 flex flex-col border-l-2 border-l-acc/40">
       {/* Header */}
       <div className="py-0.5 px-2 text-[9px] bg-bg2 border-b border-border flex justify-between items-center shrink-0">
-        <span className="text-fg3">live feed</span>
+        <span className="text-acc font-bold text-[10px]">live feed</span>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setPaused(p => !p)}

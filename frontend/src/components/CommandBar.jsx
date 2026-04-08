@@ -52,12 +52,18 @@ export default function CommandBar({
   const connectedFeeds = Object.entries(feeds).filter(([, f]) => f?.connected).map(([k]) => k)
 
   return (
-    <div className="bg-bg2 border-b border-border py-0.5 px-1.5 sm:px-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] shrink-0">
-      {/* Left: branding + key stats */}
-      <span className="text-acc font-bold text-[11px]">flightterm</span>
+    <div className="bg-bg2 border-b border-border py-1 px-1.5 sm:px-2.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] shrink-0">
+      {/* Left: branding + headline counts */}
+      <span className="text-acc font-bold text-[13px] tracking-tight">flightterm</span>
       <span className="text-border2 hidden sm:inline">|</span>
-      <span className="text-fg2">{stats.total ?? '--'} <span className="text-fg3">ac</span></span>
-      <span className="text-grn hidden sm:inline">{stats.airborne ?? '--'} <span className="text-fg3">air</span></span>
+      <span className="flex items-baseline gap-0.5">
+        <span className="text-fg font-bold tabular-nums text-[12px]">{(stats.total ?? 0).toLocaleString()}</span>
+        <span className="text-fg3 text-[8px] uppercase tracking-wide">ac</span>
+      </span>
+      <span className="hidden sm:flex items-baseline gap-0.5">
+        <span className="text-grn font-bold tabular-nums text-[12px]">{(stats.airborne ?? 0).toLocaleString()}</span>
+        <span className="text-fg3 text-[8px] uppercase tracking-wide">air</span>
+      </span>
 
       {/* SWIM feed indicators — individual dots per feed */}
       <span className="text-border2 hidden sm:inline">|</span>
@@ -74,17 +80,32 @@ export default function CommandBar({
         })}
       </div>
       {tfms?.active_flights > 0 && (
-        <span className="text-fg2 hidden sm:inline text-[10px]">{tfms.active_flights} <span className="text-fg3">flights</span></span>
+        <span className="hidden sm:flex items-baseline gap-0.5">
+          <span className="text-fg2 font-bold tabular-nums text-[11px]">{tfms.active_flights.toLocaleString()}</span>
+          <span className="text-fg3 text-[8px] uppercase tracking-wide">flights</span>
+        </span>
       )}
-      {tfms?.active_gs > 0 && <span className="text-red font-bold text-[10px]">{tfms.active_gs} GS</span>}
-      {tfms?.active_gdps > 0 && <span className="text-ylw text-[10px]">{tfms.active_gdps} GDP</span>}
-      {notams?.active_tfrs > 0 && <span className="text-red text-[10px]">{notams.active_tfrs} TFR</span>}
+      {tfms?.active_gs > 0 && (
+        <span className="bg-red/15 text-red text-[9px] font-bold uppercase px-1.5 py-px rounded border border-red/40 animate-pulse">
+          {tfms.active_gs} GS
+        </span>
+      )}
+      {tfms?.active_gdps > 0 && (
+        <span className="bg-ylw/15 text-ylw text-[9px] font-bold uppercase px-1.5 py-px rounded border border-ylw/40">
+          {tfms.active_gdps} GDP
+        </span>
+      )}
+      {notams?.active_tfrs > 0 && (
+        <span className="bg-red/10 text-red text-[9px] font-bold uppercase px-1.5 py-px rounded border border-red/30">
+          {notams.active_tfrs} TFR
+        </span>
+      )}
 
       {/* Filter — grows to fill */}
       <div className="flex items-center gap-1 flex-1 min-w-24 sm:min-w-32 ml-1">
         <span className="text-grn select-none text-[11px]">❯</span>
         <input
-          className="bg-transparent border-none outline-none text-fg text-[11px] flex-1 caret-fg font-mono min-w-0"
+          className="bg-transparent border-none outline-none text-fg text-[11px] flex-1 caret-fg font-mono min-w-0 placeholder:text-fg3/30"
           value={filter}
           onChange={e => onFilterChange(e.target.value)}
           placeholder="callsign, icao, airline, type, airport…"

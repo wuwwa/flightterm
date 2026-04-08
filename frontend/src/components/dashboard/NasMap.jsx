@@ -345,19 +345,31 @@ export default function NasMap({ backendOk, onSelectAirport }) {
           {gsCount > 0 && <span className="text-red font-bold animate-pulse">GS:{gsCount}</span>}
           {gdpCount > 0 && <span className="text-ylw font-bold">GDP:{gdpCount}</span>}
         </span>
-        <span className="flex gap-1 items-center flex-wrap">
-          <LayerBtn active={showTfrs} onClick={() => setShowTfrs(v => !v)} color="red" count={tfrPolys.length}>TFRs</LayerBtn>
-          <LayerBtn active={showSigmets} onClick={() => setShowSigmets(v => !v)} color="ylw" count={sigmetPolys.length}>WX</LayerBtn>
-          <LayerBtn active={showPireps} onClick={() => setShowPireps(v => !v)} color="cyn" count={pirepPoints.length}>PIREPs</LayerBtn>
-          <LayerBtn active={showAnomalies} onClick={() => setShowAnomalies(v => !v)} color="red" count={anomalyPoints.length}>anomalies</LayerBtn>
-          <LayerBtn active={showWxCells} onClick={() => setShowWxCells(v => !v)} color="mag" count={wxPoints.length}>ITWS</LayerBtn>
-          <LayerBtn active={showRouteDevs} onClick={() => setShowRouteDevs(v => !v)} color="ylw" count={devLines.length}>off-route</LayerBtn>
-          <LayerBtn active={showFlowPrograms} onClick={() => setShowFlowPrograms(v => !v)} color="ylw" count={flowProgramMarkers.length}>flow</LayerBtn>
-          <LayerBtn active={showNotams} onClick={() => setShowNotams(v => !v)} color="org" count={(notamAirports || []).length}>NOTAMs</LayerBtn>
-          <LayerBtn active={showCascades} onClick={() => setShowCascades(v => !v)} color="red">cascades</LayerBtn>
-          <LayerBtn active={showIfrPositions} onClick={() => setShowIfrPositions(v => !v)} color="grn" count={ifrPositions.length}>IFR</LayerBtn>
-          <LayerBtn active={showTracon} onClick={() => setShowTracon(v => !v)} color="cyn" count={surfacePositions.length}>TRACON</LayerBtn>
-          <LayerBtn active={showFlights} onClick={() => setShowFlights(v => !v)} color="acc">ADS-B</LayerBtn>
+        <span className="flex gap-2 items-center flex-wrap">
+          {/* Weather group */}
+          <span className="flex gap-1 items-center">
+            <span className="text-fg3/40 text-[7px] uppercase tracking-wide">wx</span>
+            <LayerBtn active={showTfrs} onClick={() => setShowTfrs(v => !v)} color="red" count={tfrPolys.length}>TFRs</LayerBtn>
+            <LayerBtn active={showSigmets} onClick={() => setShowSigmets(v => !v)} color="ylw" count={sigmetPolys.length}>WX</LayerBtn>
+            <LayerBtn active={showPireps} onClick={() => setShowPireps(v => !v)} color="cyn" count={pirepPoints.length}>PIREPs</LayerBtn>
+            <LayerBtn active={showWxCells} onClick={() => setShowWxCells(v => !v)} color="mag" count={wxPoints.length}>ITWS</LayerBtn>
+          </span>
+          {/* Flights group */}
+          <span className="flex gap-1 items-center">
+            <span className="text-fg3/40 text-[7px] uppercase tracking-wide">flt</span>
+            <LayerBtn active={showFlights} onClick={() => setShowFlights(v => !v)} color="acc">ADS-B</LayerBtn>
+            <LayerBtn active={showIfrPositions} onClick={() => setShowIfrPositions(v => !v)} color="grn" count={ifrPositions.length}>IFR</LayerBtn>
+            <LayerBtn active={showTracon} onClick={() => setShowTracon(v => !v)} color="cyn" count={surfacePositions.length}>TRACON</LayerBtn>
+          </span>
+          {/* Events group */}
+          <span className="flex gap-1 items-center">
+            <span className="text-fg3/40 text-[7px] uppercase tracking-wide">evt</span>
+            <LayerBtn active={showAnomalies} onClick={() => setShowAnomalies(v => !v)} color="red" count={anomalyPoints.length}>anomalies</LayerBtn>
+            <LayerBtn active={showRouteDevs} onClick={() => setShowRouteDevs(v => !v)} color="ylw" count={devLines.length}>off-route</LayerBtn>
+            <LayerBtn active={showFlowPrograms} onClick={() => setShowFlowPrograms(v => !v)} color="ylw" count={flowProgramMarkers.length}>flow</LayerBtn>
+            <LayerBtn active={showNotams} onClick={() => setShowNotams(v => !v)} color="org" count={(notamAirports || []).length}>NOTAMs</LayerBtn>
+            <LayerBtn active={showCascades} onClick={() => setShowCascades(v => !v)} color="red">cascades</LayerBtn>
+          </span>
         </span>
       </div>
 

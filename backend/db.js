@@ -3043,16 +3043,16 @@ const _stmtFeedFlow = db.prepare(`
 const _stmtFeedWeather = db.prepare(`
   SELECT id, event_type, airport, severity, text, received_at
   FROM terminal_weather
-  WHERE event_type IN ('TORNADO', 'MICROBURST', 'WINDSHEAR', 'GUST_FRONT')
-    AND received_at > datetime('now', '-30 minutes')
+  WHERE event_type IN ('TORNADO', 'MICROBURST', 'WINDSHEAR', 'GUST_FRONT', 'LIGHTNING', 'HAZARD_TEXT')
+    AND received_at > datetime('now', '-60 minutes')
   ORDER BY received_at DESC LIMIT ?
 `)
 
 const _stmtFeedNotams = db.prepare(`
-  SELECT id, location, keyword, text, received_at
+  SELECT id, location, keyword, is_tfr, text, received_at
   FROM notams
-  WHERE is_tfr = 1
-    AND received_at > datetime('now', '-2 hours')
+  WHERE received_at > datetime('now', '-2 hours')
+    AND (is_tfr = 1 OR keyword IN ('RWY', 'AIRSPACE', 'NAV'))
   ORDER BY received_at DESC LIMIT ?
 `)
 
@@ -3117,27 +3117,30 @@ function getLiveFeed(limit = 60) {
     }
   } catch {}
 
-  // TFRs (FNS)
+  // TFRs and significant NOTAMs (FNS)
   try {
-    for (const e of _stmtFeedNotams.all(10)) {
+    for (const e of _stmtFeedNotams.all(20)) {
+      const isTfr = !!e.is_tfr
       events.push({
         type: 'tfr',
-        kind: 'TFR',
-        sev: 'high',
+        kind: isTfr ? 'TFR' : (e.keyword || 'NOTAM'),
+        sev: isTfr ? 'high' : 'info',
         time: e.received_at,
         airport: e.location,
-        title: `TFR ${e.location || ''}`,
+        title: `${isTfr ? 'TFR' : (e.keyword || 'NOTAM')} ${(e.location || '').replace(/^K/, '')}`,
         detail: e.text ? e.text.substring(0, 70) : null,
       })
     }
   } catch {}
 
-  // Critical/high anomalies (poller)
+  // Anomalies (poller) — all severities; frontend has filter chips for severity
   try {
-    const anomalies = getRecentAnomalies(30)
+    const anomalies = getRecentAnomalies(50)
     for (const a of anomalies) {
-      if (a.severity !== 'CRITICAL' && a.severity !== 'HIGH') continue
-      const sev = a.severity === 'CRITICAL' ? 'critical' : 'high'
+      if (!a.severity) continue
+      const sev = a.severity === 'CRITICAL' ? 'critical'
+        : a.severity === 'HIGH' ? 'high'
+        : 'info'
       events.push({
         type: 'anomaly',
         kind: a.category,

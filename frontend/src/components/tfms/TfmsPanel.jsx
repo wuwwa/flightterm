@@ -18,7 +18,7 @@ export default function TfmsPanel({ backendOk }) {
   const healthLabel = health >= 80 ? 'NORMAL' : health >= 50 ? 'DEGRADED' : 'IMPACTED'
 
   return (
-    <div className="bg-bg1 border-t border-border">
+    <div className="bg-bg1 border-t-2 border-cyn/40">
       {/* Header */}
       <div className="bg-bg2 border-b border-border py-1 px-3 flex items-center gap-2">
         <div className="flex items-center gap-2 cursor-pointer select-none" onClick={() => setCollapsed(c => !c)}>
@@ -27,12 +27,20 @@ export default function TfmsPanel({ backendOk }) {
         </div>
 
         {health != null && (
-          <div className="flex items-center gap-1.5" title={`Airspace health: ${health}/100 — ${gs} GS, ${gdps} GDP, ${congestion} congestion, ${totalAirports} airports`}>
-            <div className="w-12 h-1.5 bg-bg rounded-full overflow-hidden">
-              <div className={clsx('h-full rounded-full transition-all', health >= 80 ? 'bg-grn' : health >= 50 ? 'bg-ylw' : 'bg-red')} style={{ width: `${health}%` }} />
-            </div>
-            <span className={clsx('text-[8px] font-bold', health >= 80 ? 'text-grn' : health >= 50 ? 'text-ylw' : 'text-red')}>{healthLabel}</span>
-          </div>
+          <span
+            className={clsx(
+              'flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border',
+              health >= 80 ? 'bg-grn/15 text-grn border-grn/40'
+                : health >= 50 ? 'bg-ylw/15 text-ylw border-ylw/40'
+                : 'bg-red/15 text-red border-red/40'
+            )}
+            title={`Airspace health: ${health}/100 — ${gs} GS, ${gdps} GDP, ${congestion} congestion, ${totalAirports} airports`}
+          >
+            <span className="w-10 h-1 bg-bg/40 rounded-full overflow-hidden">
+              <span className={clsx('block h-full rounded-full transition-all', health >= 80 ? 'bg-grn' : health >= 50 ? 'bg-ylw' : 'bg-red')} style={{ width: `${health}%` }} />
+            </span>
+            {healthLabel}
+          </span>
         )}
 
         {gs > 0 && <span className="text-[8px] text-red font-bold animate-pulse">{gs} ground stop{gs !== 1 ? 's' : ''}</span>}

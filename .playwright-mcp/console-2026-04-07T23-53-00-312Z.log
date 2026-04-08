@@ -78,3 +78,87 @@
 [  427893ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5846, serverFetchedAt: 1775606395172, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
 [  427893ms] [LOG] [fetch] result: 5846 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
 [  437927ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N8283W:0
+[  450384ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5846, serverFetchedAt: 1775606395172, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  450385ms] [LOG] [fetch] result: 5846 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  453634ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/BULET46:0
+[  469437ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N72K:0
+[  472887ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5833, serverFetchedAt: 1775606440352, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775605733432:252
+[  472888ms] [LOG] [fetch] result: 5833 flights @ http://localhost:5173/src/App.jsx?t=1775605733432:277
+[  485251ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N881EE:0
+[  487150ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775606467315:174
+[  487150ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775606467315:178
+[  487214ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 7022 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775606467315:185
+[  487214ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775606467315:213
+[  487214ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775606467315:220
+[  487282ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5833, serverFetchedAt: 1775606440352, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775606467315:252
+[  487282ms] [LOG] [fetch] result: 5833 flights @ http://localhost:5173/src/App.jsx?t=1775606467315:277
+[  487282ms] [LOG] [boot] live sync enabled @ http://localhost:5173/src/App.jsx?t=1775606467315:225
+[  487282ms] [LOG] [boot] complete @ http://localhost:5173/src/App.jsx?t=1775606467315:230
+[  501134ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/IMGRY22:0
+[  509708ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5824, serverFetchedAt: 1775606485403, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775606467315:252
+[  509708ms] [LOG] [fetch] result: 5824 flights @ http://localhost:5173/src/App.jsx?t=1775606467315:277
+[  511459ms] ReferenceError: EmptyDetailState is not defined
+    at DetailPanel (http://localhost:5173/src/components/DetailPanel.jsx?t=1775606491678:130:34)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  511462ms] ReferenceError: EmptyDetailState is not defined
+    at DetailPanel (http://localhost:5173/src/components/DetailPanel.jsx?t=1775606491678:130:34)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3674:22)
+    at Object.invokeGuardedCallbackDev (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3699:24)
+    at invokeGuardedCallback (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:3733:39)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19765:15)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+[  511471ms] [ERROR] The above error occurred in the <DetailPanel> component:
+
+    at DetailPanel (http://localhost:5173/src/components/DetailPanel.jsx?t=1775606491678:76:3)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775606467315:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5)
+
+React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14031
+[  511471ms] [ERROR] ErrorBoundary caught: ReferenceError: EmptyDetailState is not defined
+    at DetailPanel (http://localhost:5173/src/components/DetailPanel.jsx?t=1775606491678:130:34)
+    at renderWithHooks (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:11548:26)
+    at updateFunctionComponent (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:14582:28)
+    at beginWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:15924:22)
+    at beginWork$1 (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19753:22)
+    at performUnitOfWork (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19198:20)
+    at workLoopSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19137:13)
+    at renderRootSync (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:19116:15)
+    at recoverFromConcurrentError (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18736:28)
+    at performSyncWorkOnRoot (http://localhost:5173/node_modules/.vite/deps/chunk-NUMECXU6.js?v=9f3348c7:18879:28) 
+    at DetailPanel (http://localhost:5173/src/components/DetailPanel.jsx?t=1775606491678:76:3)
+    at div
+    at div
+    at SwimProvider (http://localhost:5173/src/contexts/SwimContext.jsx:24:32)
+    at App (http://localhost:5173/src/App.jsx?t=1775606467315:66:33)
+    at ErrorBoundary (http://localhost:5173/src/components/ErrorBoundary.jsx:7:5) @ http://localhost:5173/src/components/ErrorBoundary.jsx:13
+[  516860ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N915AB:0
+[  547717ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N685BB:0
+[  549074ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775606467315:174
+[  549074ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775606467315:178
+[  549075ms] [LOG] [boot] starting — isProd: false @ http://localhost:5173/src/App.jsx?t=1775606467315:174
+[  549075ms] [LOG] [boot] health check attempt 1/10 @ http://localhost:5173/src/App.jsx?t=1775606467315:178
+[  549086ms] [LOG] [boot] backend ready: {opensky: true, aeroapi: true, notam: false, poller: running (usa, 7015 aircraft), db: 1954504704} @ http://localhost:5173/src/App.jsx?t=1775606467315:185
+[  549086ms] [LOG] [boot] refreshing usage data @ http://localhost:5173/src/App.jsx?t=1775606467315:213
+[  549087ms] [LOG] [boot] initial fetch @ http://localhost:5173/src/App.jsx?t=1775606467315:220
+[  549115ms] [LOG] [fetch] /api/flights → {pollerRegion: usa, pollerHasData: true, flightCount: 5824, serverFetchedAt: 1775606485403, clientRegion: usa} @ http://localhost:5173/src/App.jsx?t=1775606467315:252
+[  549115ms] [LOG] [fetch] result: 5824 flights @ http://localhost:5173/src/App.jsx?t=1775606467315:277
+[  549236ms] [LOG] [boot] live sync enabled @ http://localhost:5173/src/App.jsx?t=1775606467315:225
+[  549236ms] [LOG] [boot] complete @ http://localhost:5173/src/App.jsx?t=1775606467315:230
+[  549377ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N309RR:0
+[  563905ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N9053Q:0
+[  564527ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://api.adsbdb.com/v0/callsign/N74CD:0

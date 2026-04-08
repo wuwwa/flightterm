@@ -3,8 +3,13 @@ import clsx from 'clsx'
 import axios from 'axios'
 import { useSwim } from '../../contexts/SwimContext'
 
+// Color semantics:
+//   red    = critical (airspace restrictions, TFRs, life-safety)
+//   ylw    = warning  (runway/taxiway closures, service degradation)
+//   cyn    = info     (navigation, advisories)
+//   mag    = obstacle (categorical, attention-grabbing but not danger)
 const KW_COLORS = {
-  RWY: 'text-red', TWY: 'text-ylw', APRON: 'text-ylw',
+  RWY: 'text-ylw', TWY: 'text-ylw', APRON: 'text-ylw',
   AIRSPACE: 'text-red', SVC: 'text-cyn', NAV: 'text-cyn', OBST: 'text-mag',
 }
 
@@ -107,6 +112,9 @@ function NotamPopup({ location, onClose }) {
 
 // ── Main NotamPanel ─────────────────────────────────────────────────────────
 
+// Display order: most-disruptive categories first
+const KW_ORDER = ['RWY', 'AIRSPACE', 'NAV', 'SVC', 'TWY', 'APRON', 'OBST']
+
 export default function NotamPanel({ backendOk }) {
   const { status, tfrs, notamAirports: airports } = useSwim()
   const [selectedLocation, setSelectedLocation] = useState(null)
@@ -115,11 +123,34 @@ export default function NotamPanel({ backendOk }) {
   const connected = fns?.connected
   const totalNotams = airports.reduce((s, a) => s + a.count, 0)
 
+  // Group airports by keyword: { RWY: ['JFK', 'LAX', ...], AIRSPACE: [...] }
+  const groups = {}
+  for (const ap of airports || []) {
+    const apt = (ap.location || '').replace(/^K/, '')
+    if (!apt) continue
+    if (ap.rwy)      (groups.RWY      = groups.RWY      || new Set()).add(apt)
+    if (ap.airspace) (groups.AIRSPACE = groups.AIRSPACE || new Set()).add(apt)
+    if (ap.nav)      (groups.NAV      = groups.NAV      || new Set()).add(apt)
+    if (ap.svc)      (groups.SVC      = groups.SVC      || new Set()).add(apt)
+    if (ap.twy)      (groups.TWY      = groups.TWY      || new Set()).add(apt)
+    if (ap.apron)    (groups.APRON    = groups.APRON    || new Set()).add(apt)
+    if (ap.obst)     (groups.OBST     = groups.OBST     || new Set()).add(apt)
+  }
+
+  const activeGroups = KW_ORDER
+    .filter(k => groups[k] && groups[k].size > 0)
+    .map(k => ({ kw: k, airports: Array.from(groups[k]).sort() }))
+
+  // Unique TFR locations
+  const tfrLocs = Array.from(new Set((tfrs || []).map(t => (t.location || '').replace(/^K/, '')).filter(Boolean))).sort()
+
+  const hasAny = activeGroups.length > 0 || tfrLocs.length > 0
+
   return (
     <div className="bg-bg1 h-full min-h-0 flex flex-col">
       {/* Header */}
       <div className="py-0.5 px-2 text-[9px] bg-bg2 border-b border-border flex justify-between items-center shrink-0">
-        <span className="text-fg3">NOTAMs & TFRs</span>
+        <span className="text-fg2 font-bold text-[10px]">NOTAMs & TFRs</span>
         <span className="flex items-center gap-1.5">
           {totalNotams > 0 && <span className="text-fg3">{totalNotams} notices</span>}
           {fns ? (
@@ -128,69 +159,65 @@ export default function NotamPanel({ backendOk }) {
         </span>
       </div>
 
-      {/* TFR summary if any active */}
-      {tfrs.length > 0 && (
-        <div className="px-2 py-0.5 bg-red/5 border-b border-red/15 shrink-0">
-          <span className="text-red text-[9px] font-bold">{tfrs.length} TFR{tfrs.length !== 1 ? 's' : ''} active</span>
-          <span className="text-fg3 text-[8px] ml-1">— temporary flight restrictions</span>
+      {!hasAny ? (
+        <div className="flex-1 flex items-center justify-center text-[9px] text-grn/70">
+          {connected ? 'no active NOTAMs' : 'FNS feed not connected'}
         </div>
-      )}
-
-      {/* Single scrollable list */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {/* TFR entries */}
-        {tfrs.slice(0, 5).map((tfr, i) => (
-          <div
-            key={tfr.id || `tfr-${i}`}
-            className="flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-red/10 bg-red/3 cursor-pointer hover:bg-red/8"
-            title={tfr.text || 'Click to view details'}
-            onClick={() => tfr.location && setSelectedLocation(tfr.location)}
-          >
-            <span className="text-red font-bold shrink-0 w-6">TFR</span>
-            <span className="text-acc font-bold shrink-0">{tfr.location || '—'}</span>
-            <span className="text-fg2 truncate flex-1">{tfr.text?.substring(0, 60) || 'Restriction active'}</span>
-          </div>
-        ))}
-
-        {/* Airport NOTAM entries */}
-        {airports.map((ap, i) => {
-          const issues = []
-          if (ap.rwy) issues.push({ kw: 'RWY', n: ap.rwy })
-          if (ap.airspace) issues.push({ kw: 'AIRSPACE', n: ap.airspace })
-          if (ap.svc) issues.push({ kw: 'SVC', n: ap.svc })
-          if (ap.twy) issues.push({ kw: 'TWY', n: ap.twy })
-          if (ap.obst) issues.push({ kw: 'OBST', n: ap.obst })
-          if (ap.apron) issues.push({ kw: 'APRON', n: ap.apron })
-          const remainder = ap.count - issues.reduce((s, x) => s + x.n, 0)
-
-          return (
-            <div
-              key={ap.location || i}
-              className="flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-white/3 cursor-pointer hover:bg-bg2"
-              title={`Click to view ${ap.count} NOTAMs for ${ap.location}`}
-              onClick={() => setSelectedLocation(ap.location)}
-            >
-              <span className="text-acc font-bold w-7 shrink-0">{ap.location}</span>
-              <span className="text-fg3 w-3 text-right shrink-0">{ap.count}</span>
-              <div className="flex gap-1 flex-1 overflow-hidden text-[7px]">
-                {issues.map(x => (
-                  <span key={x.kw} className={clsx(KW_COLORS[x.kw] || 'text-fg3')}>
-                    {x.n}{x.kw}
-                  </span>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-y-auto py-1">
+          {/* TFRs first — most critical */}
+          {tfrLocs.length > 0 && (
+            <div className="px-2 py-1 border-b border-red/15 bg-red/3">
+              <div className="flex items-baseline gap-1.5 mb-0.5">
+                <span className="font-bold text-[10px] uppercase tracking-wide text-red">TFR</span>
+                <span className="text-fg3/50 text-[9px] tabular-nums">{tfrLocs.length}</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {tfrLocs.slice(0, 24).map(apt => (
+                  <button
+                    key={apt}
+                    onClick={() => setSelectedLocation('K' + apt)}
+                    className="text-[9px] tabular-nums bg-red/15 hover:bg-red/25 text-red px-1 py-0 rounded cursor-pointer font-bold"
+                    title={`view TFRs at ${apt}`}
+                  >
+                    {apt}
+                  </button>
                 ))}
-                {remainder > 0 && <span className="text-fg3">+{remainder}</span>}
+                {tfrLocs.length > 24 && (
+                  <span className="text-[9px] text-fg3/40 px-1">+{tfrLocs.length - 24}</span>
+                )}
               </div>
             </div>
-          )
-        })}
+          )}
 
-        {airports.length === 0 && tfrs.length === 0 && connected && (
-          <div className="py-1.5 px-2 text-[8px] text-grn/80">No active NOTAMs</div>
-        )}
-        {!connected && airports.length === 0 && (
-          <div className="py-1.5 px-2 text-[8px] text-fg3/50">FNS feed not connected</div>
-        )}
-      </div>
+          {/* NOTAM keyword groups */}
+          {activeGroups.map(g => (
+            <div key={g.kw} className="px-2 py-1 border-b border-white/3">
+              <div className="flex items-baseline gap-1.5 mb-0.5">
+                <span className={clsx('font-bold text-[10px] uppercase tracking-wide', KW_COLORS[g.kw] || 'text-fg2')}>
+                  {KW_LABELS[g.kw]?.toLowerCase() || g.kw.toLowerCase()}
+                </span>
+                <span className="text-fg3/50 text-[9px] tabular-nums">{g.airports.length}</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {g.airports.slice(0, 24).map(apt => (
+                  <button
+                    key={apt}
+                    onClick={() => setSelectedLocation('K' + apt)}
+                    className="text-[9px] tabular-nums bg-bg2 hover:bg-bg2/60 text-fg2 px-1 py-0 rounded cursor-pointer"
+                    title={`view NOTAMs at ${apt}`}
+                  >
+                    {apt}
+                  </button>
+                ))}
+                {g.airports.length > 24 && (
+                  <span className="text-[9px] text-fg3/40 px-1">+{g.airports.length - 24}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* NOTAM detail popup */}
       {selectedLocation && (

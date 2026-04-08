@@ -69,7 +69,7 @@ export default function NasStatus({ backendOk }) {
     <div className="bg-bg1 h-full min-h-0 flex flex-col">
       {/* Header with health assessment */}
       <div className="py-0.5 px-2 text-[9px] bg-bg2 border-b border-border flex justify-between items-center shrink-0">
-        <span className="text-fg3">NAS status</span>
+        <span className="text-fg2 font-bold text-[10px]">NAS status</span>
         <span className="flex items-center gap-1.5">
           {connectedCount > 0 ? (
             <span className="text-grn text-[8px]">{connectedCount} feed{connectedCount !== 1 ? 's' : ''}</span>

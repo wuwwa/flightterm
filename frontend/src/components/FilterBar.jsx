@@ -80,7 +80,7 @@ export const FILTER_DIMS = {
 export const PRESETS = [
   { id: 'emergencies', label: 'Emergencies', color: 'text-red',  icon: '!',  desc: 'Emergency squawk or critical anomaly' },
   { id: 'anomalies',   label: 'Anomalies',   color: 'text-red',  icon: '!',  desc: 'All detected anomalies' },
-  { id: 'military',    label: 'Military',     color: 'text-red',  icon: 'M',  desc: 'Military aircraft' },
+  { id: 'military',    label: 'Military',     color: 'text-mag',  icon: 'M',  desc: 'Military aircraft' },
   { id: 'heavymetal',  label: 'Heavy',        color: 'text-mag',  icon: 'H',  desc: 'Large/heavy/B757 aircraft' },
   { id: 'diversions',  label: 'Diversions',   color: 'text-ylw',  icon: 'D',  desc: 'Route deviation >50km' },
   { id: 'approach',    label: 'Approach',     color: 'text-mag',  icon: 'A',  desc: 'On approach or descent' },
@@ -336,16 +336,29 @@ export function computeFilterCounts(flights, { anomalies, trackHistory, enrichCa
 
 // ── FilterBar component ──────────────────────────────────────────────────────
 
+// Active state uses a filled background tied to the pill's color so it's
+// unmistakable at a glance. Inactive (but has matches) is outline-only, dim.
+// Disabled (no matches) is bare gray.
+const ACTIVE_BG = {
+  'text-red':  'bg-red/20 border-red text-red font-bold',
+  'text-ylw':  'bg-ylw/20 border-ylw text-ylw font-bold',
+  'text-grn':  'bg-grn/20 border-grn text-grn font-bold',
+  'text-cyn':  'bg-cyn/20 border-cyn text-cyn font-bold',
+  'text-mag':  'bg-mag/20 border-mag text-mag font-bold',
+  'text-acc':  'bg-acc/20 border-acc text-acc font-bold',
+  'text-fg3':  'bg-fg3/15 border-fg3 text-fg2 font-bold',
+}
+
 function FilterPill({ label, count, active, color, onClick, title }) {
   return (
     <button
       className={clsx(
         'text-[9px] cursor-pointer font-mono px-1.5 py-0 rounded border whitespace-nowrap transition-colors',
         active
-          ? `bg-white/8 border-current ${color}`
+          ? (ACTIVE_BG[color] || 'bg-acc/20 border-acc text-acc font-bold')
           : count > 0
-            ? `bg-transparent border-border ${color} opacity-60 hover:opacity-100`
-            : 'bg-transparent border-border text-fg3/40 cursor-default'
+            ? `bg-transparent border-border ${color} opacity-70 hover:opacity-100 hover:border-current`
+            : 'bg-transparent border-border text-fg3/30 cursor-default'
       )}
       onClick={count > 0 || active ? onClick : undefined}
       title={title}

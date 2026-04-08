@@ -279,40 +279,42 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
       <div className="shrink-0 bg-bg2 border-b border-border text-[10px] sm:text-[11px] text-fg3">
         {/* Row 1: records, pagination, sort */}
         <div className="flex flex-wrap justify-between items-center py-0.5 px-1.5 sm:px-2.5 gap-y-0.5">
-          <span className="flex items-center gap-1 sm:gap-1.5 min-w-0 shrink-0">
-            <span className="text-fg">{filtered.length}</span>
-            <span>records</span>
+          <span className="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink-0">
+            <span className="flex items-baseline gap-1">
+              <span className="text-fg2 font-bold tabular-nums text-[13px]">{filtered.length.toLocaleString()}</span>
+              <span className="text-fg3 text-[9px] uppercase tracking-wide">records</span>
+            </span>
             {isFiltersActive(filters) && (
-              <span className="text-acc text-[9px]">filtered</span>
+              <span className="bg-acc/15 text-acc text-[8px] font-bold uppercase px-1 py-px rounded border border-acc/30">filtered</span>
             )}
             {!showAll && totalPages > 1 && (
-              <>
+              <span className="flex items-center gap-0.5">
                 <button
-                  className="bg-transparent border border-border text-fg3 hover:text-fg2 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
+                  className="bg-transparent border border-border text-fg3 hover:text-fg2 hover:border-fg3 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
                   onClick={() => setPage(p => Math.max(0, p - 1))}
                   disabled={safePage === 0}
                 >
                   ‹
                 </button>
-                <span className="text-fg3 text-[10px]">{safePage + 1}/{totalPages}</span>
+                <span className="text-fg3 text-[10px] tabular-nums">{safePage + 1}/{totalPages}</span>
                 <button
-                  className="bg-transparent border border-border text-fg3 hover:text-fg2 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
+                  className="bg-transparent border border-border text-fg3 hover:text-fg2 hover:border-fg3 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
                   onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
                   disabled={safePage >= totalPages - 1}
                 >
                   ›
                 </button>
-              </>
+              </span>
             )}
             {filtered.length > PAGE_SIZE && (
               <button
-                className="bg-transparent border-none text-acc text-[10px] sm:text-[11px] cursor-pointer p-0 font-mono underline"
+                className="bg-transparent border-none text-acc text-[10px] cursor-pointer p-0 font-mono hover:underline"
                 onClick={() => { setShowAll(s => !s); setPage(0) }}
               >
-                {showAll ? `page (${PAGE_SIZE})` : `show all ${filtered.length}`}
+                {showAll ? `page (${PAGE_SIZE})` : `show all`}
               </button>
             )}
-            {newIcaos.size > 0 && <span className="text-grn ml-1">+{newIcaos.size} new</span>}
+            {newIcaos.size > 0 && <span className="bg-grn/15 text-grn text-[8px] font-bold uppercase px-1 py-px rounded border border-grn/30 ml-1">+{newIcaos.size} new</span>}
           </span>
           <div className="flex gap-1 items-center w-full sm:w-auto">
             <button

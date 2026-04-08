@@ -3,16 +3,25 @@ import clsx from 'clsx'
 import { useSwim } from '../../contexts/SwimContext'
 import { WeatherDetailPopup } from './SwimPopup'
 
-const TYPE_SHORT = {
-  TORNADO: 'TRNDO', MICROBURST: 'MBRST', WINDSHEAR: 'WSHEAR',
-  GUST_FRONT: 'GUST', HAZARD_TEXT: 'HAZRD', PRECIP: 'PRECIP',
-  STORM_MOTION: 'STORM', LIGHTNING: 'LTNG',
+// Display order: most-severe types first
+const TYPE_ORDER = ['TORNADO', 'MICROBURST', 'WINDSHEAR', 'GUST_FRONT', 'LIGHTNING', 'HAZARD_TEXT', 'PRECIP', 'STORM_MOTION']
+
+const TYPE_LABEL = {
+  TORNADO: 'tornado', MICROBURST: 'microburst', WINDSHEAR: 'windshear',
+  GUST_FRONT: 'gust front', HAZARD_TEXT: 'hazard', PRECIP: 'precip',
+  STORM_MOTION: 'storm motion', LIGHTNING: 'lightning',
 }
 
-const TYPE_FULL = {
-  TORNADO: 'Tornado', MICROBURST: 'Microburst', WINDSHEAR: 'Windshear',
-  GUST_FRONT: 'Gust Front', HAZARD_TEXT: 'Hazard', PRECIP: 'Precipitation',
-  STORM_MOTION: 'Storm Motion', LIGHTNING: 'Lightning',
+// Severity color per type — critical events are red, warnings are yellow, info is dim
+const TYPE_COLOR = {
+  TORNADO: 'text-red',
+  MICROBURST: 'text-red',
+  WINDSHEAR: 'text-red',
+  GUST_FRONT: 'text-ylw',
+  LIGHTNING: 'text-ylw',
+  HAZARD_TEXT: 'text-ylw',
+  PRECIP: 'text-cyn',
+  STORM_MOTION: 'text-fg3',
 }
 
 export default function ItwsPanel({ backendOk }) {
@@ -20,56 +29,64 @@ export default function ItwsPanel({ backendOk }) {
   const stats = status?.terminalWeather
   const [selectedAirport, setSelectedAirport] = useState(null)
 
-  const hazardEvents = events.filter(e =>
-    e.severity === 'CRITICAL' || e.severity === 'HIGH' || e.severity === 'MEDIUM'
-  )
+  // Group events by type → unique sorted airport list
+  const groups = {}
+  for (const e of events || []) {
+    const type = e.event_type
+    if (!type) continue
+    const apt = (e.airport || e.site || '').replace(/^K/, '')
+    if (!apt) continue
+    if (!groups[type]) groups[type] = new Set()
+    groups[type].add(apt)
+  }
+
+  // Build ordered list of groups that actually have events
+  const activeGroups = TYPE_ORDER
+    .filter(t => groups[t] && groups[t].size > 0)
+    .map(t => ({ type: t, airports: Array.from(groups[t]).sort() }))
+
+  const hasAny = activeGroups.length > 0
 
   return (
     <div className="bg-bg1 h-full min-h-0 flex flex-col">
       <div className="py-0.5 px-2 text-[9px] text-fg3 bg-bg2 border-b border-border flex justify-between shrink-0">
-        <span>terminal weather</span>
-        <span>{stats?.sites || 0} sites</span>
+        <span className="text-fg2 font-bold text-[10px]">terminal weather</span>
+        <span>{stats?.sites || 0} sites · {activeGroups.length} hazard{activeGroups.length === 1 ? '' : 's'}</span>
       </div>
 
-      {stats && stats.total > 0 ? (
-        <div className="px-2 py-0.5 flex gap-2 text-[9px] flex-wrap shrink-0 border-b border-white/5">
-          {stats.tornado > 0 && <span className="text-red font-bold" title={`${stats.tornado} tornado alerts`}>tornado: {stats.tornado}</span>}
-          {stats.microburst > 0 && <span className="text-red font-bold" title={`${stats.microburst} microburst alerts`}>microburst: {stats.microburst}</span>}
-          {stats.windshear > 0 && <span className="text-red" title={`${stats.windshear} windshear alerts`}>windshear: {stats.windshear}</span>}
-          {stats.gust_front > 0 && <span className="text-ylw" title={`${stats.gust_front} gust front alerts`}>gust front: {stats.gust_front}</span>}
-          {stats.precip > 0 && <span className="text-cyn" title={`${stats.precip} precipitation events`}>precip: {stats.precip}</span>}
-          {stats.hazard_text > 0 && <span className="text-ylw" title={`${stats.hazard_text} hazard text alerts`}>hazard: {stats.hazard_text}</span>}
-          {!stats.tornado && !stats.windshear && !stats.microburst && !stats.gust_front && (
-            <span className="text-grn">no terminal hazards</span>
-          )}
+      {!hasAny ? (
+        <div className="flex-1 flex items-center justify-center text-[9px] text-grn/70">
+          no terminal hazards
         </div>
       ) : (
-        <div className="px-2 py-0.5 text-[9px] text-fg3 shrink-0">no terminal weather data yet</div>
-      )}
-
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {hazardEvents.map((e, i) => {
-          const apt = e.airport || e.site || '—'
-          return (
-            <div
-              key={e.id || i}
-              className="flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-white/3 cursor-pointer hover:bg-bg2"
-              title={`Click to view all weather at ${apt}`}
-              onClick={() => (e.airport || e.site) && setSelectedAirport(e.airport || e.site)}
-            >
-              <span className={clsx(
-                'font-bold shrink-0 w-10',
-                e.severity === 'CRITICAL' ? 'text-red' : e.severity === 'HIGH' ? 'text-ylw' : 'text-fg2'
-              )}>
-                {TYPE_FULL[e.event_type]?.substring(0, 8) || TYPE_SHORT[e.event_type] || e.event_type?.substring(0, 5) || '?'}
-              </span>
-              <span className="text-acc font-bold shrink-0 w-6">{apt}</span>
-              <span className="text-fg2 truncate flex-1">{e.text || '—'}</span>
-              <span className="text-fg3/50 shrink-0">{e.received_at?.substring(11, 16)}z</span>
+        <div className="flex-1 min-h-0 overflow-y-auto py-1">
+          {activeGroups.map(g => (
+            <div key={g.type} className="px-2 py-1 border-b border-white/3">
+              <div className="flex items-baseline gap-1.5 mb-0.5">
+                <span className={clsx('font-bold text-[10px] uppercase tracking-wide', TYPE_COLOR[g.type] || 'text-fg2')}>
+                  {TYPE_LABEL[g.type] || g.type.toLowerCase()}
+                </span>
+                <span className="text-fg3/50 text-[9px] tabular-nums">{g.airports.length}</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {g.airports.slice(0, 24).map(apt => (
+                  <button
+                    key={apt}
+                    onClick={() => setSelectedAirport('K' + apt)}
+                    className="text-[9px] tabular-nums bg-bg2 hover:bg-bg2/60 text-fg2 px-1 py-0 rounded cursor-pointer"
+                    title={`view weather at ${apt}`}
+                  >
+                    {apt}
+                  </button>
+                ))}
+                {g.airports.length > 24 && (
+                  <span className="text-[9px] text-fg3/40 px-1">+{g.airports.length - 24}</span>
+                )}
+              </div>
             </div>
-          )
-        })}
-      </div>
+          ))}
+        </div>
+      )}
 
       {selectedAirport && (
         <WeatherDetailPopup airport={selectedAirport} onClose={() => setSelectedAirport(null)} />
