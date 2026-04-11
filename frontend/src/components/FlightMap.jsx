@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { MapContainer, TileLayer, Polyline, Marker, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import clsx from 'clsx'
@@ -182,20 +182,6 @@ function planeIcon(hdg = 0, large = false) {
   )
 }
 
-// Tracked plane — custom color
-function trackedIcon(hdg = 0, color = '#f0c674', large = false) {
-  const s = large ? 26 : 18
-  const h = s / 2
-  return makeIcon(
-    `<svg width="${s}" height="${s}" viewBox="0 0 20 20" style="transform:rotate(${hdg}deg)">
-      <path d="M10 2 L12.5 8 L18 9.5 L12.5 11 L13 17 L10 15 L7 17 L7.5 11 L2 9.5 L7.5 8 Z"
-            fill="${color}" stroke="#1a1a1a" stroke-width="0.8"/>
-    </svg>`,
-    [s, s],
-    [h, h]
-  )
-}
-
 // Other plane — dim gray
 function nearbyIcon(hdg = 0, large = false) {
   const s = large ? 22 : 14
@@ -359,23 +345,6 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, others, la
           </Tooltip>
         </Marker>
       ))}
-
-      {/* Tracked flights with trails */}
-      {trackedFlightsOnMap.map((f) => (
-        <React.Fragment key={`trk-${f.icao}`}>
-          {f.trail.length >= 2 && (
-            <Polyline positions={f.trail}
-              pathOptions={{ color: f.color, weight: 2, opacity: 0.5, dashArray: '6 4' }} />
-          )}
-          <Marker position={[f.lat, f.lon]} icon={trackedIcon(f.hdg ?? 0, f.color, lg)}>
-            <Tooltip permanent direction="right" offset={[lg ? 10 : 6, 0]} className="tracked-flight-label">
-              <span style={{ fontFamily: 'monospace', fontSize: 10, color: f.color, letterSpacing: '0.5px' }}>
-                {f.callsign || f.icao}
-              </span>
-            </Tooltip>
-          </Marker>
-        </React.Fragment>
-      ))}
     </>
   )
 }
@@ -397,7 +366,7 @@ function MapBtn({ active, onClick, children, large }) {
   )
 }
 
-export default function FlightMap({ snapshots, flight, flights, trackedIcaos, allTrackHistory, fullscreen, onToggleFullscreen, fill = false }) {
+export default function FlightMap({ snapshots, flight, flights, fullscreen, onToggleFullscreen, fill = false }) {
   const [viewMode, setViewMode] = useState('default') // 'default' | 'nearby' | 'all'
 
   // Esc to close expanded map
@@ -445,21 +414,6 @@ export default function FlightMap({ snapshots, flight, flights, trackedIcaos, al
 
   // Which set of other flights to show
   const others = viewMode === 'all' ? allOthers : viewMode === 'nearby' ? nearbyOthers : []
-
-  // Tracked flights with trails (excluding the currently selected flight)
-  const TRACK_COLORS = ['#f0c674', '#b294bb', '#de935f', '#8abeb7', '#81a2be', '#cc6666', '#b5bd68', '#a3685a']
-  const trackedFlightsOnMap = useMemo(() => {
-    if (!trackedIcaos || trackedIcaos.size === 0 || !allTrackHistory) return []
-    return [...trackedIcaos].map((icao, idx) => {
-      if (icao === flight?.icao) return null // skip the selected flight, it's already shown
-      const f = flights?.find(fl => fl.icao === icao)
-      if (!f || f.lat == null || f.lon == null) return null
-      const trail = (allTrackHistory[icao] || [])
-        .filter(s => s.lat != null && s.lon != null)
-        .map(s => [s.lat, s.lon])
-      return { ...f, trail, color: TRACK_COLORS[idx % TRACK_COLORS.length] }
-    }).filter(Boolean)
-  }, [trackedIcaos, flights, allTrackHistory, flight?.icao])
 
   // Fit bounds: show all flights, OR when a TFMS-enriched flight is selected,
   // fit to dep + arr + current position so the full planned route is visible.

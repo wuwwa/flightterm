@@ -50,8 +50,6 @@ export default function FlightInspectorModal({
   aeroSpend,
   userAeroKey,
   trackHistory,
-  trackedIcaos,
-  allTrackHistory,
   onClose,
   onAeroFetched,
   backendOk,
@@ -138,8 +136,6 @@ export default function FlightInspectorModal({
             snapshots={trackHistory || []}
             flight={flight}
             flights={flights}
-            trackedIcaos={trackedIcaos}
-            allTrackHistory={allTrackHistory}
             fullscreen={false}
             onToggleFullscreen={() => {}}
             fill

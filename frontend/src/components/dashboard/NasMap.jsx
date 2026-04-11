@@ -129,18 +129,6 @@ function airportRadius(a) {
 
 // ── Layer toggle button ──────────────────────────────���──────────────────────
 
-function trackedPlaneIcon(hdg = 0, color = '#f0c674') {
-  return L.divIcon({
-    html: `<svg width="20" height="20" viewBox="0 0 20 20" style="transform:rotate(${hdg}deg)">
-      <path d="M10 2 L12.5 8 L18 9.5 L12.5 11 L13 17 L10 15 L7 17 L7.5 11 L2 9.5 L7.5 8 Z"
-            fill="${color}" stroke="#1a1a1a" stroke-width="0.8"/>
-    </svg>`,
-    className: '',
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-  })
-}
-
 function LayerBtn({ active, onClick, color, children, count }) {
   return (
     <button
@@ -649,13 +637,14 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
                 <Polyline positions={f.trail}
                   pathOptions={{ color: f.color, weight: 2.5, opacity: 0.6, dashArray: '6 4' }} />
               )}
-              <Marker position={[f.lat, f.lon]} icon={trackedPlaneIcon(f.hdg ?? 0, f.color)}>
-                <Tooltip permanent direction="right" offset={[10, 0]} className="tracked-label">
+              <CircleMarker center={[f.lat, f.lon]} radius={5}
+                pathOptions={{ color: f.color, fillColor: f.color, fillOpacity: 0.9, weight: 2 }}>
+                <Tooltip permanent direction="right" offset={[8, 0]} className="tracked-label">
                   <span style={{ fontFamily: 'monospace', fontSize: 11, color: f.color, letterSpacing: '0.5px' }}>
                     {f.callsign || f.icao}
                   </span>
                 </Tooltip>
-              </Marker>
+              </CircleMarker>
             </React.Fragment>
           ))}
 

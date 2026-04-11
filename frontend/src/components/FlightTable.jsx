@@ -414,32 +414,6 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
         })}
       </div>
 
-      {/* ── Tracked flights strip ──────────────────────────────────────────── */}
-      {trackedIcaos?.size > 0 && (
-        <div className="shrink-0 bg-bg2/50 border-b border-ylw/10 px-2.5 py-1 hidden sm:flex items-center gap-3 text-[10px]">
-          <span className="text-fg3/50 text-[9px] uppercase tracking-wide">tracking</span>
-          {[...trackedIcaos].map(icao => {
-            const f = flights.find(fl => fl.icao === icao)
-            if (!f) return null
-            return (
-              <span key={icao} className="flex items-center gap-1.5">
-                <span className="text-ylw">◆</span>
-                <span className="text-ylw tabular-nums">{f.callsign || icao}</span>
-                {f.tfms?.dep_arpt && f.tfms?.arr_arpt && (
-                  <span className="text-fg3/40">{f.tfms.dep_arpt.replace(/^K/, '')}→{f.tfms.arr_arpt.replace(/^K/, '')}</span>
-                )}
-                <span
-                  className="text-fg3/30 hover:text-fg3 cursor-pointer text-[9px]"
-                  onClick={() => onToggleTrack?.(icao)}
-                  title="Remove from tracking"
-                >✕</span>
-              </span>
-            )
-          })}
-          <span className="text-fg3/20 ml-auto text-[9px]">visible on map below</span>
-        </div>
-      )}
-
       {/* ── Desktop table (≥ sm) — standard 8-column layout ──────────────── */}
       <div className="overflow-auto flex-1 min-h-0 hidden sm:block">
       <table className="w-full border-separate border-spacing-0">
@@ -509,13 +483,13 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                   {onToggleTrack && (
                     <span
                       className={clsx(
-                        'mr-1.5 cursor-pointer inline-block text-[11px]',
-                        trackedIcaos?.has(f.icao) ? 'text-ylw' : 'text-fg3/40 hover:text-fg3'
+                        'mr-1.5 cursor-pointer inline-block text-[10px] tracking-tight',
+                        trackedIcaos?.has(f.icao) ? 'text-ylw' : 'text-fg3/15 hover:text-fg3/40'
                       )}
                       title={trackedIcaos?.has(f.icao) ? 'Untrack from map' : 'Track on map'}
                       onClick={(e) => { e.stopPropagation(); onToggleTrack(f.icao) }}
                     >
-                      {trackedIcaos?.has(f.icao) ? '◆' : '◇'}
+                      {trackedIcaos?.has(f.icao) ? '\u25CF' : '\u00b7'}
                     </span>
                   )}
                   {anomaly && (

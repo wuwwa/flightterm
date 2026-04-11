@@ -153,7 +153,7 @@ export default function TrackChart({ snapshots }) {
       {/* Status bar */}
       <div className="px-2.5 py-1 flex items-center gap-3 text-[9px] border-b border-white/5">
         <span className="text-fg3">Phase:</span>
-        <span className={PHASE_COLOR[phase]}>{PHASE_LABEL[phase]}</span>
+        <span className={clsx('font-bold', PHASE_COLOR[phase])}>{PHASE_LABEL[phase]}</span>
         {altFt != null && <span className="text-cyn tabular-nums">{altFt.toLocaleString()}ft</span>}
         {spdKt != null && <span className="text-acc tabular-nums">{spdKt}kt</span>}
         {vrateFpm != null && (
@@ -161,7 +161,7 @@ export default function TrackChart({ snapshots }) {
             {vrateFpm > 0 ? '+' : ''}{vrateFpm}fpm
           </span>
         )}
-        {anomalies.length > 0 && <span className="text-red">{anomalies.length} triggers</span>}
+        {anomalies.length > 0 && <span className="text-red font-bold">{anomalies.length} triggers</span>}
       </div>
 
       {/* Charts */}

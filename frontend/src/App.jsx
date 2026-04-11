@@ -649,8 +649,6 @@ export default function App() {
                 aeroSpend={aeroSpend}
                 userAeroKey={settings.userAeroKey}
                 trackHistory={trackHistory[selectedFlight.icao]}
-                trackedIcaos={trackedIcaos}
-                allTrackHistory={trackHistory}
                 onClose={() => setSelectedFlight(null)}
                 onAeroFetched={handleAeroFetched}
                 backendOk={backendOk}
