@@ -1,4 +1,4 @@
-# ── stage 1: build frontend ──────────────────────────────────────────────────
+                    # ── stage 1: build frontend ──────────────────────────────────────────────────
 FROM node:20-slim AS frontend-build
 WORKDIR /app
 
@@ -26,6 +26,7 @@ RUN cd backend && npm ci --omit=dev
 # Copy backend source
 COPY backend/*.js backend/
 COPY backend/swim/ backend/swim/
+COPY backend/data/ backend/data/
 
 # Copy built frontend from stage 1
 COPY --from=frontend-build /app/frontend/dist frontend/dist

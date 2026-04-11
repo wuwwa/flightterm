@@ -904,7 +904,14 @@ const _stmts = {
     DELETE FROM notams WHERE expiration IS NOT NULL AND expiration < datetime('now', '-7 days')
   `),
 
-  // Airports with active NOTAMs — grouped, with keyword counts
+  // Airports with active NOTAMs — grouped, with keyword counts.
+  // Filtered to US-style airport codes only:
+  //   - 3-letter alphabetic FAA codes (ORD, JFK, LAX) — most common in this feed
+  //   - 4-letter K-prefixed ICAO codes (KORD, KFHK)
+  // Excludes international 4-letter codes (LRBB/UUWV/EGTT/...) and FAA center
+  // NOTAMs (FDC). The frontend's resolveAirport() handles both 3- and 4-letter
+  // forms via a K-prefix fallback, so this filter just removes wire-level
+  // garbage that the dashboard cannot place on the map anyway.
   notamsByAirport: db.prepare(`
     SELECT location,
       COUNT(*) as count,
@@ -917,6 +924,11 @@ const _stmts = {
       MAX(received_at) as latest
     FROM notams
     WHERE location IS NOT NULL
+      AND location NOT IN ('FDC', 'FYI')
+      AND (
+        location GLOB '[A-Z][A-Z][A-Z]'
+        OR location GLOB 'K[A-Z][A-Z][A-Z]'
+      )
       AND (text IS NULL OR text NOT LIKE 'CANCELLED%')
       AND (expiration IS NULL OR expiration > datetime('now'))
     GROUP BY location
@@ -1136,12 +1148,17 @@ const _stmts = {
       (SELECT COUNT(*) FROM flow_events WHERE event_type = 'GS' AND received_at > datetime('now', '-6 hours')) as active_gs
   `),
 
+  // Tightened from 24h → 4h. The dashboard only needs currently-active and
+  // recently-completed flights; 4h covers any in-progress flight including
+  // long-haul approach. Set TFMS_PLANS_RETENTION_HOURS to override.
   purgeOldFlightPlans: db.prepare(`
-    DELETE FROM flight_plans WHERE updated_at < datetime('now', '-24 hours')
+    DELETE FROM flight_plans WHERE updated_at < datetime('now', '-' || @hours || ' hours')
   `),
 
+  // Tightened from 7d → 12h. The dashboard cares about CURRENT ground stops,
+  // GDPs, and reroutes, not week-old flow history. Set TFMS_FLOW_RETENTION_HOURS to override.
   purgeOldFlowEvents: db.prepare(`
-    DELETE FROM flow_events WHERE received_at < datetime('now', '-7 days')
+    DELETE FROM flow_events WHERE received_at < datetime('now', '-' || @hours || ' hours')
   `),
 
   // Hourly anomaly counts (for chart overlay)
@@ -1311,11 +1328,13 @@ const _insertMany = db.transaction((rows) => {
   for (const row of rows) _stmts.insert.run(row)
 })
 
-function recordSightings(flights, source, region) {
+// Build dedup-filtered rows + the parent fetch_id, without writing to sightings.
+// Updates the in-memory _lastSeen cache for accepted rows. Shared by sync and
+// chunked variants below so the dedup logic only lives in one place.
+function _prepareSightingRows(flights, source, region) {
   const now = new Date().toISOString()
   const nowMs = Date.now()
 
-  // Record fetch metadata
   const fetchResult = _stmts.insertFetch.run({
     source,
     region: region || null,
@@ -1366,7 +1385,29 @@ function recordSightings(flights, source, region) {
     })
   }
 
+  return rows
+}
+
+// Sync variant — used by POST /api/sightings (small bounded batches).
+function recordSightings(flights, source, region) {
+  const rows = _prepareSightingRows(flights, source, region)
   if (rows.length > 0) _insertMany(rows)
+  return rows.length
+}
+
+// Async chunked variant — used by the poller, which can pass 7000+ flights.
+// Splits inserts into SIGHTINGS_CHUNK-row transactions with setImmediate
+// between them so the event loop stays responsive to /internal/swim/* POSTs,
+// snapshot polls, and HTTP traffic.
+const SIGHTINGS_CHUNK = 500
+async function recordSightingsChunked(flights, source, region) {
+  const rows = _prepareSightingRows(flights, source, region)
+  for (let i = 0; i < rows.length; i += SIGHTINGS_CHUNK) {
+    _insertMany(rows.slice(i, i + SIGHTINGS_CHUNK))
+    if (i + SIGHTINGS_CHUNK < rows.length) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+  }
   return rows.length
 }
 
@@ -1808,9 +1849,12 @@ function getSurfacePositions(limit = 300) { return _stmts.getSurfacePositions.al
 function getFlowEventsByAirport(airport, limit = 10) { return _stmts.getFlowEventsByAirport.all(airport, limit) }
 function getTfmsStats() { return _stmts.getTfmsStats.get() }
 
+const TFMS_PLANS_RETENTION_HOURS = Number(process.env.TFMS_PLANS_RETENTION_HOURS) || 4
+const TFMS_FLOW_RETENTION_HOURS = Number(process.env.TFMS_FLOW_RETENTION_HOURS) || 12
+
 function purgeOldTfms() {
-  const plans = _stmts.purgeOldFlightPlans.run().changes
-  const events = _stmts.purgeOldFlowEvents.run().changes
+  const plans = _stmts.purgeOldFlightPlans.run({ hours: TFMS_PLANS_RETENTION_HOURS }).changes
+  const events = _stmts.purgeOldFlowEvents.run({ hours: TFMS_FLOW_RETENTION_HOURS }).changes
   return { plans, events }
 }
 
@@ -2079,13 +2123,26 @@ function getAeroSpendMonth() {
 }
 
 function getDbSize() {
-  try { return fs.statSync(DB_PATH).size } catch { return 0 }
+  // Include WAL + SHM sidecar files — those count toward disk usage too.
+  let total = 0
+  for (const path of [DB_PATH, `${DB_PATH}-wal`, `${DB_PATH}-shm`]) {
+    try { total += fs.statSync(path).size } catch {}
+  }
+  return total
 }
 
 // ── auto-purge: 6-hour retention window ─────────────────────────────────────
-// Keep 6 hours of raw data. Archive to S3 before purging.
-// If S3 fails, data stays in SQLite until next cycle succeeds.
-const PURGE_AFTER_HOURS = 6
+// Retention window for raw sightings + fetches. The app is now used purely as
+// a dashboard (no anomaly detection), so we don't need historical sightings —
+// only enough to populate any "recent activity" UI. Tunable via PURGE_AFTER_HOURS.
+const PURGE_AFTER_HOURS = Number(process.env.PURGE_AFTER_HOURS) || 1
+
+// Hard cap on the SQLite file size (incl. WAL/SHM). After every purge cycle
+// we trim the largest growth tables until the file is back under this cap.
+// Default 250 MB — chosen to be just above the natural floor (kept tables:
+// notams, callsign_routes, flight_plans, flow_events) so we're not constantly
+// thrashing. Override with STORAGE_CAP_MB env var to go lower or higher.
+const STORAGE_CAP_MB = Number(process.env.STORAGE_CAP_MB) || 250
 
 function getPurgeCutoff() {
   return new Date(Date.now() - PURGE_AFTER_HOURS * 3600_000).toISOString()
@@ -2186,13 +2243,25 @@ function purgeStaleRoutes() {
 
 // ── startup dedup of existing data ──────────────────────────────────────────
 
-function deduplicateExisting() {
+// Chunked variant — processes sightings in groups of ICAOs at a time, with
+// setImmediate yields between chunks. Each chunk runs the window-function
+// DELETE on a small subset (~100 icaos) so it completes in <1s instead of
+// blocking the event loop for 60+ seconds on the full 1.1M-row table.
+async function deduplicateExisting() {
   const before = _stmts.countSightings.get().c
   if (before === 0) return 0
 
-  console.log(`  dedup: scanning ${before} rows...`)
+  const icaos = db.prepare('SELECT DISTINCT icao FROM sightings').all().map((r) => r.icao)
+  if (icaos.length === 0) return 0
 
-  const deleted = db.transaction(() => {
+  console.log(`  dedup: scanning ${before} rows across ${icaos.length} icaos...`)
+
+  const ICAO_CHUNK = 100
+  let totalDeleted = 0
+
+  for (let i = 0; i < icaos.length; i += ICAO_CHUNK) {
+    const batch = icaos.slice(i, i + ICAO_CHUNK)
+    const placeholders = batch.map(() => '?').join(',')
     const result = db.prepare(`
       DELETE FROM sightings WHERE id IN (
         SELECT id FROM (
@@ -2203,6 +2272,7 @@ function deduplicateExisting() {
                  LAG(hdg) OVER w as prev_hdg,
                  LAG(grounded) OVER w as prev_grounded
           FROM sightings
+          WHERE icao IN (${placeholders})
           WINDOW w AS (PARTITION BY icao ORDER BY seen_at, id)
         )
         WHERE prev_alt IS NOT NULL
@@ -2215,15 +2285,17 @@ function deduplicateExisting() {
               END < ${DEDUP_HDG_THRESHOLD}
           AND grounded = prev_grounded
       )
-    `).run()
-    return result.changes
-  })()
+    `).run(...batch)
+    totalDeleted += result.changes
+    // Yield event loop between every chunk so HTTP, poller, and SWIM ingestion stay responsive.
+    await new Promise((resolve) => setImmediate(resolve))
+  }
 
   const after = _stmts.countSightings.get().c
-  console.log(`  dedup: removed ${deleted} duplicate rows (${before} → ${after})`)
+  console.log(`  dedup: removed ${totalDeleted} duplicate rows (${before} → ${after})`)
 
-  if (deleted > 0) db.exec('ANALYZE')
-  return deleted
+  if (totalDeleted > 0) db.exec('ANALYZE')
+  return totalDeleted
 }
 
 // ── VACUUM to reclaim space after purges ────────────────────────────────────
@@ -2237,35 +2309,122 @@ function vacuumDb() {
   }
 }
 
+// ── Hard storage cap enforcement ────────────────────────────────────────────
+// Trims the largest growth tables until the SQLite file is below STORAGE_CAP_MB.
+// SQLite doesn't return freed pages to the OS until VACUUM, so we can't use the
+// file size as a per-iteration loop condition — we instead trim aggressively in
+// one pass, then VACUUM, then check the final size.
+//
+// Tables trimmed (in priority order):
+//   sightings        — heaviest write volume from poller (when on)
+//   sightings_daily  — accumulates one row per (icao, day, source) forever
+//   anomalies        — useless when anomaly detection is off
+//   fetches          — orphaned after sightings purge
+//   position_history — flight position trail samples
+async function enforceStorageCap() {
+  const capBytes = STORAGE_CAP_MB * 1048576
+  const startSize = getDbSize()
+  if (startSize <= capBytes) return 0
+
+  console.log(`  cap: db ${(startSize / 1048576).toFixed(1)} MB exceeds ${STORAGE_CAP_MB} MB cap — trimming`)
+
+  let totalDeleted = 0
+  const CHUNK = 10000
+
+  async function trimTable(table, idCol = 'id') {
+    let tableDeleted = 0
+    for (let i = 0; i < 200; i++) {
+      let result
+      try {
+        result = db.prepare(`
+          DELETE FROM ${table} WHERE ${idCol} IN (
+            SELECT ${idCol} FROM ${table} ORDER BY ${idCol} ASC LIMIT ${CHUNK}
+          )
+        `).run()
+      } catch (err) {
+        // Table doesn't exist or has no id column — skip silently.
+        return 0
+      }
+      tableDeleted += result.changes
+      if (result.changes === 0) break
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    if (tableDeleted > 0) console.log(`    cap: trimmed ${tableDeleted} from ${table}`)
+    return tableDeleted
+  }
+
+  // 1) Drop ALL sightings — when anomaly detection is off these are unused.
+  totalDeleted += await trimTable('sightings')
+  // 2) Drop ALL daily summaries — anomaly history aggregation, unused now.
+  totalDeleted += await trimTable('sightings_daily', 'rowid')
+  // 3) Drop ALL old anomalies — dashboard doesn't need historical anomalies.
+  totalDeleted += await trimTable('anomalies')
+  // 4) Drop orphaned fetches.
+  try {
+    const r = db.prepare(`DELETE FROM fetches`).run()
+    if (r.changes > 0) console.log(`    cap: trimmed ${r.changes} from fetches`)
+    totalDeleted += r.changes
+  } catch {}
+  // 5) Drop old flight positions if the table exists.
+  totalDeleted += await trimTable('position_history', 'rowid')
+
+  // Only VACUUM if we deleted enough to make it worthwhile (>1000 rows). VACUUM
+  // is sync and blocks the loop for tens of seconds on a 200 MB DB, so we don't
+  // want to run it on every cap check. Subsequent cap runs that find nothing
+  // to delete will be near-instant no-ops.
+  if (totalDeleted > 1000) {
+    try { db.exec('VACUUM') } catch (err) { console.warn('  cap: vacuum failed:', err.message) }
+  }
+
+  const finalSize = getDbSize()
+  console.log(`  cap: trimmed ${totalDeleted} rows total, ${(startSize / 1048576).toFixed(1)} MB → ${(finalSize / 1048576).toFixed(1)} MB`)
+  if (finalSize > capBytes) {
+    console.warn(`  cap: ${(finalSize / 1048576).toFixed(1)} MB still over ${STORAGE_CAP_MB} MB cap. Remaining bulk is in retained tables (notams, callsign_routes, flight_plans, flow_events). Lower their retention via TFMS_PLANS_RETENTION_HOURS / TFMS_FLOW_RETENTION_HOURS env vars, or raise STORAGE_CAP_MB.`)
+  }
+  return totalDeleted
+}
+
 // ── startup: only warm dedup cache synchronously (fast) ─────────────────────
 // Heavy maintenance (dedup scan, vacuum, purge) is deferred so Express can
 // start listening before Fly's health check times out.
 _warmDedup()
 console.log(`db: ready (${(_stmts.countSightings.get().c).toLocaleString()} sightings, ${(_stmts.countDaily.get().c).toLocaleString()} daily summaries, ${(getDbSize() / 1048576).toFixed(1)} MB)`)
 
-// Deferred heavy maintenance — runs after server is listening
+// Deferred heavy maintenance — runs after server is listening.
+//
+// IMPORTANT: deduplicateExisting() does a single window-function DELETE over
+// the entire sightings table. On large DBs (>1M rows) it blocks the event
+// loop for 60+ seconds, fails Fly health checks, and gets the machine killed
+// in a restart loop. Runtime dedup in recordSightings() already prevents new
+// duplicates — historical cleanup is non-essential. We now run it on a
+// long-period timer (24h) instead of every startup, and only after the app
+// has been fully responsive for a while.
 function runDeferredMaintenance() {
   setTimeout(async () => {
     try {
-      console.log('db: running deferred maintenance...')
-      deduplicateExisting()
-      // Skip VACUUM at startup — it blocks the event loop for seconds on large DBs
-      // and causes health check failures. VACUUM runs during daily purge cycle instead.
+      console.log('db: running deferred maintenance (purge + cap)...')
+      // Skip dedup at startup. Skip VACUUM in normal purge — enforceStorageCap
+      // will VACUUM if it actually trimmed anything.
       await runPurgeCycle({ vacuum: false })
-
-      // Bootstrap zone baseline from historical anomalies if zone_daily is empty
-      const zoneCount = db.prepare('SELECT COUNT(*) as c FROM zone_daily').get().c
-      if (zoneCount === 0) {
-        console.log('db: backfilling zone baseline (30 days)...')
-        const filled = backfillZoneDaily(30)
-        console.log(`db: backfilled ${filled} zone-day records`)
-      }
+      await enforceStorageCap()
 
       console.log('db: deferred maintenance complete')
     } catch (err) {
       console.error('deferred maintenance error:', err.message)
     }
   }, 15000) // 15s delay — gives Express + SWIM connections time to stabilize
+
+  // Historical dedup runs once a day, decoupled from startup. The runtime
+  // dedup in recordSightings() handles the steady state; this catches any
+  // pre-fix duplicates over time. Now async + chunked, so it doesn't block.
+  setInterval(async () => {
+    try {
+      console.log('db: running daily historical dedup...')
+      await deduplicateExisting()
+    } catch (err) {
+      console.error('daily dedup error:', err.message)
+    }
+  }, 24 * 60 * 60 * 1000).unref()
 }
 
 // Force purge — bypasses S3, deletes everything outside the retention window
@@ -2282,14 +2441,17 @@ function forcePurge() {
   return { sightings, anomalies, daily, remaining, size_mb: +(size / 1048576).toFixed(1) }
 }
 
-// Schedule purge cycle every 6 hours (matches 6-hour retention window)
+// Schedule purge cycle every 30 minutes (was 6 hours). With PURGE_AFTER_HOURS
+// down to 1, we want to run often enough that the sightings table never builds
+// up. Each purge also enforces the hard storage cap.
 const _purgeTimer = setInterval(async () => {
   try {
-    await runPurgeCycle()
+    await runPurgeCycle({ vacuum: false })
+    await enforceStorageCap()
   } catch (err) {
     console.error('purge cycle error:', err.message)
   }
-}, 6 * 3600 * 1000)
+}, 30 * 60 * 1000)
 
 // Graceful close: stop purge timer + close database connection
 function close() {
@@ -3573,6 +3735,7 @@ function getFlightLifecycleEnhanced(callsign) {
 module.exports = {
   db,
   recordSightings,
+  recordSightingsChunked,
   getAircraftHistory,
   getAircraftTrack,
   getUniqueSeen,

@@ -62,12 +62,41 @@ app.use('/api/', (_req, res, next) => {
   next()
 })
 
+// ── Slow request logger ──────────────────────────────────────────────────────
+// Records when a route handler runs sync work that blocks the event loop. We
+// already have the perf_hooks monitor flagging when the loop blocks; this
+// pinpoints WHICH endpoint caused it. Logs anything over 500ms.
+app.use('/api/', (req, res, next) => {
+  const t0 = Date.now()
+  res.on('finish', () => {
+    const ms = Date.now() - t0
+    if (ms > 500) {
+      console.warn(`slow-req ${ms}ms ${req.method} ${req.originalUrl}`)
+    }
+  })
+  next()
+})
+
 function cachePublic(res, maxAge) {
   res.set('Cache-Control', `public, max-age=${maxAge}`)
 }
 
 function cachePrivate(res, maxAge) {
   res.set('Cache-Control', `private, max-age=${maxAge}`)
+}
+
+// ── In-memory memoization for heavy aggregation endpoints ────────────────────
+// Frontend dashboards poll multiple SWIM analytics endpoints simultaneously.
+// Some of those run multi-table joins that take seconds. Memoize the result
+// so concurrent callers share one computation, and re-run at most every TTL.
+const _memoCache = new Map()
+function memoized(key, ttlMs, fn) {
+  const now = Date.now()
+  const hit = _memoCache.get(key)
+  if (hit && now - hit.t < ttlMs) return hit.v
+  const v = fn()
+  _memoCache.set(key, { t: now, v })
+  return v
 }
 
 // ── OpenSky OAuth2 token cache ────────────────────────────────────────────────
@@ -876,7 +905,24 @@ app.get('/api/hexdb/route/:callsign', async (req, res) => {
 
 const AWX_BASE = 'https://aviationweather.gov/api/data'
 
+// In-process async memoizer for external HTTP-backed endpoints. Concurrent
+// callers share one in-flight promise so we never make N parallel upstream
+// requests for the same data, and the result is cached for ttlMs.
+const _asyncMemoCache = new Map()
+function memoizedAsync(key, ttlMs, fn) {
+  const now = Date.now()
+  const hit = _asyncMemoCache.get(key)
+  if (hit && now - hit.t < ttlMs) return hit.p
+  const p = fn().then(
+    (v) => { _asyncMemoCache.set(key, { t: Date.now(), p: Promise.resolve(v) }); return v },
+    (err) => { _asyncMemoCache.delete(key); throw err }
+  )
+  _asyncMemoCache.set(key, { t: now, p })
+  return p
+}
+
 // GET /api/weather/metar?ids=KJFK,KLAX  or  ?bbox=25,-130,50,-60
+// Memoized 90s — aviationweather.gov is slow and METARs only refresh hourly anyway.
 app.get('/api/weather/metar', async (req, res) => {
   cachePublic(res, 120)
   if (!serviceAvailable('aviationweather')) {
@@ -884,10 +930,14 @@ app.get('/api/weather/metar', async (req, res) => {
   }
   const t0 = Date.now()
   try {
-    const params = { format: 'json', ...req.query }
-    const resp = await axios.get(`${AWX_BASE}/metar`, { params, timeout: 10000 })
+    const key = `metar:${JSON.stringify(req.query)}`
+    const data = await memoizedAsync(key, 90000, async () => {
+      const params = { format: 'json', ...req.query }
+      const resp = await axios.get(`${AWX_BASE}/metar`, { params, timeout: 10000 })
+      return resp.data
+    })
     recordServiceOk('aviationweather', Date.now() - t0)
-    res.json(resp.data)
+    res.json(data)
   } catch (err) {
     recordServiceError('aviationweather', Date.now() - t0, err.message)
     res.status(err.response?.status || 502).json({ error: err.message })
@@ -902,10 +952,14 @@ app.get('/api/weather/pirep', async (req, res) => {
   }
   const t0 = Date.now()
   try {
-    const params = { format: 'json', ...req.query }
-    const resp = await axios.get(`${AWX_BASE}/pirep`, { params, timeout: 10000 })
+    const key = `pirep:${JSON.stringify(req.query)}`
+    const data = await memoizedAsync(key, 90000, async () => {
+      const params = { format: 'json', ...req.query }
+      const resp = await axios.get(`${AWX_BASE}/pirep`, { params, timeout: 10000 })
+      return resp.data
+    })
     recordServiceOk('aviationweather', Date.now() - t0)
-    res.json(resp.data)
+    res.json(data)
   } catch (err) {
     recordServiceError('aviationweather', Date.now() - t0, err.message)
     res.status(err.response?.status || 502).json({ error: err.message })
@@ -920,10 +974,14 @@ app.get('/api/weather/sigmet', async (req, res) => {
   }
   const t0 = Date.now()
   try {
-    const params = { format: 'json', ...req.query }
-    const resp = await axios.get(`${AWX_BASE}/airsigmet`, { params, timeout: 10000 })
+    const key = `sigmet:${JSON.stringify(req.query)}`
+    const data = await memoizedAsync(key, 90000, async () => {
+      const params = { format: 'json', ...req.query }
+      const resp = await axios.get(`${AWX_BASE}/airsigmet`, { params, timeout: 10000 })
+      return resp.data
+    })
     recordServiceOk('aviationweather', Date.now() - t0)
-    res.json(resp.data)
+    res.json(data)
   } catch (err) {
     recordServiceError('aviationweather', Date.now() - t0, err.message)
     res.status(err.response?.status || 502).json({ error: err.message })
@@ -1117,8 +1175,10 @@ app.get('/api/anomalies/feedback/stats', (_req, res) => {
 })
 
 // ── Internal SWIM endpoints (called by swim worker service via HTTP) ───────
-// Protected by SWIM_INTERNAL_SECRET. These accept data from the worker and
-// write it to SQLite — the worker has no direct DB access.
+// Protected by SWIM_INTERNAL_SECRET. Handlers enqueue payloads and respond
+// immediately; a drain loop yields the event loop with setImmediate between
+// batches so SQLite writes don't block the HTTP server, the poller, or the
+// snapshot poll.
 
 function requireInternalAuth(req, res, next) {
   const secret = process.env.SWIM_INTERNAL_SECRET
@@ -1128,51 +1188,98 @@ function requireInternalAuth(req, res, next) {
   next()
 }
 
-app.post('/internal/swim/notams', requireInternalAuth, (req, res) => {
-  try {
-    const { upsertNotamBatch } = require('./db')
-    const count = upsertNotamBatch(req.body.notams, req.body.rawXmls)
-    res.json({ ok: true, count })
-  } catch (err) {
-    console.error('internal/swim/notams error:', err.message)
-    res.status(500).json({ error: err.message })
+// ── In-process SWIM ingestion queue ────────────────────────────────────────
+const SWIM_Q_MAX = 5000
+const swimQueue = []
+let swimDropped = 0
+let swimProcessed = 0
+let swimLastDrainMs = 0
+let swimDraining = false
+
+function enqueueSwim(kind, payload) {
+  if (swimQueue.length >= SWIM_Q_MAX) {
+    swimQueue.shift()
+    swimDropped++
   }
+  swimQueue.push({ kind, payload })
+  if (!swimDraining) setImmediate(drainSwim)
+}
+
+function processSwimItem(item) {
+  const dbm = require('./db')
+  if (item.kind === 'notams') {
+    dbm.upsertNotamBatch(item.payload.notams, item.payload.rawXmls)
+  } else if (item.kind === 'flights') {
+    dbm.upsertFlightPlanBatch(item.payload.plans)
+  } else if (item.kind === 'routes') {
+    dbm.upsertRoutesBatch(item.payload.routes)
+  } else if (item.kind === 'flow') {
+    const tx = dbm.db.transaction((events) => {
+      for (const event of events) dbm.insertFlowEvent(event)
+    })
+    tx(item.payload.events)
+  } else if (item.kind === 'positions') {
+    if (item.payload.snapshot) dbm.persistFlightPositions(item.payload.snapshot)
+  } else if (item.kind === 'sectors') {
+    if (item.payload.snapshot) dbm.persistSectorCounts(item.payload.snapshot)
+  }
+}
+
+function drainSwim() {
+  swimDraining = true
+  const item = swimQueue.shift()
+  if (!item) {
+    swimDraining = false
+    return
+  }
+  const t0 = Date.now()
+  try {
+    processSwimItem(item)
+    swimProcessed++
+  } catch (err) {
+    console.error(`swim drain ${item.kind} error:`, err.message)
+  }
+  swimLastDrainMs = Date.now() - t0
+  setImmediate(drainSwim) // yield event loop between every item
+}
+
+function drainSwimSync(maxMs = 20000) {
+  const start = Date.now()
+  while (swimQueue.length > 0 && Date.now() - start < maxMs) {
+    const item = swimQueue.shift()
+    try { processSwimItem(item) } catch (err) {
+      console.error(`swim drain ${item.kind} error:`, err.message)
+    }
+  }
+}
+
+function getSwimQueueStats() {
+  return {
+    depth: swimQueue.length,
+    dropped: swimDropped,
+    processed: swimProcessed,
+    lastDrainMs: swimLastDrainMs,
+  }
+}
+
+app.post('/internal/swim/notams', requireInternalAuth, (req, res) => {
+  enqueueSwim('notams', req.body)
+  res.json({ ok: true, queued: swimQueue.length })
 })
 
 app.post('/internal/swim/flights', requireInternalAuth, (req, res) => {
-  try {
-    const { upsertFlightPlanBatch } = require('./db')
-    upsertFlightPlanBatch(req.body.plans)
-    res.json({ ok: true, count: req.body.plans.length })
-  } catch (err) {
-    console.error('internal/swim/flights error:', err.message)
-    res.status(500).json({ error: err.message })
-  }
+  enqueueSwim('flights', req.body)
+  res.json({ ok: true, queued: swimQueue.length })
 })
 
 app.post('/internal/swim/flow', requireInternalAuth, (req, res) => {
-  try {
-    const { db: rawDb, insertFlowEvent } = require('./db')
-    const insertBatch = rawDb.transaction((events) => {
-      for (const event of events) insertFlowEvent(event)
-    })
-    insertBatch(req.body.events)
-    res.json({ ok: true, count: req.body.events.length })
-  } catch (err) {
-    console.error('internal/swim/flow error:', err.message)
-    res.status(500).json({ error: err.message })
-  }
+  enqueueSwim('flow', req.body)
+  res.json({ ok: true, queued: swimQueue.length })
 })
 
 app.post('/internal/swim/routes', requireInternalAuth, (req, res) => {
-  try {
-    const { upsertRoutesBatch } = require('./db')
-    upsertRoutesBatch(req.body.routes)
-    res.json({ ok: true, count: req.body.routes.length })
-  } catch (err) {
-    console.error('internal/swim/routes error:', err.message)
-    res.status(500).json({ error: err.message })
-  }
+  enqueueSwim('routes', req.body)
+  res.json({ ok: true, queued: swimQueue.length })
 })
 
 // SWIM feed status
@@ -1188,7 +1295,7 @@ app.get('/api/swim/tfrs', (_req, res) => {
   cachePublic(res, 60)
   try {
     const { getActiveTfrs } = require('./db')
-    res.json(getActiveTfrs())
+    res.json(memoized('activeTfrs', 60000, () => getActiveTfrs()))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1235,11 +1342,13 @@ app.get('/api/swim/notams/:location', (req, res) => {
 // TFMS — active flight plans
 // GET /api/swim/flights?limit=50
 app.get('/api/swim/flights', (req, res) => {
-  cachePublic(res, 15)
+  cachePublic(res, 30)
   try {
     const { getActiveFlightPlans } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 50, 200)
-    res.json(getActiveFlightPlans(limit))
+    // Memoize at max limit and slice — shared computation across all callers.
+    const all = memoized('activeFlightPlans', 30000, () => getActiveFlightPlans(200))
+    res.json(all.slice(0, limit))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1378,11 +1487,14 @@ app.get('/api/swim/airports', (_req, res) => {
 // ── Computed airport operations (cross-references TFMS + STDDS + ITWS) ──────
 
 // GET /api/swim/airport/:icao/ops — full computed ops for one airport
+// Memoized 30s — runs 15+ joins on surface_events/flight_plans, biggest single
+// per-request workload on the dashboard.
 app.get('/api/swim/airport/:icao/ops', (req, res) => {
-  cachePublic(res, 15)
+  cachePublic(res, 30)
   try {
     const { getAirportOps } = require('./db')
-    res.json(getAirportOps(req.params.icao.toUpperCase()))
+    const icao = req.params.icao.toUpperCase()
+    res.json(memoized(`airportOps:${icao}`, 30000, () => getAirportOps(icao)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1390,10 +1502,11 @@ app.get('/api/swim/airport/:icao/ops', (req, res) => {
 
 // GET /api/swim/flight/:callsign/lifecycle — stitched TFMS + STDDS + SFDPS flight lifecycle
 app.get('/api/swim/flight/:callsign/lifecycle', (req, res) => {
-  cachePublic(res, 10)
+  cachePublic(res, 15)
   try {
     const { getFlightLifecycleEnhanced } = require('./db')
-    res.json(getFlightLifecycleEnhanced(req.params.callsign.toUpperCase()))
+    const cs = req.params.callsign.toUpperCase()
+    res.json(memoized(`lifecycle:${cs}`, 15000, () => getFlightLifecycleEnhanced(cs)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1401,10 +1514,11 @@ app.get('/api/swim/flight/:callsign/lifecycle', (req, res) => {
 
 // GET /api/swim/flight/:callsign/positions — SFDPS position trail for altitude profile
 app.get('/api/swim/flight/:callsign/positions', (req, res) => {
-  cachePublic(res, 10)
+  cachePublic(res, 15)
   try {
     const { getPositionTrail } = require('./db')
-    res.json(getPositionTrail(req.params.callsign.toUpperCase()))
+    const cs = req.params.callsign.toUpperCase()
+    res.json(memoized(`posTrail:${cs}`, 15000, () => getPositionTrail(cs)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1412,10 +1526,11 @@ app.get('/api/swim/flight/:callsign/positions', (req, res) => {
 
 // GET /api/swim/airport/:icao/surface-flow — departure queue, throughput, ground movements
 app.get('/api/swim/airport/:icao/surface-flow', (req, res) => {
-  cachePublic(res, 10)
+  cachePublic(res, 30)
   try {
     const { getSurfaceFlow } = require('./db')
-    res.json(getSurfaceFlow(req.params.icao.toUpperCase()))
+    const icao = req.params.icao.toUpperCase()
+    res.json(memoized(`surfaceFlow:${icao}`, 30000, () => getSurfaceFlow(icao)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1445,23 +1560,28 @@ app.get('/api/swim/routes/deviations', (req, res) => {
 })
 
 // GET /api/swim/live-feed — unified real-time event stream from all sources
+// Memoized 10s. The frontend dashboard polls this aggressively and the
+// underlying 5 SELECTs + getRecentAnomalies fan out across multiple tables.
 app.get('/api/swim/live-feed', (req, res) => {
-  cachePublic(res, 5)
+  cachePublic(res, 10)
   try {
     const { getLiveFeed } = require('./db')
     const limit = Math.min(Number(req.query.limit) || 60, 200)
-    res.json(getLiveFeed(limit))
+    // Memoize at the highest limit (200) and slice; lets all callers share one computation.
+    const all = memoized('liveFeed', 10000, () => getLiveFeed(200))
+    res.json(all.slice(0, limit))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
 // GET /api/swim/weather-delays — weather-delay causation + predictions
+// Memoized 30s — multi-table join across flow_events × terminal_weather is heavy.
 app.get('/api/swim/weather-delays', (_req, res) => {
-  cachePublic(res, 15)
+  cachePublic(res, 30)
   try {
     const { getWeatherDelayCausation } = require('./db')
-    res.json(getWeatherDelayCausation())
+    res.json(memoized('weatherDelays', 30000, () => getWeatherDelayCausation()))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1469,10 +1589,10 @@ app.get('/api/swim/weather-delays', (_req, res) => {
 
 // GET /api/swim/sectors — ARTCC sector congestion from SFDPS data
 app.get('/api/swim/sectors', (_req, res) => {
-  cachePublic(res, 10)
+  cachePublic(res, 30)
   try {
     const { getSectorCongestion } = require('./db')
-    res.json(getSectorCongestion())
+    res.json(memoized('sectorCongestion', 30000, () => getSectorCongestion()))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1480,21 +1600,24 @@ app.get('/api/swim/sectors', (_req, res) => {
 
 // GET /api/swim/sectors/:artcc — sector detail + history for an ARTCC
 app.get('/api/swim/sectors/:artcc', (req, res) => {
-  cachePublic(res, 10)
+  cachePublic(res, 30)
   try {
     const { getSectorDetail } = require('./db')
-    res.json(getSectorDetail(req.params.artcc.toUpperCase()))
+    const artcc = req.params.artcc.toUpperCase()
+    res.json(memoized(`sectorDetail:${artcc}`, 30000, () => getSectorDetail(artcc)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
 // GET /api/swim/nas/analytics — full NAS-wide analytics (all airports, scored and ranked)
+// Memoized 60s — runs 5 large self-joins on surface_events and flight_plans.
+// This is the prime suspect for the multi-second event-loop blocks.
 app.get('/api/swim/nas/analytics', (_req, res) => {
-  cachePublic(res, 15)
+  cachePublic(res, 60)
   try {
     const { getNasAnalytics } = require('./db')
-    res.json(getNasAnalytics())
+    res.json(memoized('nasAnalytics', 60000, () => getNasAnalytics()))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1502,10 +1625,10 @@ app.get('/api/swim/nas/analytics', (_req, res) => {
 
 // GET /api/swim/nas — NAS-wide health summary
 app.get('/api/swim/nas', (_req, res) => {
-  cachePublic(res, 15)
+  cachePublic(res, 30)
   try {
     const { getNasSummary } = require('./db')
-    res.json(getNasSummary())
+    res.json(memoized('nasSummary', 30000, () => getNasSummary()))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -1596,6 +1719,8 @@ app.get('/api/usage/calls', (req, res) => {
 
 // AeroAPI spend summary (for the records bar)
 // Queries FlightAware's real /account/usage as authoritative source, DB as fallback
+// Memoized 60s — usage data refreshes slowly upstream and the dashboard polls
+// this on every refresh; without caching it took 12s under load.
 // GET /api/aero/spend
 app.get('/api/aero/spend', async (_req, res) => {
   const dbTotal = getAeroSpendTotal()
@@ -1604,8 +1729,10 @@ app.get('/api/aero/spend', async (_req, res) => {
   let fa = null
   if (process.env.AEROAPI_KEY) {
     try {
-      const r = await axios.get(`${AERO_BASE}/account/usage`, { headers: aeroHeaders() })
-      fa = r.data
+      fa = await memoizedAsync('aeroSpend', 60000, async () => {
+        const r = await axios.get(`${AERO_BASE}/account/usage`, { headers: aeroHeaders() })
+        return r.data
+      })
     } catch {}
   }
 
@@ -1722,17 +1849,25 @@ if (!process.env.VITEST) _server = app.listen(PORT, () => {
   }
 
   // ── Event loop lag monitor (diagnostic) ──────────────────────────────────
-  // Fires every 2s; if the callback is delayed by >1s, the event loop was blocked.
-  let _lagLast = Date.now()
+  // Uses perf_hooks.monitorEventLoopDelay for accurate p99/max samples and
+  // includes the SWIM ingest queue depth so we can attribute future stalls
+  // (SWIM ingestion vs poller vs other) without guessing.
+  const { monitorEventLoopDelay } = require('perf_hooks')
+  const _loopHist = monitorEventLoopDelay({ resolution: 50 })
+  _loopHist.enable()
   setInterval(() => {
-    const now = Date.now()
-    const lag = now - _lagLast - 2000
-    _lagLast = now
-    if (lag > 1000) {
+    const maxMs = _loopHist.max / 1e6
+    if (maxMs > 1000) {
+      const p99Ms = _loopHist.percentile(99) / 1e6
       const mem = process.memoryUsage()
-      console.warn(`⚠ event-loop blocked ${lag}ms | rss=${(mem.rss/1048576).toFixed(0)}MB heap=${(mem.heapUsed/1048576).toFixed(0)}/${(mem.heapTotal/1048576).toFixed(0)}MB`)
+      console.warn(
+        `⚠ event-loop max=${maxMs.toFixed(0)}ms p99=${p99Ms.toFixed(0)}ms ` +
+        `swimQ=${swimQueue.length} swimDrop=${swimDropped} ` +
+        `rss=${(mem.rss/1048576).toFixed(0)}MB heap=${(mem.heapUsed/1048576).toFixed(0)}/${(mem.heapTotal/1048576).toFixed(0)}MB`
+      )
     }
-  }, 2000).unref()
+    _loopHist.reset()
+  }, 5000).unref()
 })
 
 // ── Graceful shutdown ────────────────────────────────────────────────────────
@@ -1742,6 +1877,13 @@ function shutdown(signal) {
   // Stop accepting new requests
   poller.stop()
   swim.stopAll()
+
+  // Drain anything still queued from /internal/swim/* before closing the DB,
+  // so we don't lose NOTAM/flight/flow batches that the worker already POSTed.
+  if (swimQueue.length > 0) {
+    console.log(`shutdown: draining ${swimQueue.length} queued SWIM items`)
+    drainSwimSync(20000)
+  }
 
   if (_server) {
     _server.close(() => {
@@ -1764,4 +1906,4 @@ function shutdown(signal) {
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
-module.exports = { app }
+module.exports = { app, enqueueSwim, getSwimQueueStats, drainSwimSync }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, CircleMarker, Polyline, Polygon, Marker, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -51,12 +51,37 @@ function anomalyIcon(severity, hdg = 0) {
 }
 
 function notamIcon(count, hasRwy) {
+  // Document with folded corner — recognizable as a paper notice
   const c = hasRwy ? '#ff6633' : '#cc9933'
-  const sz = count > 10 ? 12 : count > 5 ? 10 : 8
+  const sz = count > 10 ? 16 : count > 5 ? 14 : 12
   return L.divIcon({
-    html: `<svg width="${sz}" height="${sz}" viewBox="0 0 16 16">
-      <rect x="1" y="1" width="14" height="14" rx="2" fill="${c}" fill-opacity="0.7" stroke="#0d0d0d" stroke-width="0.8"/>
-      <text x="8" y="12" text-anchor="middle" font-size="9" font-weight="bold" fill="#0d0d0d">N</text>
+    html: `<svg width="${sz}" height="${sz}" viewBox="0 0 20 20">
+      <path d="M3 2 L13 2 L17 6 L17 18 L3 18 Z" fill="${c}" fill-opacity="0.9" stroke="#0d0d0d" stroke-width="1.2"/>
+      <path d="M13 2 L13 6 L17 6" fill="none" stroke="#0d0d0d" stroke-width="1"/>
+      <line x1="6" y1="10" x2="14" y2="10" stroke="#0d0d0d" stroke-width="1"/>
+      <line x1="6" y1="13" x2="14" y2="13" stroke="#0d0d0d" stroke-width="1"/>
+      <line x1="6" y1="16" x2="11" y2="16" stroke="#0d0d0d" stroke-width="1"/>
+    </svg>`,
+    className: '', iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2],
+  })
+}
+
+// Terminal weather alert icon — warning triangle, colored by highest severity,
+// with a single-character symbol identifying the event type.
+function wxIcon(severity, eventType) {
+  const colors = { CRITICAL: '#ff3333', HIGH: '#ff9933', MEDIUM: '#ffcc00', LOW: '#888888' }
+  // Symbols: T tornado, M microburst, W windshear, G gust front, ! hazard text, P precip
+  const labels = {
+    TORNADO: 'T', MICROBURST: 'M', WINDSHEAR: 'W', GUST_FRONT: 'G',
+    HAZARD_TEXT: '!', PRECIP: 'P', STORM_MOTION: 'S',
+  }
+  const c = colors[severity] || '#888'
+  const lbl = labels[eventType] || '·'
+  const sz = severity === 'CRITICAL' ? 20 : severity === 'HIGH' ? 17 : 14
+  return L.divIcon({
+    html: `<svg width="${sz}" height="${sz}" viewBox="0 0 20 20">
+      <path d="M10 1.5 L18.5 17 L1.5 17 Z" fill="${c}" fill-opacity="0.9" stroke="#0d0d0d" stroke-width="1.2" stroke-linejoin="round"/>
+      <text x="10" y="14.5" text-anchor="middle" font-size="9" font-weight="bold" fill="#0d0d0d" font-family="monospace">${lbl}</text>
     </svg>`,
     className: '', iconSize: [sz, sz], iconAnchor: [sz / 2, sz / 2],
   })
@@ -104,6 +129,18 @@ function airportRadius(a) {
 
 // ── Layer toggle button ──────────────────────────────���──────────────────────
 
+function trackedPlaneIcon(hdg = 0, color = '#f0c674') {
+  return L.divIcon({
+    html: `<svg width="20" height="20" viewBox="0 0 20 20" style="transform:rotate(${hdg}deg)">
+      <path d="M10 2 L12.5 8 L18 9.5 L12.5 11 L13 17 L10 15 L7 17 L7.5 11 L2 9.5 L7.5 8 Z"
+            fill="${color}" stroke="#1a1a1a" stroke-width="0.8"/>
+    </svg>`,
+    className: '',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  })
+}
+
 function LayerBtn({ active, onClick, color, children, count }) {
   return (
     <button
@@ -119,8 +156,9 @@ function LayerBtn({ active, onClick, color, children, count }) {
 
 // ── Main component ───────────��───────────────────────────────────��──────────
 
-export default function NasMap({ backendOk, onSelectAirport }) {
-  const { nasSummary, flights, flowEvents, notamAirports } = useSwim()
+export default function NasMap({ backendOk, onSelectAirport, compact = false, flights: propFlights, trackedIcaos, trackHistory }) {
+  const { nasSummary, flights: swimFlights, flowEvents, notamAirports } = useSwim()
+  const flights = propFlights || swimFlights
 
   // Layer toggles — default OFF for busy layers, ON for key operational layers
   const [showIfrPositions, setShowIfrPositions] = useState(false)
@@ -130,8 +168,8 @@ export default function NasMap({ backendOk, onSelectAirport }) {
   const [showPireps, setShowPireps] = useState(false)
   const [showTfrs, setShowTfrs] = useState(true)
   const [showAnomalies, setShowAnomalies] = useState(true)
-  const [showWxCells, setShowWxCells] = useState(false)
-  const [showNotams, setShowNotams] = useState(false)
+  const [showWxCells, setShowWxCells] = useState(true)
+  const [showNotams, setShowNotams] = useState(true)
   const [showFlowPrograms, setShowFlowPrograms] = useState(true)
   const [showTracon, setShowTracon] = useState(false)
   const [showRouteDevs, setShowRouteDevs] = useState(true)
@@ -291,11 +329,37 @@ export default function NasMap({ backendOk, onSelectAirport }) {
     [hotspots]
   )
 
-  // Terminal weather markers
-  const wxPoints = useMemo(() =>
-    terminalWx.filter(w => w.lat != null && w.lon != null && (w.severity === 'CRITICAL' || w.severity === 'HIGH')),
-    [terminalWx]
-  )
+  // Terminal weather markers — ITWS Alerts have null lat/lon and are keyed by
+  // FAA 3-letter site/airport codes (MCI, DTW, ...). Resolve to lat/lon via
+  // the airports lookup, then dedup by airport keeping the highest-severity
+  // event and accumulating all other events for the tooltip.
+  const wxPoints = useMemo(() => {
+    const SEV_RANK = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 }
+    const byAirport = new Map()
+    for (const w of terminalWx) {
+      const code = w.airport || w.site
+      if (!code) continue
+      // Use existing lat/lon if present, else resolve from airport code.
+      let lat = w.lat, lon = w.lon, resolvedCode = code
+      if (lat == null || lon == null) {
+        const ap = resolveAirport(code)
+        if (!ap) continue
+        lat = ap.lat; lon = ap.lon; resolvedCode = ap.code
+      }
+      const existing = byAirport.get(resolvedCode)
+      const isHigherSev = !existing || (SEV_RANK[w.severity] || 0) > (SEV_RANK[existing.severity] || 0)
+      const events = existing?.events || []
+      if (!events.some(e => e.event_type === w.event_type)) {
+        events.push({ event_type: w.event_type, severity: w.severity, text: w.text, valid_time: w.valid_time })
+      }
+      if (isHigherSev) {
+        byAirport.set(resolvedCode, { ...w, lat, lon, code: resolvedCode, events })
+      } else {
+        existing.events = events
+      }
+    }
+    return Array.from(byAirport.values())
+  }, [terminalWx])
 
   // NOTAM airport markers (field is `location`, may be 3-letter FAA or 4-letter ICAO)
   const notamMarkers = useMemo(() => {
@@ -332,27 +396,44 @@ export default function NasMap({ backendOk, onSelectAirport }) {
     return flights.filter(f => f.lat != null && f.lon != null).slice(0, 800)
   }, [flights, showFlights])
 
+  // Tracked flights — user-pinned flights with trail history
+  const TRACK_COLORS = ['#f0c674', '#b294bb', '#de935f', '#8abeb7', '#81a2be', '#cc6666', '#b5bd68', '#a3685a']
+  const trackedFlights = useMemo(() => {
+    if (!trackedIcaos || trackedIcaos.size === 0) return []
+    const icaoList = [...trackedIcaos]
+    return icaoList.map((icao, idx) => {
+      const f = flights.find(fl => fl.icao === icao)
+      if (!f || f.lat == null || f.lon == null) return null
+      const trail = (trackHistory || {})[icao] || []
+      const trailPositions = trail
+        .filter(p => p.lat != null && p.lon != null)
+        .map(p => [p.lat, p.lon])
+      return { ...f, trail: trailPositions, color: TRACK_COLORS[idx % TRACK_COLORS.length] }
+    }).filter(Boolean)
+  }, [trackedIcaos, flights, trackHistory])
+
   // Counts for toggle buttons
   const gsCount = airports.filter(a => a.hasGS).length
   const gdpCount = airports.filter(a => a.hasGDP).length
 
   return (
-    <div className="bg-bg1">
-      {/* Controls */}
+    <div className={clsx('bg-bg1', compact && 'h-full flex flex-col min-h-0')}>
+      {/* Controls — hidden in compact mode to save vertical space */}
+      {!compact && (
       <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border flex flex-wrap gap-1 justify-between items-center">
         <span className="flex items-center gap-1.5">
           <span>US airspace</span>
-          {gsCount > 0 && <span className="text-red font-bold animate-pulse">GS:{gsCount}</span>}
-          {gdpCount > 0 && <span className="text-ylw font-bold">GDP:{gdpCount}</span>}
+          {gsCount > 0 && <span className="text-red animate-pulse">GS:{gsCount}</span>}
+          {gdpCount > 0 && <span className="text-ylw">GDP:{gdpCount}</span>}
         </span>
         <span className="flex gap-2 items-center flex-wrap">
           {/* Weather group */}
           <span className="flex gap-1 items-center">
             <span className="text-fg3/40 text-[7px] uppercase tracking-wide">wx</span>
             <LayerBtn active={showTfrs} onClick={() => setShowTfrs(v => !v)} color="red" count={tfrPolys.length}>TFRs</LayerBtn>
-            <LayerBtn active={showSigmets} onClick={() => setShowSigmets(v => !v)} color="ylw" count={sigmetPolys.length}>WX</LayerBtn>
+            <LayerBtn active={showSigmets} onClick={() => setShowSigmets(v => !v)} color="ylw" count={sigmetPolys.length}>SIGMETs</LayerBtn>
             <LayerBtn active={showPireps} onClick={() => setShowPireps(v => !v)} color="cyn" count={pirepPoints.length}>PIREPs</LayerBtn>
-            <LayerBtn active={showWxCells} onClick={() => setShowWxCells(v => !v)} color="mag" count={wxPoints.length}>ITWS</LayerBtn>
+            <LayerBtn active={showWxCells} onClick={() => setShowWxCells(v => !v)} color="mag" count={wxPoints.length}>WEATHER</LayerBtn>
           </span>
           {/* Flights group */}
           <span className="flex gap-1 items-center">
@@ -372,8 +453,12 @@ export default function NasMap({ backendOk, onSelectAirport }) {
           </span>
         </span>
       </div>
+      )}
 
-      <div style={{ height: 'min(78vh, 760px)', minHeight: 520 }}>
+      <div
+        className={compact ? 'flex-1 min-h-0' : undefined}
+        style={compact ? undefined : { height: 'min(78vh, 760px)', minHeight: 520 }}
+      >
         <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={true} scrollWheelZoom={false} attributionControl={false}>
           <MapInvalidator />
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
@@ -464,19 +549,19 @@ export default function NasMap({ backendOk, onSelectAirport }) {
             </Marker>
           ))}
 
-          {/* ── Terminal weather (ITWS cells) ─────────────────────────────── */}
+          {/* ── Terminal weather alerts (ITWS) ────────────────────────────── */}
           {showWxCells && wxPoints.map((w, i) => (
-            <CircleMarker key={`wx-${i}`} center={[w.lat, w.lon]} radius={5}
-              pathOptions={{
-                color: w.severity === 'CRITICAL' ? '#ff3333' : '#ffcc00',
-                fillColor: w.severity === 'CRITICAL' ? '#ff3333' : '#ffcc00',
-                fillOpacity: 0.4, weight: 1,
-              }}>
+            <Marker key={`wx-${i}`} position={[w.lat, w.lon]} icon={wxIcon(w.severity, w.event_type)}>
               <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                {w.event_type?.replace(/_/g, ' ')} [{w.severity}]<br />
-                {w.airport || w.site || '—'}: {w.text?.substring(0, 60) || ''}
+                <b>{(w.code || w.airport || w.site || '—').replace(/^K/, '')}</b> — Terminal Weather<br />
+                {(w.events || [{ event_type: w.event_type, severity: w.severity }]).map((e, j) => (
+                  <span key={j} style={{ display: 'block' }}>
+                    <span style={{ color: e.severity === 'CRITICAL' ? '#ff3333' : e.severity === 'HIGH' ? '#ff9933' : e.severity === 'MEDIUM' ? '#ffcc00' : '#888' }}>●</span>
+                    {' '}{e.event_type?.replace(/_/g, ' ')} [{e.severity}]
+                  </span>
+                ))}
               </span></Tooltip>
-            </CircleMarker>
+            </Marker>
           ))}
 
           {/* ── NOTAM markers at airports ──────────────────────���──────────── */}
@@ -557,6 +642,23 @@ export default function NasMap({ backendOk, onSelectAirport }) {
               pathOptions={{ color: '#81a2be', fillColor: '#81a2be', fillOpacity: 0.5, weight: 0 }} />
           ))}
 
+          {/* ── Tracked flights — user-pinned with trail + plane icon ────── */}
+          {trackedFlights.map(f => (
+            <React.Fragment key={`tracked-${f.icao}`}>
+              {f.trail.length >= 2 && (
+                <Polyline positions={f.trail}
+                  pathOptions={{ color: f.color, weight: 2.5, opacity: 0.6, dashArray: '6 4' }} />
+              )}
+              <Marker position={[f.lat, f.lon]} icon={trackedPlaneIcon(f.hdg ?? 0, f.color)}>
+                <Tooltip permanent direction="right" offset={[10, 0]} className="tracked-label">
+                  <span style={{ fontFamily: 'monospace', fontSize: 11, color: f.color, letterSpacing: '0.5px' }}>
+                    {f.callsign || f.icao}
+                  </span>
+                </Tooltip>
+              </Marker>
+            </React.Fragment>
+          ))}
+
           {/* ── Airport markers (always on, top layer) ─────────��─────────── */}
           {airportMarkers.map(a => (
             <CircleMarker key={a.airport} center={[a.lat, a.lon]} radius={airportRadius(a)}
@@ -595,7 +697,7 @@ export default function NasMap({ backendOk, onSelectAirport }) {
                 <div className="text-[9px] text-fg3/50 uppercase mb-1.5 flex items-center gap-2">
                   <span>Weather → Delay Causation</span>
                   {weatherDelays?.predictions?.length > 0 && (
-                    <span className="text-ylw text-[8px] font-bold animate-pulse">{weatherDelays.predictions.length} predicted</span>
+                    <span className="text-ylw text-[8px] animate-pulse">{weatherDelays.predictions.length} predicted</span>
                   )}
                 </div>
 
@@ -604,10 +706,10 @@ export default function NasMap({ backendOk, onSelectAirport }) {
                     <div className="text-[8px] text-ylw/70 uppercase mb-0.5">Predicted delays</div>
                     {weatherDelays.predictions.slice(0, 5).map((p, i) => (
                       <div key={i} className="flex items-center gap-2 text-[9px] py-0.5 border-b border-ylw/10 bg-ylw/3 px-1 rounded mb-0.5">
-                        <span className="text-acc font-bold w-10 shrink-0">{p.airport?.replace(/^K/, '')}</span>
+                        <span className="text-acc w-10 shrink-0">{p.airport?.replace(/^K/, '')}</span>
                         <span className="text-ylw">{p.weatherType?.replace(/_/g, ' ')}</span>
                         <span className="text-fg3">{p.eventCount} events</span>
-                        <span className={`ml-auto font-bold ${p.probability > 0.6 ? 'text-red' : 'text-ylw'}`}>
+                        <span className={`ml-auto ${p.probability > 0.6 ? 'text-red' : 'text-ylw'}`}>
                           {Math.round(p.probability * 100)}%
                         </span>
                       </div>
@@ -620,8 +722,8 @@ export default function NasMap({ backendOk, onSelectAirport }) {
                     <div className="text-[8px] text-fg3/40 uppercase mb-0.5">Active flow programs with weather</div>
                     {weatherDelays.confirmed.filter(c => c.hasWeatherCause).slice(0, 8).map((c, i) => (
                       <div key={i} className="flex items-center gap-2 text-[9px] py-0.5 border-b border-white/3">
-                        <span className={`font-bold w-8 shrink-0 ${c.flowType === 'GS' ? 'text-red' : 'text-ylw'}`}>{c.flowType}</span>
-                        <span className="text-acc font-bold w-10 shrink-0">{c.airport?.replace(/^K/, '')}</span>
+                        <span className={`w-8 shrink-0 ${c.flowType === 'GS' ? 'text-red' : 'text-ylw'}`}>{c.flowType}</span>
+                        <span className="text-acc w-10 shrink-0">{c.airport?.replace(/^K/, '')}</span>
                         <span className="text-fg2">{c.weather[0]?.type?.replace(/_/g, ' ')}{c.weather[0]?.offsetMin ? ` (${c.weather[0].offsetMin}m before)` : ''}</span>
                         {c.delayMin > 0 && <span className="text-fg3/50 ml-auto tabular-nums">{Math.round(c.delayMin)}m</span>}
                       </div>
@@ -648,7 +750,7 @@ export default function NasMap({ backendOk, onSelectAirport }) {
                     const color = load > 100 ? 'bg-red/60' : load > 50 ? 'bg-ylw/60' : 'bg-grn/60'
                     return (
                       <div key={i} className="flex items-center gap-1 text-[9px] py-0.5 px-1 border-b border-white/3">
-                        <span className="text-acc font-bold w-10 shrink-0">{s.artcc}</span>
+                        <span className="text-acc w-10 shrink-0">{s.artcc}</span>
                         <span className="text-fg2 w-12 shrink-0 text-right tabular-nums">{s.total_flights}</span>
                         <span className="text-fg3 w-10 shrink-0 text-right tabular-nums">{s.active_sectors}</span>
                         <div className="flex-1 ml-2 h-2 bg-bg2 rounded-full overflow-hidden">
@@ -663,6 +765,17 @@ export default function NasMap({ backendOk, onSelectAirport }) {
           </div>
         )
       })()}
+
+      {trackedFlights.length > 0 && <style>{`
+        .tracked-label {
+          background: rgba(13,13,13,0.75) !important;
+          border: 1px solid rgba(255,255,255,0.08) !important;
+          box-shadow: none !important;
+          padding: 1px 5px !important;
+          border-radius: 1px !important;
+        }
+        .tracked-label::before { display: none !important; }
+      `}</style>}
     </div>
   )
 }

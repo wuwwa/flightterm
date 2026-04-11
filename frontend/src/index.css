@@ -33,6 +33,13 @@
     zoom: 1.05;
   }
 
+  /* Remove zoom on mobile — every pixel matters at 390px */
+  @media (max-width: 1023px) {
+    html, body, #root {
+      zoom: 1;
+    }
+  }
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -117,6 +124,15 @@
   animation: pulse-border 3s ease-in-out infinite;
 }
 
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+@utility animate-slide-up {
+  animation: slide-up 0.22s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
 /* pulse hover override */
 .animate-pulse-border:hover {
   animation: none;
@@ -144,6 +160,16 @@
 .flight-map-tooltip::before {
   border-top-color: var(--color-border2) !important;
 }
+
+.tracked-flight-label {
+  background: rgba(13,13,13,0.75) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  box-shadow: none !important;
+  padding: 1px 5px !important;
+  border-radius: 1px !important;
+  font-family: var(--font-family-mono) !important;
+}
+.tracked-flight-label::before { display: none !important; }
 
 /* ── leaflet zoom controls ─────────────────────────────────────────────── */
 .leaflet-control-zoom {

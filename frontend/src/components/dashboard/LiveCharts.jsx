@@ -43,9 +43,9 @@ export default function LiveCharts({ flights = [], trackHistory = {} }) {
 
     // Vertical rate bands (fpm)
     const vrBands = [
-      { label: 'descending', min: -Infinity, max: -200,    count: 0, color: 'text-ylw' },
-      { label: 'level',      min: -200,      max: 200,     count: 0, color: 'text-fg2' },
-      { label: 'climbing',   min: 200,       max: Infinity, count: 0, color: 'text-grn' },
+      { label: 'descending', min: -Infinity, max: -200,    count: 0, color: 'text-fg1' },
+      { label: 'level',      min: -200,      max: 200,     count: 0, color: 'text-fg1' },
+      { label: 'climbing',   min: 200,       max: Infinity, count: 0, color: 'text-fg1' },
     ]
     for (const f of flights) {
       if (f.vertRate == null || f.grounded) continue
@@ -85,33 +85,37 @@ export default function LiveCharts({ flights = [], trackHistory = {} }) {
 
   return (
     <div className="bg-bg1">
-      {/* KPIs */}
+      {/* KPIs — single accent color, no rainbow */}
       <div className="grid grid-cols-4 gap-px bg-border">
-        <KPI label="Tracked"         value={dist.total.toLocaleString()}     color="text-acc" />
-        <KPI label="Airborne"        value={dist.airborne.toLocaleString()}  color="text-grn" />
-        <KPI label="With Flight Plan" value={dist.withTfms.toLocaleString()} color="text-cyn" />
-        <KPI label="Avg Altitude"    value={`FL${Math.round(dist.avgAlt / 100)}`} color="text-ylw" />
+        <KPI label="Tracked"          value={dist.total.toLocaleString()}     color="text-acc" />
+        <KPI label="Airborne"         value={dist.airborne.toLocaleString()}  color="text-acc" />
+        <KPI label="With Flight Plan" value={dist.withTfms.toLocaleString()}  color="text-acc" />
+        <KPI label="Avg Altitude"     value={`FL${Math.round(dist.avgAlt / 100)}`} color="text-acc" />
       </div>
 
-      {/* Stats grid: phase / altitude / speed / vertical rate */}
+      {/* Stats grid: phase / altitude / speed / vertical rate.
+          All values share the foreground color — no per-row coloring. The
+          previous palette (green/cyan/yellow/magenta) implied a value
+          hierarchy that doesn't exist (climb is not "good", descent is not
+          "bad"). Empty rows fade to fg3 via StatRow's `empty` branch. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border border-t border-border">
         <StatColumn title="Phase">
-          <StatRow label="Climb"    value={dist.phases.Climb}    color="text-grn" />
-          <StatRow label="Cruise"   value={dist.phases.Cruise}   color="text-cyn" />
-          <StatRow label="Descent"  value={dist.phases.Descent}  color="text-ylw" />
-          <StatRow label="Approach" value={dist.phases.Approach} color="text-mag" />
-          <StatRow label="Ground"   value={dist.phases.Ground}   color="text-fg3" />
+          <StatRow label="Climb"    value={dist.phases.Climb}    color="text-fg1" />
+          <StatRow label="Cruise"   value={dist.phases.Cruise}   color="text-fg1" />
+          <StatRow label="Descent"  value={dist.phases.Descent}  color="text-fg1" />
+          <StatRow label="Approach" value={dist.phases.Approach} color="text-fg1" />
+          <StatRow label="Ground"   value={dist.phases.Ground}   color="text-fg1" />
         </StatColumn>
 
         <StatColumn title={`Altitude (${dist.airborne} airborne)`}>
           {dist.altBands.map(b => (
-            <StatRow key={b.label} label={b.label} value={b.count} color="text-fg2" />
+            <StatRow key={b.label} label={b.label} value={b.count} color="text-fg1" />
           ))}
         </StatColumn>
 
         <StatColumn title="Speed (kt)">
           {dist.spdBands.map(b => (
-            <StatRow key={b.label} label={b.label} value={b.count} color="text-fg2" />
+            <StatRow key={b.label} label={b.label} value={b.count} color="text-fg1" />
           ))}
         </StatColumn>
 
@@ -132,7 +136,7 @@ export default function LiveCharts({ flights = [], trackHistory = {} }) {
             {dist.topRoutes.map(r => (
               <div key={r.route} className="flex items-baseline justify-between text-[9px] tabular-nums border-b border-white/3 py-0.5">
                 <span className="text-fg2 truncate">{r.route}</span>
-                <span className="text-mag font-bold ml-2">{r.count}</span>
+                <span className="text-acc font-bold ml-2">{r.count}</span>
               </div>
             ))}
           </div>

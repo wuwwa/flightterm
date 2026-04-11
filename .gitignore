@@ -13,6 +13,10 @@ backend/*.db
 backend/*.db-wal
 backend/*.db-shm
 
+# Playwright MCP artifacts
+.playwright-mcp/
+*.png
+
 # OS
 .DS_Store
 Thumbs.db

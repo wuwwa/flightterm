@@ -35,6 +35,12 @@ const REGIONS = {
   atlantic: { bbox: { lamin: 10,  lomin: -70,  lamax: 60,   lomax: -10 } },
 }
 
+// ── Anomaly detection kill switch ────────────────────────────────────────────
+// The app is now used purely as a dashboard. Anomaly detection is the heaviest
+// per-cycle workload (sync DB lookups + scoring per flight + sightings writes).
+// Default OFF; set ANOMALY_DETECTION_ENABLED=true to re-enable.
+const ANOMALY_DETECTION_ENABLED = process.env.ANOMALY_DETECTION_ENABLED === 'true'
+
 // ── In-memory state ──────────────────────────────────────────────────────────
 
 const trackHistory = new Map()     // icao → snapshot[]
@@ -635,20 +641,40 @@ async function pollCycle() {
   latestFlights = flights
   lastFetchAt = Date.now()
 
-  // Persist sightings to DB (populates dashboard stats, heatmap, activity)
-  try {
-    db.recordSightings(flights, 'opensky', region)
-  } catch (err) {
-    console.error('poller: sightings record error:', err.message)
+  // Persist sightings to DB only when anomaly detection is on. Sightings are
+  // the input to anomaly history; without scoring, they're write-only data.
+  if (ANOMALY_DETECTION_ENABLED) {
+    try {
+      await db.recordSightingsChunked(flights, 'opensky', region)
+    } catch (err) {
+      console.error('poller: sightings record error:', err.message)
+    }
   }
 
   // 2a. Enrich ALL flights with TFMS + flightroute data first (cheap DB lookups,
-  //     no HTTP). This ensures every flight in getFlights() has its TFMS/route
-  //     data available, not just flights with enough history to be scored for
-  //     anomalies. Without this, the flight table's "route" column would only
-  //     populate for the small subset of flights that already had anomaly history.
-  for (const f of flights) {
-    buildEnrichment(f)
+  //     no HTTP). The dashboard's flight list reads from enrichCache so this
+  //     is needed even when anomaly detection is off. Chunked with setImmediate
+  //     yields so that 7000+ DB lookups don't block the event loop in one shot.
+  const ENRICH_CHUNK = 500
+  for (let i = 0; i < flights.length; i += ENRICH_CHUNK) {
+    const slice = flights.slice(i, i + ENRICH_CHUNK)
+    for (const f of slice) buildEnrichment(f)
+    if (i + ENRICH_CHUNK < flights.length) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+  }
+
+  // When anomaly detection is off, the dashboard has everything it needs
+  // (latestFlights + enrichCache + the kicked-off background HTTP enrichment).
+  // Skip scoring, persistence gating, history tracking, weather context,
+  // anomaly resolution, and recordAnomalies — all anomaly-only work.
+  if (!ANOMALY_DETECTION_ENABLED) {
+    // Background enrichment still runs — it's async + non-blocking and feeds
+    // the dashboard's flight detail panels with adsbdb metadata.
+    enrichAircraftBackground(flights).catch((err) =>
+      console.warn('poller: background enrichment error:', err.message)
+    )
+    return
   }
 
   // 2b. Score each aircraft BEFORE updating history.
@@ -934,26 +960,26 @@ function start() {
   if (running) return
   running = true
 
-  console.log(`poller: starting (interval: ${POLL_INTERVAL / 1000}s, region: ${process.env.POLL_REGION || 'usa'}, keys: ${OS_KEY_SLOTS.length})`)
+  console.log(`poller: starting (interval: ${POLL_INTERVAL / 1000}s, region: ${process.env.POLL_REGION || 'usa'}, keys: ${OS_KEY_SLOTS.length}, anomaly: ${ANOMALY_DETECTION_ENABLED ? 'on' : 'off'})`)
   for (let i = 0; i < OS_KEY_SLOTS.length; i++) {
     console.log(`poller:   key ${i + 1}: ${OS_KEY_SLOTS[i].id.substring(0, 12)}...`)
   }
 
-  // Load route baselines on start
-  refreshBaselines()
-
-  // Rebuild baselines every 6 hours (non-blocking)
-  baselineTimer = setInterval(() => {
-    try {
-      const count = db.buildRouteBaselines()
-      if (count > 0) {
-        console.log(`poller: rebuilt ${count} route baselines`)
-        refreshBaselines()
+  // Route baselines and rebuilds are only used by anomaly scoring. Skip when off.
+  if (ANOMALY_DETECTION_ENABLED) {
+    refreshBaselines()
+    baselineTimer = setInterval(() => {
+      try {
+        const count = db.buildRouteBaselines()
+        if (count > 0) {
+          console.log(`poller: rebuilt ${count} route baselines`)
+          refreshBaselines()
+        }
+      } catch (err) {
+        console.warn('poller: baseline rebuild failed:', err.message)
       }
-    } catch (err) {
-      console.warn('poller: baseline rebuild failed:', err.message)
-    }
-  }, 6 * 60 * 60 * 1000)
+    }, 6 * 60 * 60 * 1000)
+  }
 
   // Run first cycle immediately, then on interval
   pollCycle().catch(err => console.error('poller: cycle error:', err.message))
@@ -975,7 +1001,10 @@ function getStatus() {
     running,
     interval: POLL_INTERVAL,
     region: process.env.POLL_REGION || 'usa',
-    trackedAircraft: trackHistory.size,
+    // When anomaly detection is off we don't maintain trackHistory, so report
+    // the latest flight count instead — the readiness check just wants proof
+    // that the poller has completed at least one cycle.
+    trackedAircraft: trackHistory.size > 0 ? trackHistory.size : latestFlights.length,
     activeAnomalies: activeAnomalies.size,
     pendingMisses: anomalyMisses.size,
   }

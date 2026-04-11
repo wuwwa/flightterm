@@ -82,8 +82,9 @@ function srcIndicator(f, enrichCache) {
   return parts.join('') || '—'
 }
 
-export default function FlightTable({ flights, filter, selectedIcao, enrichCache, anomalies = {}, trackHistory = {}, openskyUsage, aeroSpend, onSelect, onArrived, onDeparted }) {
-  const PAGE_SIZE = 50
+export default function FlightTable({ flights, filter, selectedIcao, enrichCache, anomalies = {}, trackHistory = {}, openskyUsage, aeroSpend, trackedIcaos, onToggleTrack, onSelect, onArrived, onDeparted }) {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 580
+  const PAGE_SIZE = isMobile ? 25 : 50
   const [sortKey, setSortKey] = useState('takeoff')
   const [sortDir, setSortDir] = useState(1)
   const [page, setPage] = useState(0)
@@ -278,11 +279,11 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
         <div className="flex flex-wrap justify-between items-center py-0.5 px-1.5 sm:px-2.5 gap-y-0.5">
           <span className="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink-0">
             <span className="flex items-baseline gap-1">
-              <span className="text-fg2 font-bold tabular-nums text-[13px]">{filtered.length.toLocaleString()}</span>
+              <span className="text-fg tabular-nums text-[13px]">{filtered.length.toLocaleString()}</span>
               <span className="text-fg3 text-[9px] uppercase tracking-wide">records</span>
             </span>
             {isFiltersActive(filters) && (
-              <span className="bg-acc/15 text-acc text-[8px] font-bold uppercase px-1 py-px rounded border border-acc/30">filtered</span>
+              <span className="bg-acc/15 text-acc text-[8px] uppercase px-1 py-px rounded border border-acc/30">filtered</span>
             )}
             {!showAll && totalPages > 1 && (
               <span className="flex items-center gap-0.5">
@@ -311,7 +312,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                 {showAll ? `page (${PAGE_SIZE})` : `show all`}
               </button>
             )}
-            {newIcaos.size > 0 && <span className="bg-grn/15 text-grn text-[8px] font-bold uppercase px-1 py-px rounded border border-grn/30 ml-1">+{newIcaos.size} new</span>}
+            {newIcaos.size > 0 && <span className="bg-grn/15 text-grn text-[8px] uppercase px-1 py-px rounded border border-grn/30 ml-1">+{newIcaos.size} new</span>}
           </span>
           <div className="flex gap-1 items-center w-full sm:w-auto">
             <button
@@ -356,7 +357,91 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
           </div>
         )}
       </div>
-      <div className="overflow-auto flex-1 min-h-0">
+      {/* ── Mobile card list (< sm) — 2-line rows with all key data ────────── */}
+      <div className="overflow-auto flex-1 min-h-0 sm:hidden">
+        {displayed.length === 0 && (
+          <div className="text-center py-8 text-fg3 text-[11px]">
+            {isFiltersActive(filters) ? 'no flights match current filters' : 'waiting for poller — first data arrives in ~45s'}
+          </div>
+        )}
+        {displayed.map(f => {
+          const isSel = f.icao === selectedIcao
+          const enrich = enrichCache[f.icao]
+          const isNew = newIcaos.has(f.icao)
+          const anomaly = anomalies[f.icao]
+          const hist = trackHistory[f.icao]
+          const phase = hist?.length >= 2 ? detectPhase(hist) : (f.grounded ? PHASE.GROUND : PHASE.UNKNOWN)
+          const acType = enrich?.adsbfi?.type || enrich?.aircraft?.icao_type || f.acType || null
+          const vr = f.vertRate != null ? Math.round(f.vertRate * 196.85) : (enrich?.adsbfi?.baroRate ?? null)
+          const altFt = f.alt != null ? Math.round(f.alt * 3.281) : null
+          const spdKt = f.vel != null ? Math.round(f.vel * 1.944) : null
+          const route = f.tfms?.dep_arpt && f.tfms?.arr_arpt
+            ? `${f.tfms.dep_arpt.replace(/^K/, '')}→${f.tfms.arr_arpt.replace(/^K/, '')}`
+            : enrich?.flightroute?.origin?.icao_code && enrich?.flightroute?.destination?.icao_code
+              ? `${enrich.flightroute.origin.icao_code.replace(/^K/, '')}→${enrich.flightroute.destination.icao_code.replace(/^K/, '')}`
+              : null
+          return (
+            <div
+              key={f.icao + f.callsign}
+              className={clsx(
+                'px-2 py-1 border-b cursor-pointer active:bg-bg2',
+                anomaly
+                  ? 'bg-red/8 border-b-red/20 border-l-2 border-l-red'
+                  : isNew
+                    ? 'animate-row-arrive border-white/3'
+                    : isSel
+                      ? 'bg-acc/8 border-l-2 border-l-acc border-white/3'
+                      : 'border-white/3'
+              )}
+              onClick={() => onSelect(f)}
+            >
+              {/* Single-line dense row: callsign type route | alt spd v/r phase */}
+              <div className="flex items-baseline gap-1 text-[9px] tabular-nums">
+                {anomaly && <span className="text-red">{anomaly.confirmed ? '!!' : '!'}</span>}
+                <span className="text-ylw text-[10px]">{f.callsign}</span>
+                {f.mil && <span className="text-red text-[7px]">mil</span>}
+                {acType && <span className="text-fg3">{acType}</span>}
+                {route && <span className="text-fg3/60">{route}</span>}
+                {squawkLabel(f.squawk) && <span className={clsx('text-[7px]', squawkColor(f.squawk))}>{squawkLabel(f.squawk)}</span>}
+                <span className="flex-1" />
+                <span className={f.grounded ? 'text-ylw' : 'text-cyn'}>{altFt != null ? altFt.toLocaleString() : ''}</span>
+                <span className="text-fg2">{spdKt ?? ''}</span>
+                {vr != null && <span className={clsx(Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg3')}>{vr > 0 ? '+' : ''}{vr}</span>}
+                <span className={clsx('font-bold', PHASE_COLOR[phase])}>{PHASE_LABEL[phase]}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* ── Tracked flights strip ──────────────────────────────────────────── */}
+      {trackedIcaos?.size > 0 && (
+        <div className="shrink-0 bg-bg2/50 border-b border-ylw/10 px-2.5 py-1 hidden sm:flex items-center gap-3 text-[10px]">
+          <span className="text-fg3/50 text-[9px] uppercase tracking-wide">tracking</span>
+          {[...trackedIcaos].map(icao => {
+            const f = flights.find(fl => fl.icao === icao)
+            if (!f) return null
+            return (
+              <span key={icao} className="flex items-center gap-1.5">
+                <span className="text-ylw">◆</span>
+                <span className="text-ylw tabular-nums">{f.callsign || icao}</span>
+                {f.tfms?.dep_arpt && f.tfms?.arr_arpt && (
+                  <span className="text-fg3/40">{f.tfms.dep_arpt.replace(/^K/, '')}→{f.tfms.arr_arpt.replace(/^K/, '')}</span>
+                )}
+                <span
+                  className="text-fg3/30 hover:text-fg3 cursor-pointer text-[9px]"
+                  onClick={() => onToggleTrack?.(icao)}
+                  title="Remove from tracking"
+                >✕</span>
+              </span>
+            )
+          })}
+          <span className="text-fg3/20 ml-auto text-[9px]">visible on map below</span>
+        </div>
+      )}
+
+      {/* ── Desktop table (≥ sm) — standard 8-column layout ──────────────── */}
+      <div className="overflow-auto flex-1 min-h-0 hidden sm:block">
       <table className="w-full border-separate border-spacing-0">
         <thead className="sticky top-0 z-1">
           <tr>
@@ -366,9 +451,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                 <th
                   key={col.key}
                   className={clsx(
-                    'group py-0.5 px-1.5 sm:px-2.5 text-left font-normal text-[10px] sm:text-[11px] cursor-pointer select-none whitespace-nowrap font-mono bg-bg2 border-b border-border',
-                    col.hide && 'hidden sm:table-cell',
-                    col.hideMobile && 'hidden sm:table-cell',
+                    'group py-0.5 px-2.5 text-left font-normal text-[11px] cursor-pointer select-none whitespace-nowrap font-mono bg-bg2 border-b border-border',
                     isActive ? 'text-acc' : 'text-fg3 hover:text-fg2'
                   )}
                   onClick={() => handleSort(col.key)}
@@ -403,7 +486,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
             const phase = hist?.length >= 2 ? detectPhase(hist) : (f.grounded ? PHASE.GROUND : PHASE.UNKNOWN)
             const acType = enrich?.adsbfi?.type || enrich?.aircraft?.icao_type || f.acType || null
             const acReg = enrich?.adsbfi?.reg || enrich?.aircraft?.registration || f.acReg || null
-            const vr = f.vertRate != null ? Math.round(f.vertRate * 196.85) : (enrich?.adsbfi?.baroRate ?? null) // m/s → ft/min
+            const vr = f.vertRate != null ? Math.round(f.vertRate * 196.85) : (enrich?.adsbfi?.baroRate ?? null)
             const cat = f.category || enrich?.adsbfi?.category || enrich?.apl?.category || null
             return (
               <tr
@@ -412,19 +495,32 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                   'border-b cursor-pointer',
                   anomaly
                     ? 'bg-red/8 border-b-red/20 border-l-2 border-l-red'
-                    : isNew
-                      ? 'animate-row-arrive border-white/3'
-                      : isSel
-                        ? 'bg-acc/8 border-l-2 border-l-acc border-white/3'
-                        : 'hover:bg-bg2 border-white/3'
+                    : trackedIcaos?.has(f.icao)
+                      ? 'border-l border-l-ylw/30 border-white/3'
+                      : isNew
+                        ? 'animate-row-arrive border-white/3'
+                        : isSel
+                          ? 'bg-acc/8 border-l-2 border-l-acc border-white/3'
+                          : 'hover:bg-bg2 border-white/3'
                 )}
                 onClick={() => onSelect(f)}
               >
-                {/* icao24 + anomaly indicator + squawk badge if non-standard */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 tabular-nums">
+                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg3 tabular-nums">
+                  {onToggleTrack && (
+                    <span
+                      className={clsx(
+                        'mr-1.5 cursor-pointer inline-block text-[11px]',
+                        trackedIcaos?.has(f.icao) ? 'text-ylw' : 'text-fg3/40 hover:text-fg3'
+                      )}
+                      title={trackedIcaos?.has(f.icao) ? 'Untrack from map' : 'Track on map'}
+                      onClick={(e) => { e.stopPropagation(); onToggleTrack(f.icao) }}
+                    >
+                      {trackedIcaos?.has(f.icao) ? '◆' : '◇'}
+                    </span>
+                  )}
                   {anomaly && (
                     <span
-                      className={clsx('mr-1', anomaly.confirmed ? 'text-red font-bold' : 'text-red')}
+                      className="mr-1 text-red"
                       title={`[${anomaly.score}] ${anomaly.phase} — ${anomaly.reasons.join('; ')}`}
                     >
                       {anomaly.confirmed ? '!!' : '!'}
@@ -437,17 +533,15 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                     </span>
                   )}
                 </td>
-                {/* callsign + operator (folded into tooltip) */}
                 <td
-                  className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-ylw"
+                  className="py-0.5 px-2.5 whitespace-nowrap text-xs text-ylw"
                   title={[f.acOperator, acReg, f.country].filter(Boolean).join(' · ')}
                 >
                   {f.callsign}
                   {f.mil && <span className="text-red text-[9px] ml-1">[mil]</span>}
                 </td>
-                {/* type · ctry — type if known, country fallback */}
                 <td
-                  className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg3 hidden sm:table-cell"
+                  className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg3"
                   title={[f.acDesc || acType, cat ? CAT_LABEL[cat?.toUpperCase()] || cat : null, f.country].filter(Boolean).join(' · ')}
                 >
                   {acType ? (
@@ -459,8 +553,7 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                     <span className="text-fg3/40">{shortCountry(f.country) || '—'}</span>
                   )}
                 </td>
-                {/* route — DEP→ARR · ETA · deviation, all in one cell when TFMS data exists */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell tabular-nums" title={f.tfms?.route || ''}>
+                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs tabular-nums" title={f.tfms?.route || ''}>
                   {f.tfms?.dep_arpt && f.tfms?.arr_arpt ? (
                     <span>
                       <span className="text-fg2">{f.tfms.dep_arpt.replace(/^K/, '')}</span>
@@ -485,23 +578,19 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
                     </span>
                   ) : null}
                 </td>
-                {/* altitude in feet */}
-                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs tabular-nums', f.grounded ? 'text-ylw' : 'text-cyn')}>
+                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs tabular-nums', f.grounded ? 'text-ylw' : 'text-cyn')}>
                   {f.alt != null ? Math.round(f.alt * 3.281).toLocaleString() : ''}
                 </td>
-                {/* speed in knots */}
-                <td className="py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs text-fg2 tabular-nums">
+                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg2 tabular-nums">
                   {f.vel != null ? Math.round(f.vel * 1.944) : ''}
                 </td>
-                {/* vertical rate in ft/min */}
-                <td className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs hidden sm:table-cell tabular-nums',
+                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs tabular-nums',
                   vr == null ? 'text-fg3/40' : Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg3'
                 )}>
                   {vr != null ? `${vr > 0 ? '+' : ''}${vr}` : ''}
                 </td>
-                {/* phase + heading on hover via tooltip */}
                 <td
-                  className={clsx('py-0.5 px-1.5 sm:px-2.5 whitespace-nowrap text-[10px] sm:text-xs font-bold', PHASE_COLOR[phase])}
+                  className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs', PHASE_COLOR[phase])}
                   title={f.hdg != null ? `heading ${f.hdg}°` : ''}
                 >
                   {PHASE_LABEL[phase]}

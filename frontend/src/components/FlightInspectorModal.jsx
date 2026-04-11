@@ -5,10 +5,12 @@ import { squawkLabel, squawkColor } from '../utils/squawk'
 import TrackChart from './TrackChart'
 import FlightMap from './FlightMap'
 
-// ── FlightInspectorModal ─────────────────────────────────────────────────────
-// A full-screen modal that replaces the old vertical sidebar. Shows the flight
-// map prominently on the left and the data fields as a grid of compact tiles
-// on the right — instead of one tall vertical scroll of key/value pairs.
+// ── FlightInspectorPanel (file kept as ...Modal.jsx for import stability) ───
+// Inline panel mounted next to the FlightTable in the main page grid. No
+// overlay, no backdrop, no rounded card. The container in App.jsx supplies
+// the size; this component just fills it. Layout stacks vertically because
+// the panel is narrower than the old modal — map on top, sparklines, then
+// the data tile grid (1 col on narrow, 2 col when wide enough).
 
 function fmtTime(s) {
   if (!s) return '—'
@@ -30,7 +32,7 @@ function Row({ label, value, color = 'text-fg2', mono = true }) {
 function Tile({ title, accent, children, className }) {
   return (
     <div className={clsx('bg-bg2/40 border border-border rounded p-2 flex flex-col min-h-0', className)}>
-      <div className={clsx('text-[9px] font-bold uppercase tracking-wide mb-1 pb-1 border-b border-border', accent || 'text-fg2')}>
+      <div className={clsx('text-[9px] uppercase tracking-wide mb-1 pb-1 border-b border-border', accent || 'text-fg2')}>
         {title}
       </div>
       <div className="flex-1 min-h-0">
@@ -48,6 +50,8 @@ export default function FlightInspectorModal({
   aeroSpend,
   userAeroKey,
   trackHistory,
+  trackedIcaos,
+  allTrackHistory,
   onClose,
   onAeroFetched,
   backendOk,
@@ -102,53 +106,56 @@ export default function FlightInspectorModal({
   const vr = flight.vertRate != null ? Math.round(flight.vertRate * 196.85) : (adsbfi?.baroRate ?? null)
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70" />
+    <div className="h-full flex flex-col bg-bg1 min-h-0">
+      {/* ── Header strip ─────────────────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 px-2.5 py-1 lg:py-0.5 bg-bg2 border-b border-border shrink-0">
+        <button
+          onClick={onClose}
+          className="text-fg3 hover:text-fg shrink-0 cursor-pointer pr-1"
+          title="close inspector (esc)"
+        >
+          <span className="lg:hidden text-[16px] leading-none">‹ back</span>
+          <span className="hidden lg:inline text-[11px]">✕</span>
+        </button>
+        <span className="lg:hidden text-border2">|</span>
+        <span className="text-ylw text-[11px] tabular-nums">{flight.callsign}</span>
+        {flight.mil && <span className="text-red text-[9px] uppercase">MIL</span>}
+        {headerRoute && (
+          <span className="text-fg2 text-[11px] tabular-nums">{headerRoute}</span>
+        )}
+        {tfms?.eta && (
+          <span className="text-fg3 text-[10px] tabular-nums hidden sm:inline">eta {fmtTime(tfms.eta)}</span>
+        )}
+        <span className="text-fg3/40 text-[9px] tracking-wide hidden sm:inline">{flight.icao}</span>
+        <span className={clsx('text-[9px] ml-auto', srcTag.color)}>{srcTag.label}</span>
+      </div>
 
-      <div
-        className="relative bg-bg1 border border-border rounded-lg shadow-2xl w-[95vw] max-w-6xl max-h-[90vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* ── Header strip ─────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3 px-3 py-2 bg-bg2 border-b border-border rounded-t-lg shrink-0">
-          <span className="text-acc font-bold text-[11px] uppercase tracking-wide">aircraft intel</span>
-          <span className="text-ylw font-bold text-[14px] tabular-nums">{flight.callsign}</span>
-          {flight.mil && <span className="bg-red/15 text-red text-[9px] font-bold uppercase px-1.5 py-px rounded border border-red/30">MIL</span>}
-          {headerRoute && (
-            <span className="text-fg2 text-[11px] tabular-nums">{headerRoute}</span>
-          )}
-          {tfms?.eta && (
-            <span className="text-fg3 text-[10px] tabular-nums">eta {fmtTime(tfms.eta)}</span>
-          )}
-          <span className="text-fg3/40 text-[9px] uppercase tracking-wide">{flight.icao}</span>
-          <span className={clsx('text-[9px] font-bold uppercase ml-auto', srcTag.color)}>{srcTag.label}</span>
-          <button onClick={onClose} className="text-fg3 hover:text-fg text-sm px-2 cursor-pointer">✕</button>
+      {/* ── Main: scrollable single column. Map → sparklines → tiles. ── */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {/* Map — taller on mobile since it's full-screen */}
+        <div className="relative h-48 lg:h-60">
+          <FlightMap
+            snapshots={trackHistory || []}
+            flight={flight}
+            flights={flights}
+            trackedIcaos={trackedIcaos}
+            allTrackHistory={allTrackHistory}
+            fullscreen={false}
+            onToggleFullscreen={() => {}}
+            fill
+          />
         </div>
 
-        {/* ── Main: map (left) + data tile grid (right) ────────────────── */}
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-px bg-border overflow-hidden">
-
-          {/* LEFT: map + track sparklines */}
-          <div className="bg-bg1 flex flex-col min-h-0">
-            <div className="flex-1 min-h-0 relative" style={{ minHeight: 280 }}>
-              <FlightMap
-                snapshots={trackHistory || []}
-                flight={flight}
-                flights={flights}
-                fullscreen={false}
-                onToggleFullscreen={() => {}}
-              />
-            </div>
-            {trackHistory?.length > 1 && (
-              <div className="border-t border-border shrink-0">
-                <TrackChart snapshots={trackHistory} />
-              </div>
-            )}
+        {/* Track sparklines */}
+        {trackHistory?.length > 1 && (
+          <div className="border-t border-border">
+            <TrackChart snapshots={trackHistory} />
           </div>
+        )}
 
-          {/* RIGHT: 2x2 grid of data tiles */}
-          <div className="bg-bg overflow-y-auto p-2">
-            <div className="grid grid-cols-2 gap-2 auto-rows-min">
+        {/* Data tiles — 1 column on narrow, 2 columns when there's room */}
+        <div className="border-t border-border p-2">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 auto-rows-min">
 
               {/* AIRCRAFT */}
               <Tile title="Aircraft" accent="text-acc">
@@ -223,9 +230,9 @@ export default function FlightInspectorModal({
                 )}
               </Tile>
 
-              {/* AEROAPI section — spans 2 columns when data is loaded */}
+              {/* AEROAPI section — spans both columns when data is loaded */}
               {aeroData ? (
-                <Tile title="FlightAware AeroAPI" accent="text-mag" className="col-span-2">
+                <Tile title="FlightAware AeroAPI" accent="text-mag" className="xl:col-span-2">
                   <div className="grid grid-cols-2 gap-x-3 gap-y-0">
                     <Row label="ident" value={aeroData.ident} color="text-ylw" />
                     <Row label="status" value={aeroData.status}
@@ -250,7 +257,7 @@ export default function FlightInspectorModal({
                   )}
                 </Tile>
               ) : (
-                <div className="col-span-2">
+                <div className="xl:col-span-2">
                   <button
                     className={clsx(
                       'w-full bg-bg2/40 border border-border hover:border-acc text-acc text-[11px] py-1.5 px-3 rounded cursor-pointer text-left font-mono flex justify-between items-center transition-colors',
@@ -265,27 +272,26 @@ export default function FlightInspectorModal({
                   {aeroError && <div className="text-red text-[9px] mt-1 px-1">{aeroError}</div>}
                 </div>
               )}
-            </div>
-
-            {/* Aircraft photo if available */}
-            {aircraft?.url_photo_thumbnail && (
-              <div className="mt-2">
-                <img
-                  className="w-full block max-h-40 object-cover rounded border border-border filter-[saturate(0.5)_brightness(0.85)]"
-                  src={aircraft.url_photo_thumbnail}
-                  alt=""
-                  onError={(e) => { e.currentTarget.style.display = 'none' }}
-                />
-              </div>
-            )}
           </div>
-        </div>
 
-        {/* ── Footer hint ─────────────────────────────────────────────── */}
-        <div className="px-3 py-1 bg-bg2 border-t border-border rounded-b-lg shrink-0 text-[8px] text-fg3/60 flex justify-between">
-          <span>esc to close</span>
-          {!backendOk && <span className="text-red">backend offline</span>}
+          {/* Aircraft photo if available */}
+          {aircraft?.url_photo_thumbnail && (
+            <div className="mt-2">
+              <img
+                className="w-full block max-h-40 object-cover rounded border border-border filter-[saturate(0.5)_brightness(0.85)]"
+                src={aircraft.url_photo_thumbnail}
+                alt=""
+                onError={(e) => { e.currentTarget.style.display = 'none' }}
+              />
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* ── Footer hint ─────────────────────────────────────────────── */}
+      <div className="px-3 py-1 bg-bg2 border-t border-border shrink-0 text-[8px] text-fg3/60 flex justify-between">
+        <span>esc to close</span>
+        {!backendOk && <span className="text-red">backend offline</span>}
       </div>
     </div>
   )

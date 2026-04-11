@@ -58,7 +58,7 @@ export function SwimProvider({ backendOk, children }) {
     if (!backendOk) return
     const results = await Promise.allSettled([
       axios.get('/api/swim/airports'),
-      axios.get('/api/swim/notams/airports', { params: { limit: 12 } }),
+      axios.get('/api/swim/notams/airports', { params: { limit: 30 } }),
     ])
     const arr = (i) => { const v = results[i].status === 'fulfilled' ? results[i].value.data : null; return Array.isArray(v) ? v : [] }
     setAirportConfigs(arr(0))

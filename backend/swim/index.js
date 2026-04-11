@@ -10,7 +10,10 @@ const axios = require('axios')
 const db = require('../db')
 
 const WORKER_URL = process.env.SWIM_WORKER_URL || 'http://flightterm-swim.internal:3002'
-const POLL_INTERVAL = 5000
+// Polling interval bumped from 5s → 15s. Snapshots are bulky and we don't need
+// real-time updates for ephemeral feeds; the lower frequency gives the main
+// event loop more headroom and reduces JSON parse + persist overhead 3x.
+const POLL_INTERVAL = 15000
 
 // ── Snapshot data (updated every 2s from worker) ───────────────────────────
 let _sfdps = []
@@ -43,10 +46,13 @@ async function pollWorker() {
       _connected = true
       console.log('swim: connected to worker service')
     }
-    // Persist SFDPS positions + sector counts (every other poll = ~10s)
+    // Persist SFDPS positions + sector counts via the in-process SWIM queue so
+    // the SQLite writes drain on setImmediate ticks instead of blocking the
+    // poll handler. Every other poll (~30s) is plenty for trail/sector data.
     if (_sfdps.length > 0 && ++_positionPersistCount % 2 === 0) {
-      try { db.persistFlightPositions(_sfdps) } catch {}
-      try { db.persistSectorCounts(_sfdps) } catch {}
+      const main = require('../index')
+      main.enqueueSwim('positions', { snapshot: _sfdps })
+      main.enqueueSwim('sectors', { snapshot: _sfdps })
     }
   } catch {
     if (_connected) {
@@ -94,6 +100,10 @@ function getStatus() {
   try { status.tfms = db.getTfmsStats() } catch { status.tfms = null }
   status.terminalWeather = _weatherStats
   status.surface = _surfaceStats
+
+  // Ingest queue depth/drops/throughput from the in-process drain in index.js
+  const main = require('../index')
+  status.ingestQueue = main.getSwimQueueStats()
 
   return status
 }

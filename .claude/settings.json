@@ -24,7 +24,13 @@
       "Bash(fly apps:*)",
       "Bash(fly volumes:*)",
       "Bash(fly config:*)",
-      "mcp__playwright__browser_navigate"
+      "mcp__playwright__browser_navigate",
+      "Bash(fly logs:*)",
+      "Bash(fly status:*)",
+      "Bash(node -c backend/index.js)",
+      "Bash(node -c backend/db.js)",
+      "Bash(node -c backend/poller.js)",
+      "Bash(node -c backend/swim/index.js)"
     ],
     "additionalDirectories": [
       "c:\\Users\\wilso\\.claude\\projects\\c--Users-wilso-Documents-Flight-flightterm\\memory"

@@ -90,17 +90,7 @@ function Sparkline({ data, times, color, label, unit, convFn, anomalyIndices, no
         <line x1={padX} y1={H - padY} x2={W - padX} y2={H - padY} stroke="var(--color-border)" strokeWidth="0.5" />
         <line x1={padX} y1={H / 2} x2={W - padX} y2={H / 2} stroke="var(--color-border)" strokeWidth="0.5" strokeDasharray="2,3" />
 
-        {/* Gradient fill under line */}
-        <defs>
-          <linearGradient id={`grad-${label}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={`var(--color-${color.replace('text-', '')})`} stopOpacity="0.15" />
-            <stop offset="100%" stopColor={`var(--color-${color.replace('text-', '')})`} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d={`${pathD} L${points[points.length - 1].x.toFixed(1)},${H - padY} L${points[0].x.toFixed(1)},${H - padY} Z`}
-          fill={`url(#grad-${label})`} />
-
-        {/* Main line */}
+        {/* Main line — no area fill, just the stroke */}
         <path d={pathD} fill="none" stroke={`var(--color-${color.replace('text-', '')})`} strokeWidth="1.5" strokeLinejoin="round" />
 
         {/* Anomaly markers */}
@@ -163,7 +153,7 @@ export default function TrackChart({ snapshots }) {
       {/* Status bar */}
       <div className="px-2.5 py-1 flex items-center gap-3 text-[9px] border-b border-white/5">
         <span className="text-fg3">Phase:</span>
-        <span className={clsx('font-bold', PHASE_COLOR[phase])}>{PHASE_LABEL[phase]}</span>
+        <span className={PHASE_COLOR[phase]}>{PHASE_LABEL[phase]}</span>
         {altFt != null && <span className="text-cyn tabular-nums">{altFt.toLocaleString()}ft</span>}
         {spdKt != null && <span className="text-acc tabular-nums">{spdKt}kt</span>}
         {vrateFpm != null && (
@@ -171,7 +161,7 @@ export default function TrackChart({ snapshots }) {
             {vrateFpm > 0 ? '+' : ''}{vrateFpm}fpm
           </span>
         )}
-        {anomalies.length > 0 && <span className="text-red font-bold">{anomalies.length} triggers</span>}
+        {anomalies.length > 0 && <span className="text-red">{anomalies.length} triggers</span>}
       </div>
 
       {/* Charts */}

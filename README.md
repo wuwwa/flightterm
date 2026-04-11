@@ -6,19 +6,19 @@ Follows the FullStackOpen architecture: Vite proxies `/api/*` to Express, keepin
 ## Stack
 
 | Layer     | Technology                      |
-|-----------|---------------------------------|
+| --------- | ------------------------------- |
 | Frontend  | React 18, Vite 5, axios         |
 | Backend   | Node.js, Express, axios, dotenv |
-| Dev tools | concurrently, nodemon            |
+| Dev tools | concurrently, nodemon           |
 
 ## Data sources
 
-| Source          | What it provides                        | Cost         |
-|-----------------|-----------------------------------------|--------------|
-| OpenSky Network | Live radar — positions, altitude, speed | Free         |
-| ADS-B Exchange  | Live radar — unfiltered incl. military  | ~$10/mo      |
-| adsbdb          | Aircraft type, owner, route             | Free         |
-| FlightAware AeroAPI | Schedules, delays, status, times    | $5/mo free   |
+| Source              | What it provides                        | Cost       |
+| ------------------- | --------------------------------------- | ---------- |
+| OpenSky Network     | Live radar — positions, altitude, speed | Free       |
+| ADS-B Exchange      | Live radar — unfiltered incl. military  | ~$10/mo    |
+| adsbdb              | Aircraft type, owner, route             | Free       |
+| FlightAware AeroAPI | Schedules, delays, status, times        | $5/mo free |
 
 ## Quick start
 
@@ -47,6 +47,7 @@ npm run dev
 ```
 
 This runs:
+
 - Express backend on http://localhost:3001
 - Vite frontend on http://localhost:5173
 
@@ -115,11 +116,11 @@ flightterm/
 
 ## AeroAPI endpoints used
 
-| Endpoint                | Cost/result set | Used for                        |
-|-------------------------|-----------------|---------------------------------|
-| GET /flights/{ident}    | $0.005          | Per-flight scheduled data       |
-| GET /account/usage      | free            | Usage statistics panel          |
-| GET /api/aero/costs     | free (local)    | Cost map display                |
+| Endpoint             | Cost/result set | Used for                  |
+| -------------------- | --------------- | ------------------------- |
+| GET /flights/{ident} | $0.005          | Per-flight scheduled data |
+| GET /account/usage   | free            | Usage statistics panel    |
+| GET /api/aero/costs  | free (local)    | Cost map display          |
 
 ## Settings (persisted to localStorage)
 
@@ -134,8 +135,13 @@ Note: AeroAPI key is NOT in settings — it lives in `backend/.env` only.
 ## Usage panel ($ button)
 
 Shows live AeroAPI account stats fetched from `/account/usage`:
+
 - Total calls, total cost, free credit remaining
 - Per-endpoint breakdown with cost per call
 - Full cost map for all 40+ endpoints
 
 Data is updated every 10 minutes by FlightAware.
+
+# fly deploy -c fly.swim.toml
+
+# fly deploy

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import clsx from 'clsx'
 
 import CommandBar from './components/CommandBar'
 import LogPanel from './components/LogPanel'
@@ -10,6 +11,9 @@ import NasPanel from './components/NasPanel'
 import TfmsPanel from './components/tfms/TfmsPanel'
 import DashboardPanel from './components/DashboardPanel'
 import FlightInspectorModal from './components/FlightInspectorModal'
+import MobileFlightsHome from './components/mobile/MobileFlightsHome'
+import NasMap from './components/dashboard/NasMap'
+import MobileHeader from './components/mobile/MobileHeader'
 import { SwimProvider } from './contexts/SwimContext'
 
 import axios from 'axios'
@@ -74,6 +78,16 @@ export default function App() {
   const [showUsage, setShowUsage] = useState(false)
   const [showNotams, setShowNotams] = useState(false)
 
+  // ── mobile tab navigation ────────────────────────────────────────────────────
+  const [mobileTab, setMobileTab] = useState('live')
+  const [mobileTime, setMobileTime] = useState('')
+  useEffect(() => {
+    const tick = () => setMobileTime(new Date().toISOString().substring(11, 19) + 'z')
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
+
   // ── detail / enrichment state ───────────────────────────────────────────────
   const [selectedFlight, setSelectedFlight] = useState(null)
   const [enrichCache, setEnrichCache] = useState({})
@@ -83,6 +97,17 @@ export default function App() {
   const [trackHistory, setTrackHistory] = useState({})
   const trackHistoryRef = useRef({})
   trackHistoryRef.current = trackHistory
+
+  // ── tracked flights: icaos user has pinned for map display ──────────────────
+  const [trackedIcaos, setTrackedIcaos] = useState(new Set())
+  const toggleTrackFlight = useCallback((icao) => {
+    setTrackedIcaos(prev => {
+      const next = new Set(prev)
+      if (next.has(icao)) next.delete(icao)
+      else next.add(icao)
+      return next
+    })
+  }, [])
 
   // ── anomalies: icaos with sudden alt/vel changes ──────────────────────────
   const [anomalies, setAnomalies] = useState({}) // { icao: { score, phase, reasons[], confirmed, label } }
@@ -553,7 +578,7 @@ export default function App() {
   return (
     <SwimProvider backendOk={backendOk}>
     <>
-      {/* Boot loading bar */}
+      {/* Boot loading bar — shared across both layouts */}
       {booting && (
         <div className="fixed top-0 left-0 right-0 z-100">
           <div className="h-0.5 bg-acc/30 overflow-hidden">
@@ -566,12 +591,14 @@ export default function App() {
         </div>
       )}
 
-      {/* Page 1: flight tracker — fills one viewport.
-          Flight detail is now a modal (FlightInspectorModal), not a sidebar,
-          so the FlightTable always uses full width. */}
-      <div className="grid grid-rows-[auto_auto_minmax(0,1fr)_auto_auto] grid-cols-1 h-screen overflow-hidden">
-        {/* Combined command bar: branding, stats, filter, region, controls, SWIM indicators, clock */}
-        <div className="col-span-full row-start-1">
+      {/* ═══════════════════════════════════════════════════════════════════════
+          UNIFIED LAYOUT — same structure for all screen sizes.
+          Desktop: fixed viewport grid. Mobile: scrollable single page.
+          Flight inspector: inline sidebar on lg+, slide-up overlay on mobile.
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="flex flex-col min-h-screen lg:grid lg:grid-rows-[auto_auto_minmax(0,1fr)_auto_auto] lg:grid-cols-1 lg:h-screen lg:overflow-hidden">
+        {/* CommandBar */}
+        <div className="col-span-full">
           <CommandBar
             stats={stats}
             backendOk={backendOk}
@@ -587,45 +614,100 @@ export default function App() {
           />
         </div>
 
-        {/* Log panel — collapsed by default, click to expand */}
-        <div className="col-span-full row-start-2">
+        {/* LogPanel */}
+        <div className="col-span-full">
           <LogPanel entries={logEntries} />
         </div>
 
-        {/* Flight table */}
-        <div className="row-start-3 min-h-0 flex flex-col">
-          <FlightTable
-            flights={flights}
-            filter={filter}
-            selectedIcao={selectedFlight?.icao}
-            enrichCache={enrichCache}
-            anomalies={anomalies}
-            trackHistory={trackHistory}
-            openskyUsage={openskyUsage}
-            aeroSpend={aeroSpend}
-            onSelect={handleSelectFlight}
-            onArrived={handleArrived}
-            onDeparted={handleDeparted}
-          />
+        {/* Flight table + inspector */}
+        <div className="min-h-0 flex flex-col lg:flex-row" style={{ minHeight: 'min(60vh, 400px)' }}>
+          <div className="flex-1 min-h-0 flex flex-col">
+            <FlightTable
+              flights={flights}
+              filter={filter}
+              selectedIcao={selectedFlight?.icao}
+              enrichCache={enrichCache}
+              anomalies={anomalies}
+              trackHistory={trackHistory}
+              openskyUsage={openskyUsage}
+              aeroSpend={aeroSpend}
+              trackedIcaos={trackedIcaos}
+              onToggleTrack={toggleTrackFlight}
+              onSelect={handleSelectFlight}
+              onArrived={handleArrived}
+              onDeparted={handleDeparted}
+            />
+          </div>
+          {/* Desktop: inline sidebar. Mobile: slide-up overlay (below). */}
+          {selectedFlight && (
+            <div className="hidden lg:block w-full lg:w-110 xl:w-130 min-h-0 border-t lg:border-t-0 lg:border-l border-border">
+              <FlightInspectorModal
+                flight={selectedFlight}
+                flights={flights}
+                enrichData={enrichCache[selectedFlight.icao]}
+                aeroCache={aeroCache}
+                aeroSpend={aeroSpend}
+                userAeroKey={settings.userAeroKey}
+                trackHistory={trackHistory[selectedFlight.icao]}
+                trackedIcaos={trackedIcaos}
+                allTrackHistory={trackHistory}
+                onClose={() => setSelectedFlight(null)}
+                onAeroFetched={handleAeroFetched}
+                backendOk={backendOk}
+              />
+            </div>
+          )}
         </div>
 
-        {/* TFMS — flight plans, map, airport board, delays */}
-        <div className="col-span-full row-start-4 overflow-y-auto">
+        {/* TFMS / Airport Ops */}
+        <div className="col-span-full overflow-y-auto">
           <TfmsPanel backendOk={backendOk} />
         </div>
 
-        {/* FAA SWIM / NAS section */}
-        <div className="col-span-full row-start-5 overflow-y-auto">
+        {/* FAA SWIM / NAS */}
+        <div className="col-span-full overflow-y-auto">
           <NasPanel backendOk={backendOk} region={region} />
         </div>
       </div>
 
-      {/* Dashboard: anomaly analytics */}
+      {/* Dashboard */}
       <div id="dashboard">
-        <DashboardPanel backendOk={backendOk} flights={flights} trackHistory={trackHistory} enrichCache={enrichCache} />
+        <DashboardPanel backendOk={backendOk} flights={flights} trackedIcaos={trackedIcaos} trackHistory={trackHistory} />
       </div>
 
-      {/* Sticky status bar — always at bottom of viewport */}
+      {/* Mobile flight inspector — bottom sheet with backdrop */}
+      {selectedFlight && (
+        <div className="lg:hidden fixed inset-0 z-50 flex flex-col">
+          {/* Backdrop — tap to close */}
+          <div
+            className="shrink-0 bg-black/50 backdrop-blur-[2px]"
+            style={{ height: '48px' }}
+            onClick={() => setSelectedFlight(null)}
+          >
+            <div className="flex items-center justify-center h-full gap-2">
+              <span className="text-fg/60 text-[11px]">tap to close</span>
+              <span className="text-fg/40 text-[10px]">✕</span>
+            </div>
+          </div>
+          {/* Sheet */}
+          <div className="flex-1 min-h-0 animate-slide-up rounded-t-lg overflow-hidden border-t border-acc/30">
+            <FlightInspectorModal
+              flight={selectedFlight}
+              flights={flights}
+              enrichData={enrichCache[selectedFlight.icao]}
+              aeroCache={aeroCache}
+              aeroSpend={aeroSpend}
+              userAeroKey={settings.userAeroKey}
+              trackHistory={trackHistory[selectedFlight.icao]}
+              onClose={() => setSelectedFlight(null)}
+              onAeroFetched={handleAeroFetched}
+              backendOk={backendOk}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Status bar */}
       <div className="sticky bottom-0 z-40 bg-acc py-0.5 px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg">
         <div className="truncate">
           <span className="bg-bg text-acc py-0 px-2 mr-1.5">NORMAL</span>
@@ -634,21 +716,7 @@ export default function App() {
         <div className="shrink-0">{statusText}</div>
       </div>
 
-      {/* Overlays */}
-      {selectedFlight && (
-        <FlightInspectorModal
-          flight={selectedFlight}
-          flights={flights}
-          enrichData={enrichCache[selectedFlight.icao]}
-          aeroCache={aeroCache}
-          aeroSpend={aeroSpend}
-          userAeroKey={settings.userAeroKey}
-          trackHistory={trackHistory[selectedFlight.icao]}
-          onClose={() => setSelectedFlight(null)}
-          onAeroFetched={handleAeroFetched}
-          backendOk={backendOk}
-        />
-      )}
+      {/* Shared modal overlays */}
       {showSettings && (
         <SettingsModal
           settings={settings}
