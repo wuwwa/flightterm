@@ -186,18 +186,38 @@ export default function CommandBar({
       )}
 
       {/* Search / filter — grows to fill. v5.6.0 adds a dropdown of
-          matching live + historical aircraft and Enter-to-open-dossier. */}
-      <div className="flex items-center gap-1 flex-1 min-w-24 sm:min-w-32 ml-1 relative">
-        <span className="text-grn select-none text-[11px]">❯</span>
+          matching live + historical aircraft and Enter-to-open-dossier.
+          v5.6.3 gives the field its own visual weight: distinct border,
+          magnifier icon, kbd hint, clear button — so it reads as a real
+          search box rather than another chip in the toolbar. */}
+      <div className={clsx(
+        'flex items-center gap-1.5 flex-1 min-w-32 sm:min-w-48 ml-1 relative',
+        'px-2 py-[3px] rounded border bg-bg1/80 transition-colors',
+        dropdownOpen ? 'border-acc/60 bg-bg1' : 'border-border2 hover:border-border2/80 focus-within:border-acc/60 focus-within:bg-bg1'
+      )}>
+        <svg className="w-3 h-3 text-fg3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <circle cx="7" cy="7" r="5" />
+          <line x1="11" y1="11" x2="14.5" y2="14.5" strokeLinecap="round" />
+        </svg>
         <input
           ref={inputRef}
-          className="bg-transparent border-none outline-none text-fg text-[11px] flex-1 caret-fg font-mono min-w-0 placeholder:text-fg3/30"
+          className="bg-transparent border-none outline-none text-fg text-[12px] flex-1 caret-acc font-mono min-w-0 placeholder:text-fg3/50"
           value={filter}
           onChange={e => { onFilterChange(e.target.value); setDropdownOpen(true) }}
           onFocus={() => filter && setDropdownOpen(true)}
           onKeyDown={onSearchKeyDown}
-          placeholder="type 2+ chars · enter to open dossier · / to focus"
+          placeholder="Search aircraft — callsign, ICAO, operator, type…"
         />
+        {filter ? (
+          <button
+            onClick={() => { onFilterChange(''); setDropdownOpen(false); inputRef.current?.focus() }}
+            className="text-fg3 hover:text-fg text-[12px] cursor-pointer shrink-0 leading-none"
+            title="clear"
+          >×</button>
+        ) : (
+          <kbd className="hidden sm:inline-block text-[9px] text-fg3 border border-border px-1 py-[1px] rounded bg-bg2/60 shrink-0 pointer-events-none"
+               title="press / to focus search">/</kbd>
+        )}
         {dropdownOpen && suggestions.length > 0 && (
           <div
             ref={dropdownRef}
