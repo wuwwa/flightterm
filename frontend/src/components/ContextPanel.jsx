@@ -213,12 +213,33 @@ export default function ContextPanel({ flight }) {
             </div>
           )}
 
+          {/* v5.5.0 — When FIRMS shows fires nearby, link to ALERTWildfire's
+              regional PTZ cam network (likely has a camera pointing at the
+              same fire). Aviation-relevant; replaces random street-level
+              photos. */}
+          {ctx.nearby?.fires?.count >= 3 && ctx.aircraft?.lat != null && (
+            <div className="mb-2">
+              <div className="text-fg3 text-[9px] uppercase mb-0.5">fire cams nearby</div>
+              <a
+                href={`https://www.alertwildfire.org/?camera=&view=${ctx.aircraft.lat.toFixed(3)},${ctx.aircraft.lon.toFixed(3)},9`}
+                target="_blank" rel="noopener noreferrer"
+                className="inline-block text-[10px] border border-red/50 hover:border-red text-red/80 hover:text-red px-2 py-[2px] rounded"
+              >
+                ALERTWildfire · {ctx.nearby.fires.count} FIRMS pixels in area ↗
+              </a>
+            </div>
+          )}
+
           {/* ── Visual corroboration ───────────────────────────────────── */}
-          {(ctx.nearby?.webcams?.webcams?.length > 0 || ctx.nearby?.streetLevel?.images?.length > 0) && (
+          {/* v5.5.0 — Mapillary street-level removed (wrong perspective for
+              aviation: 360° road-level photos of streets the aircraft is
+              500-35,000 ft above). NPS cams retained because they are
+              landscape-oriented and useful when aircraft is near a park. */}
+          {ctx.nearby?.webcams?.webcams?.length > 0 && (
             <div>
-              <div className="text-fg3 text-[9px] uppercase mb-1">visual</div>
+              <div className="text-fg3 text-[9px] uppercase mb-1">nearby NPS cams</div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-1">
-                {ctx.nearby.webcams?.webcams?.slice(0, 4).map(cam => (
+                {ctx.nearby.webcams.webcams.slice(0, 4).map(cam => (
                   <a key={cam.id} href={cam.url} target="_blank" rel="noopener noreferrer"
                      className="block bg-bg1/40 border border-border rounded overflow-hidden hover:border-acc">
                     {cam.image ? (
@@ -233,21 +254,13 @@ export default function ContextPanel({ flight }) {
                     </div>
                   </a>
                 ))}
-                {ctx.nearby.streetLevel?.images?.slice(0, 4).map(img => (
-                  <a key={img.id} href={`https://www.mapillary.com/app/?focus=photo&pKey=${img.id}`}
-                     target="_blank" rel="noopener noreferrer"
-                     className="block bg-bg1/40 border border-border rounded overflow-hidden hover:border-mag">
-                    <img src={img.thumb} alt="" className="w-full h-16 object-cover"
-                         onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                    <div className="p-1 text-[9px]">
-                      <div className="text-mag">mapillary</div>
-                      <div className="text-fg3/70">{img.capturedAt?.slice(0, 10)}</div>
-                    </div>
-                  </a>
-                ))}
               </div>
             </div>
           )}
+
+          {/* v5.5.0 — Mapillary section removed: wrong perspective for
+              aviation (360° road-level photos). Backend adapter retained
+              only for possible future low-altitude helicopter-ops use. */}
         </>
       )}
     </div>

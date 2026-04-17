@@ -11,6 +11,7 @@ import FlightMap from './FlightMap'
 import ContextPanel from './ContextPanel'
 import { squawkLabel, squawkColor } from '../utils/squawk'
 import { fetchDossier, fetchMetar, fetchNearby, fetchByOperator, fetchByType, fetchCallsignHistory } from '../services/flight'
+import { pickSector, goesImageUrl, goesLoopUrl } from '../utils/goes'
 
 function fmtTime(s) {
   if (!s) return '—'
@@ -541,7 +542,66 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
               ))}
             </div>
           )}
+          {/* v5.5.0 — FAA WeatherCams jump-outs for dep/arr airports. */}
+          {metars?.length > 0 && (
+            <div className="mt-2 pt-1.5 border-t border-border">
+              <div className="text-fg3 text-[9px] uppercase mb-0.5">live airport cams</div>
+              <div className="flex flex-wrap gap-1">
+                {metars.map(m => (
+                  <a key={m.icaoId}
+                    href={`https://weathercams.faa.gov/map/-1/site/${m.icaoId}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-[10px] border border-border hover:border-cyn text-fg3 hover:text-cyn px-1.5 py-[1px] rounded"
+                    title={`FAA WeatherCams at ${m.icaoId}`}
+                  >
+                    {m.icaoId} cam ↗
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
         </Tile>
+
+        {/* v5.5.0 — GOES-16/18 SATELLITE IMAGE of aircraft's current sector.
+             The correct visual perspective for aviation — cloud tops from
+             geostationary orbit, updated every 5–10 min. Direct CDN URL,
+             no key, no backend proxy. */}
+        {liveFlight?.lat != null && (() => {
+          const sector = pickSector(liveFlight.lat, liveFlight.lon)
+          const imgUrl = goesImageUrl(sector)
+          const loopUrl = goesLoopUrl(sector)
+          return (
+            <div className="md:col-span-2 xl:col-span-3">
+              <Tile title={`Satellite · ${sector.sat} · ${sector.name}`} accent="text-cyn">
+                <div className="flex gap-2 flex-col lg:flex-row">
+                  <a href={loopUrl} target="_blank" rel="noopener noreferrer" className="block relative flex-1 min-w-0" title="open 24-frame animation on NESDIS">
+                    <img
+                      src={imgUrl}
+                      alt={`GOES ${sector.name} GEOCOLOR`}
+                      className="w-full max-h-96 object-contain rounded border border-border bg-bg2"
+                      loading="lazy"
+                      onError={(e) => { e.currentTarget.style.display = 'none' }}
+                    />
+                  </a>
+                  <div className="lg:w-48 text-[10px] space-y-1 shrink-0">
+                    <div className="text-fg3 text-[9px] uppercase">about</div>
+                    <div className="text-fg2">
+                      GEOCOLOR band — true color in daylight, IR at night. Updates every 5–10 min.
+                    </div>
+                    <div className="text-fg3 text-[9px] uppercase pt-1">aircraft lat/lon</div>
+                    <div className="text-fg2 tabular-nums">{liveFlight.lat.toFixed(2)}, {liveFlight.lon.toFixed(2)}</div>
+                    <div className="text-fg3 text-[9px] uppercase pt-1">sector</div>
+                    <div className="text-fg2">{sector.sat} / <span className="font-mono">{sector.sector}</span></div>
+                    <a href={loopUrl} target="_blank" rel="noopener noreferrer"
+                       className="mt-2 inline-block text-acc hover:text-ylw text-[10px] border border-acc/50 hover:border-ylw px-2 py-[2px] rounded">
+                      24-frame loop ↗
+                    </a>
+                  </div>
+                </div>
+              </Tile>
+            </div>
+          )
+        })()}
 
         {/* v5.4.0 — PLANES NEARBY (radius 25nm around aircraft position) */}
         <Tile title={`Planes Nearby · ${nearby?.count ?? '—'} within 25nm`} accent="text-cyn">
