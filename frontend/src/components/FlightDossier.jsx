@@ -210,6 +210,11 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
   const [drillIn, setDrillIn] = useState(null)
   const [nearby, setNearby] = useState(null)
   const [expandedAnomalyId, setExpandedAnomalyId] = useState(null)
+  // v5.6.2 — satellite image lazy-load. The GOES GEOCOLOR JPG is ~5.9 MB.
+  // Don't fetch it on every dossier open — show a placeholder, let the user
+  // opt in with a click. Resets when navigating to a new aircraft.
+  const [satLoaded, setSatLoaded] = useState(false)
+  useEffect(() => { setSatLoaded(false) }, [icao])
 
   const openDrillIn = async (scope, loader) => {
     if (drillIn?.scope === scope) { setDrillIn(null); return }
@@ -575,45 +580,67 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
           return (
             <Tile title={`Satellite · ${sector.sat}/${sector.sector} · ${sector.name}`} accent="text-cyn" className="md:col-span-2 xl:col-span-3">
               <div className="flex gap-2 items-start">
-                <a
-                  href={loopUrl}
-                  target="_blank" rel="noopener noreferrer"
-                  className="relative block group shrink-0"
-                  title="open 24-frame NESDIS animation"
+                <div
+                  className="relative block shrink-0"
                   style={{ height: '14rem', aspectRatio: '4 / 3' }}
                 >
-                  {/* Wrapper is sized to the image's native aspect ratio so
-                      the overlay marker (positioned in percent) lines up with
-                      actual sector pixels. GOES regional sectors are mostly
-                      4:3; CONUS / full-disk are closer but this is good
-                      enough for a "roughly here" indicator. */}
-                  <img
-                    src={imgUrl}
-                    alt={`GOES ${sector.name} GEOCOLOR`}
-                    className="w-full h-full object-cover rounded border border-border bg-bg2"
-                    loading="lazy"
-                    onError={(e) => { e.currentTarget.style.display = 'none' }}
-                  />
-                  {pos && (
-                    <span
-                      className="absolute pointer-events-none"
-                      style={{ left: `${pos.xPct}%`, top: `${pos.yPct}%`, transform: 'translate(-50%, -50%)' }}
+                  {/* v5.6.2 — lazy-load gate. Placeholder by default; user
+                      clicks to load the ~5.9 MB image. Keeps dossier open
+                      fast and bandwidth-free for flights where you don't
+                      care about the satellite context. */}
+                  {!satLoaded ? (
+                    <button
+                      onClick={() => setSatLoaded(true)}
+                      className="w-full h-full rounded border border-dashed border-border2 hover:border-cyn bg-bg2/40 hover:bg-bg2 cursor-pointer flex flex-col items-center justify-center gap-1 text-[10px] transition-colors group"
+                      title="click to fetch GOES GEOCOLOR image (~6 MB)"
                     >
-                      <span className="block relative">
-                        <span className="absolute inset-0 rounded-full bg-ylw/50 animate-ping" style={{ width: 14, height: 14, margin: -2 }} />
-                        <span className="block rounded-full border-2 border-ylw shadow-lg" style={{ width: 10, height: 10, background: '#f0c674' }} />
+                      <span className="text-cyn text-[11px]">◎ load satellite</span>
+                      <span className="text-fg3">{sector.sat}/{sector.sector} · {sector.name}</span>
+                      <span className="text-fg3/50 text-[9px]">~6 MB · NOAA STAR CDN</span>
+                      {pos && (
+                        <span className="text-fg3/60 text-[9px] mt-1">
+                          aircraft position on frame: {pos.xPct.toFixed(0)}% · {pos.yPct.toFixed(0)}%
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <a
+                      href={loopUrl}
+                      target="_blank" rel="noopener noreferrer"
+                      className="relative block w-full h-full group"
+                      title="open 24-frame NESDIS animation"
+                    >
+                      <img
+                        src={imgUrl}
+                        alt={`GOES ${sector.name} GEOCOLOR`}
+                        className="w-full h-full object-cover rounded border border-border bg-bg2"
+                        loading="eager"
+                        onError={(e) => { e.currentTarget.style.display = 'none' }}
+                      />
+                      {pos && (
+                        <span
+                          className="absolute pointer-events-none"
+                          style={{ left: `${pos.xPct}%`, top: `${pos.yPct}%`, transform: 'translate(-50%, -50%)' }}
+                        >
+                          <span className="block relative">
+                            <span className="absolute inset-0 rounded-full bg-ylw/50 animate-ping" style={{ width: 14, height: 14, margin: -2 }} />
+                            <span className="block rounded-full border-2 border-ylw shadow-lg" style={{ width: 10, height: 10, background: '#f0c674' }} />
+                          </span>
+                        </span>
+                      )}
+                      <span className="absolute bottom-0.5 right-1 text-[8px] text-fg3/70 bg-bg1/60 px-1 rounded">
+                        GEOCOLOR loop ↗
                       </span>
-                    </span>
+                    </a>
                   )}
-                  <span className="absolute bottom-0.5 right-1 text-[8px] text-fg3/70 bg-bg1/60 px-1 rounded">
-                    GEOCOLOR loop ↗
-                  </span>
-                </a>
+                </div>
                 <div className="flex-1 min-w-0 text-[10px] space-y-0.5">
                   <div className="text-fg3 text-[9px] uppercase">aircraft</div>
                   <div className="text-ylw font-mono tabular-nums">{liveFlight.lat.toFixed(2)}, {liveFlight.lon.toFixed(2)}</div>
                   {pos ? (
-                    <div className="text-grn text-[9px]">marked on frame</div>
+                    <div className={clsx('text-[9px]', satLoaded ? 'text-grn' : 'text-fg3/70')}>
+                      {satLoaded ? 'marked on frame' : 'will mark on load'}
+                    </div>
                   ) : (
                     <div className="text-red/80 text-[9px]">outside sector bounds</div>
                   )}

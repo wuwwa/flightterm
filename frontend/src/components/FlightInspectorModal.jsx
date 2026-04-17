@@ -6,6 +6,7 @@ import TrackChart from './TrackChart'
 import FlightMap from './FlightMap'
 import ContextPanel from './ContextPanel'
 import { fetchAircraftInfo } from '../services/adsbdb'
+import { pickSector, goesImageUrl, goesLoopUrl, latLonToSectorPct } from '../utils/goes'
 
 // ── FlightInspectorPanel (file kept as ...Modal.jsx for import stability) ───
 // Inline panel mounted next to the FlightTable in the main page grid. No
@@ -60,6 +61,9 @@ export default function FlightInspectorModal({
   const [aeroError, setAeroError] = useState(null)
   const [lazyAircraft, setLazyAircraft] = useState(null)
   const [lazyLoading, setLazyLoading] = useState(false)
+  // v5.6.2 — satellite lazy-load (same pattern as the dossier).
+  const [satLoaded, setSatLoaded] = useState(false)
+  useEffect(() => { setSatLoaded(false) }, [flight?.icao])
 
   const { aircraft: enrichAircraft, flightroute, adsbfi, apl } = enrichData || {}
   // v5.3.1 — aircraft metadata is no longer pre-fetched on row select.
@@ -257,6 +261,65 @@ export default function FlightInspectorModal({
                   <div className="text-[9px] text-fg3/40 text-center py-2">enrichment pending</div>
                 )}
               </Tile>
+
+              {/* v5.6.2 — SATELLITE tile (click-to-load; spans both columns).
+                  GOES-16/18 GEOCOLOR of the aircraft's current sector with
+                  a marker at its lat/lon. 5.9 MB fetch is gated behind a
+                  click so it doesn't fire on every flight row-select. */}
+              {flight?.lat != null && (() => {
+                const sector = pickSector(flight.lat, flight.lon)
+                const pos = latLonToSectorPct(sector, flight.lat, flight.lon)
+                return (
+                  <Tile title={`Satellite · ${sector.sat}/${sector.sector} · ${sector.name}`} accent="text-cyn" className="xl:col-span-2">
+                    <div className="relative w-full" style={{ aspectRatio: '4 / 3', maxHeight: '10rem' }}>
+                      {!satLoaded ? (
+                        <button
+                          onClick={() => setSatLoaded(true)}
+                          className="w-full h-full rounded border border-dashed border-border2 hover:border-cyn bg-bg2/40 hover:bg-bg2 cursor-pointer flex flex-col items-center justify-center gap-0.5 text-[9px] transition-colors"
+                          title="click to fetch GOES GEOCOLOR image (~6 MB)"
+                        >
+                          <span className="text-cyn text-[10px]">◎ load satellite</span>
+                          <span className="text-fg3">GEOCOLOR · ~6 MB</span>
+                          {pos && (
+                            <span className="text-fg3/60 text-[8px] mt-0.5">
+                              aircraft at {pos.xPct.toFixed(0)}% · {pos.yPct.toFixed(0)}% of frame
+                            </span>
+                          )}
+                        </button>
+                      ) : (
+                        <a
+                          href={goesLoopUrl(sector)}
+                          target="_blank" rel="noopener noreferrer"
+                          className="relative block w-full h-full"
+                          title="open 24-frame NESDIS animation"
+                        >
+                          <img
+                            src={goesImageUrl(sector)}
+                            alt={`GOES ${sector.name} GEOCOLOR`}
+                            className="w-full h-full object-cover rounded border border-border bg-bg2"
+                            loading="eager"
+                            onError={(e) => { e.currentTarget.style.display = 'none' }}
+                          />
+                          {pos && (
+                            <span
+                              className="absolute pointer-events-none"
+                              style={{ left: `${pos.xPct}%`, top: `${pos.yPct}%`, transform: 'translate(-50%, -50%)' }}
+                            >
+                              <span className="block relative">
+                                <span className="absolute inset-0 rounded-full bg-ylw/50 animate-ping" style={{ width: 12, height: 12, margin: -2 }} />
+                                <span className="block rounded-full border-2 border-ylw shadow-lg" style={{ width: 8, height: 8, background: '#f0c674' }} />
+                              </span>
+                            </span>
+                          )}
+                          <span className="absolute bottom-0.5 right-1 text-[8px] text-fg3/70 bg-bg1/60 px-1 rounded">
+                            loop ↗
+                          </span>
+                        </a>
+                      )}
+                    </div>
+                  </Tile>
+                )
+              })()}
 
               {/* AEROAPI section — spans both columns when data is loaded */}
               {/* Correlation Layer (v2.0.0) — external-source join */}
