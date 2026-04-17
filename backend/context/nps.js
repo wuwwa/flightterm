@@ -15,23 +15,26 @@ const TTL_MS = 6 * 60 * 60_000
 async function loadAll() {
   if (!KEY) return []
   if (CACHE.v && Date.now() - CACHE.t < TTL_MS) return CACHE.v
-  const all = []
+  const seen = new Map()
   let start = 0
   const pageSize = 50
-  // NPS total is ~291 — cap at 6 pages for safety.
+  // NPS total is ~291 — cap at 6 pages for safety. Pagination occasionally
+  // returns duplicate IDs across pages; dedupe on the way in.
   for (let i = 0; i < 6; i++) {
     const res = await axios.get(BASE, {
       params: { api_key: KEY, limit: pageSize, start },
       timeout: 10000,
     })
     const chunk = res.data?.data || []
-    all.push(...chunk)
+    for (const cam of chunk) {
+      if (cam.id && !seen.has(cam.id)) seen.set(cam.id, cam)
+    }
     if (chunk.length < pageSize) break
     start += pageSize
   }
   CACHE.t = Date.now()
-  CACHE.v = all
-  return all
+  CACHE.v = [...seen.values()]
+  return CACHE.v
 }
 
 async function fetchNearby({ lat, lon, radiusKm = 75, limit = 5 } = {}) {

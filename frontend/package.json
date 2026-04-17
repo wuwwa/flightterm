@@ -1,7 +1,7 @@
 {
   "name": "flightterm-frontend",
-  "version": "2.0.0",
-  "description": "v2.0.0 adds ContextPanel inside FlightInspectorModal, rendering the backend Correlation Layer bundle for the selected flight.",
+  "version": "2.1.0",
+  "description": "v2.0.0 added the ContextPanel in FlightInspectorModal. v2.1.0 adds the env layer group on NasMap (fires, events, quakes, volcanoes, webcams) with localStorage-persisted toggles.",
   "private": true,
   "type": "module",
   "scripts": {

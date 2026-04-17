@@ -8,6 +8,77 @@ import AIRPORTS from '../../data/airports'
 import axios from 'axios'
 import { fetchSigmets, fetchPireps } from '../../services/weather'
 import { fetchAnomalyFeed, fetchAnomalyHotspots, fetchFlightPositions, fetchSurfacePositions } from '../../services/dashboard'
+import { fetchMapContext } from '../../services/contextMap'
+
+// ── Correlation-layer icons (v5.1.0) ────────────────────────────────────────
+
+// FIRMS fire pixel — small orange dot scaled by Fire Radiative Power (FRP).
+function fireIcon(frp) {
+  const s = frp > 20 ? 10 : frp > 5 ? 8 : 6
+  return L.divIcon({
+    html: `<svg width="${s}" height="${s}" viewBox="0 0 10 10">
+      <circle cx="5" cy="5" r="4" fill="#ff6600" fill-opacity="0.85" stroke="#0d0d0d" stroke-width="0.5"/>
+    </svg>`,
+    className: '', iconSize: [s, s], iconAnchor: [s / 2, s / 2],
+  })
+}
+
+// EONET event — hexagon with category-colored fill.
+function eonetIcon(categories = []) {
+  const c = categories.includes('wildfires')       ? '#ff6600'
+          : categories.includes('severeStorms')    ? '#cc6666'
+          : categories.includes('volcanoes')       ? '#a3685a'
+          : categories.includes('seaLakeIce')      ? '#8abeb7'
+          : categories.includes('earthquakes')     ? '#b294bb'
+          : '#888'
+  return L.divIcon({
+    html: `<svg width="12" height="14" viewBox="0 0 12 14">
+      <polygon points="6,1 11,4 11,10 6,13 1,10 1,4" fill="${c}" fill-opacity="0.85" stroke="#0d0d0d" stroke-width="1"/>
+    </svg>`,
+    className: '', iconSize: [12, 14], iconAnchor: [6, 7],
+  })
+}
+
+// USGS earthquake — radius scaled by magnitude; red for M5+, purple else.
+function quakeIcon(mag) {
+  const s = mag >= 6 ? 18 : mag >= 5 ? 15 : mag >= 4 ? 12 : mag >= 3 ? 9 : 7
+  const c = mag >= 5 ? '#cc6666' : '#b294bb'
+  return L.divIcon({
+    html: `<svg width="${s}" height="${s}" viewBox="0 0 20 20">
+      <circle cx="10" cy="10" r="4" fill="${c}" fill-opacity="0.9"/>
+      <circle cx="10" cy="10" r="7" fill="none" stroke="${c}" stroke-width="1" stroke-opacity="0.5"/>
+      <circle cx="10" cy="10" r="9" fill="none" stroke="${c}" stroke-width="0.6" stroke-opacity="0.3"/>
+    </svg>`,
+    className: '', iconSize: [s, s], iconAnchor: [s / 2, s / 2],
+  })
+}
+
+// USGS volcano — triangle tinted by HANS color code.
+function volcanoIcon(colorCode) {
+  const c = colorCode === 'RED'    ? '#ff3333'
+          : colorCode === 'ORANGE' ? '#ff8833'
+          : colorCode === 'YELLOW' ? '#f0c674'
+          : '#888'
+  return L.divIcon({
+    html: `<svg width="16" height="14" viewBox="0 0 16 14">
+      <path d="M8 1 L15 13 L1 13 Z" fill="${c}" fill-opacity="0.9" stroke="#0d0d0d" stroke-width="1" stroke-linejoin="round"/>
+      <path d="M6 9 L7 6 L9 7 L10 5" fill="none" stroke="#0d0d0d" stroke-width="0.8"/>
+    </svg>`,
+    className: '', iconSize: [16, 14], iconAnchor: [8, 13],
+  })
+}
+
+// NPS webcam — small camera glyph.
+function webcamIcon(isStreaming) {
+  const c = isStreaming ? '#8abeb7' : '#81a2be'
+  return L.divIcon({
+    html: `<svg width="12" height="10" viewBox="0 0 12 10">
+      <rect x="1" y="2" width="8" height="6" rx="1" fill="${c}" fill-opacity="0.85" stroke="#0d0d0d" stroke-width="0.8"/>
+      <polygon points="9,3.5 11,2 11,8 9,6.5" fill="${c}" fill-opacity="0.85" stroke="#0d0d0d" stroke-width="0.8"/>
+    </svg>`,
+    className: '', iconSize: [12, 10], iconAnchor: [6, 5],
+  })
+}
 
 // Resolve FAA 3-letter or ICAO 4-letter codes to AIRPORTS lookup
 function resolveAirport(code) {
@@ -162,6 +233,26 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
   const [showTracon, setShowTracon] = useState(false)
   const [showRouteDevs, setShowRouteDevs] = useState(true)
 
+  // Correlation-layer toggles (v5.1.0) — persisted in localStorage.
+  const readToggle = (name, def) => {
+    try { const v = localStorage.getItem('nasmap:ctx:' + name); if (v != null) return v === '1' } catch {}
+    return def
+  }
+  const useLsToggle = (name, def) => {
+    const [v, set] = useState(() => readToggle(name, def))
+    const wrapped = (next) => {
+      const resolved = typeof next === 'function' ? next(v) : next
+      try { localStorage.setItem('nasmap:ctx:' + name, resolved ? '1' : '0') } catch {}
+      set(resolved)
+    }
+    return [v, wrapped]
+  }
+  const [showFires,     setShowFires]     = useLsToggle('fires', false)
+  const [showEvents,    setShowEvents]    = useLsToggle('events', false)
+  const [showQuakes,    setShowQuakes]    = useLsToggle('quakes', false)
+  const [showVolcanoes, setShowVolcanoes] = useLsToggle('volcanoes', false)
+  const [showWebcams,   setShowWebcams]   = useLsToggle('webcams', false)
+
   // Fetched data (map-specific, not from SwimContext)
   const [sigmets, setSigmets] = useState([])
   const [pireps, setPireps] = useState([])
@@ -174,6 +265,14 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
   const [surfacePositions, setSurfacePositions] = useState([])
   const [weatherDelays, setWeatherDelays] = useState(null)
   const [sectorData, setSectorData] = useState([])
+
+  // Correlation-layer data (v5.1.0)
+  const [fires, setFires]         = useState([])
+  const [eonetEvents, setEonetEvents]     = useState([])
+  const [quakes, setQuakes]       = useState([])
+  const [volcanoes, setVolcanoes] = useState([])
+  const [webcams, setWebcams]     = useState([])
+  const [ctxError, setCtxError]   = useState(null)
 
   // Fetch all map layer data (staggered refresh)
   useEffect(() => {
@@ -212,6 +311,38 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
     const id = setInterval(refresh, 30_000)
     return () => { cancelled = true; clearInterval(id) }
   }, [backendOk])
+
+  // ── Correlation-layer fetch (v5.1.0) — only fires when any toggle is on ──
+  useEffect(() => {
+    if (!backendOk) return
+    const active = []
+    if (showFires)     active.push('fires')
+    if (showEvents)    active.push('events')
+    if (showQuakes)    active.push('quakes')
+    if (showVolcanoes) active.push('volcanoes')
+    if (showWebcams)   active.push('webcams')
+    if (active.length === 0) return
+
+    let cancelled = false
+    const refresh = async () => {
+      try {
+        const data = await fetchMapContext({ layers: active })
+        if (cancelled) return
+        setCtxError(null)
+        if (showFires)     setFires(data.fires?.fires || [])
+        if (showEvents)    setEonetEvents(data.events?.events || [])
+        if (showQuakes)    setQuakes(data.quakes?.quakes || [])
+        if (showVolcanoes) setVolcanoes(data.volcanoes?.alerts || [])
+        if (showWebcams)   setWebcams((data.webcams?.webcams || []).filter(c => c.status === 'Active'))
+      } catch (err) {
+        if (!cancelled) setCtxError(err.response?.data?.error || err.message)
+      }
+    }
+    refresh()
+    // Refresh cadence matches FIRMS cache TTL (10 min) to avoid burning quota.
+    const id = setInterval(refresh, 5 * 60_000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [backendOk, showFires, showEvents, showQuakes, showVolcanoes, showWebcams])
 
   const airports = nasSummary?.airports || []
 
@@ -438,6 +569,16 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
             <LayerBtn active={showFlowPrograms} onClick={() => setShowFlowPrograms(v => !v)} color="ylw" count={flowProgramMarkers.length}>flow</LayerBtn>
             <LayerBtn active={showNotams} onClick={() => setShowNotams(v => !v)} color="org" count={(notamAirports || []).length}>NOTAMs</LayerBtn>
             <LayerBtn active={showCascades} onClick={() => setShowCascades(v => !v)} color="red">cascades</LayerBtn>
+          </span>
+          {/* Correlation-layer group (v5.1.0) — external context sources */}
+          <span className="flex gap-1 items-center">
+            <span className="text-fg3/40 text-[7px] uppercase tracking-wide" title="external context sources — FIRMS, EONET, USGS, NPS">env</span>
+            <LayerBtn active={showFires}     onClick={() => setShowFires(v => !v)}     color="org" count={showFires ? fires.length : 0}>fires</LayerBtn>
+            <LayerBtn active={showEvents}    onClick={() => setShowEvents(v => !v)}    color="mag" count={showEvents ? eonetEvents.length : 0}>events</LayerBtn>
+            <LayerBtn active={showQuakes}    onClick={() => setShowQuakes(v => !v)}    color="mag" count={showQuakes ? quakes.length : 0}>quakes</LayerBtn>
+            <LayerBtn active={showVolcanoes} onClick={() => setShowVolcanoes(v => !v)} color="red" count={showVolcanoes ? volcanoes.length : 0}>volc</LayerBtn>
+            <LayerBtn active={showWebcams}   onClick={() => setShowWebcams(v => !v)}   color="cyn" count={showWebcams ? webcams.length : 0}>cams</LayerBtn>
+            {ctxError && <span className="text-red text-[8px]" title={ctxError}>ctx!</span>}
           </span>
         </span>
       </div>
@@ -669,6 +810,79 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
               </span></Tooltip>
             </CircleMarker>
           ))}
+
+          {/* ── Correlation layer (v5.1.0) ───────────────────────────────── */}
+
+          {/* FIRMS active fire pixels */}
+          {showFires && fires.map((f, i) => (
+            <Marker key={`fire-${i}`} position={[f.lat, f.lon]} icon={fireIcon(f.frp || 0)}>
+              <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                <b>FIRMS fire pixel</b><br />
+                FRP: {f.frp?.toFixed(1) ?? '—'} MW<br />
+                brightness: {f.brightness?.toFixed(1)}K<br />
+                {f.acqDate} {f.acqTime}z · {f.daynight === 'D' ? 'day' : 'night'} · conf {f.confidence}
+              </span></Tooltip>
+            </Marker>
+          ))}
+
+          {/* EONET natural events */}
+          {showEvents && eonetEvents.filter(e => e.lat != null && e.lon != null).map(e => (
+            <Marker key={`eo-${e.id}`} position={[e.lat, e.lon]} icon={eonetIcon(e.categories)}>
+              <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                <b>{e.title}</b><br />
+                {e.categories.join(', ')}<br />
+                {e.magnitude != null && <>{e.magnitude} {e.magnitudeUnit}<br /></>}
+                {e.date}
+              </span></Tooltip>
+            </Marker>
+          ))}
+
+          {/* USGS earthquakes */}
+          {showQuakes && quakes.map(q => (
+            <Marker key={`eq-${q.id}`} position={[q.lat, q.lon]} icon={quakeIcon(q.mag || 0)}>
+              <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                <b>M{q.mag?.toFixed(1)}</b> {q.place}<br />
+                depth: {q.depthKm?.toFixed(1)}km<br />
+                {q.tsunami ? <span style={{ color: '#cc6666' }}>TSUNAMI<br /></span> : null}
+                {new Date(q.time).toISOString().replace('T', ' ').slice(0, 16)}z
+              </span></Tooltip>
+            </Marker>
+          ))}
+
+          {/* USGS volcano alerts — plotted at observatory region centroid (HANS
+              list has no coords; we approximate via the observatory name). */}
+          {showVolcanoes && volcanoes.map(v => {
+            // Rough observatory centroids until we wire a proper volcano coord DB.
+            const obs = v.observatory || ''
+            const coord = obs.includes('Alaska')  ? [56.0, -159.0]
+                        : obs.includes('Hawaii') || obs.includes('Hawaiian') ? [19.4, -155.3]
+                        : obs.includes('Cascade') ? [46.2, -121.5]
+                        : [39, -96]  // fallback, CONUS center
+            return (
+              <Marker key={`volc-${v.vnum}`} position={coord} icon={volcanoIcon(v.colorCode)}>
+                <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                  <b>{v.name}</b><br />
+                  {v.colorCode} · {v.alertLevel}<br />
+                  {v.observatory}<br />
+                  <span style={{ color: '#888', fontSize: 9 }}>(approx loc — HANS feed has no coords)</span>
+                </span></Tooltip>
+              </Marker>
+            )
+          })}
+
+          {/* NPS webcams — click opens the full cam page */}
+          {showWebcams && webcams.map(c => (
+            <Marker key={`cam-${c.id}`} position={[c.lat, c.lon]} icon={webcamIcon(c.isStreaming)}
+              eventHandlers={{ click: () => window.open(c.url, '_blank', 'noopener') }}>
+              <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                <b>{c.title}</b><br />
+                {c.park} ({c.parkState})<br />
+                {c.isStreaming ? <span style={{ color: '#8abeb7' }}>streaming</span> : 'snapshot'}
+                <br /><span style={{ color: '#888' }}>click to open</span>
+              </span></Tooltip>
+            </Marker>
+          ))}
+
         </MapContainer>
       </div>
 

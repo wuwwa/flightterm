@@ -1893,6 +1893,46 @@ app.get('/api/context/sentinel', ctxWrap(async (_req, res) => {
   res.json(await ctx.sentinel.fetchAccess())
 }))
 
+// GET /api/context/map?bbox=W,S,E,N&layers=fires,events,quakes,volcanoes,webcams
+// ─ Unified bbox fan-out for map overlays. Returns all requested layers in one shot.
+// ─ Each layer degrades independently: one source failing never tanks the rest.
+// ─ Adapters are radius-based; we convert bbox → center+radius (half diagonal).
+app.get('/api/context/map', ctxWrap(async (req, res) => {
+  cachePublic(res, 120)
+
+  const bboxParts = String(req.query.bbox || '').split(',').map(Number)
+  if (bboxParts.length !== 4 || bboxParts.some(n => !Number.isFinite(n))) {
+    return res.status(400).json({ error: 'bbox=W,S,E,N required (four comma-separated numbers)' })
+  }
+  const [w, s, e, n] = bboxParts
+  const lat = (s + n) / 2
+  const lon = (w + e) / 2
+
+  // Haversine from center to NE corner in km — use as radius.
+  const { haversineKm } = require('./context/geo')
+  const radiusKm = Math.ceil(haversineKm(lat, lon, n, e))
+
+  const wanted = new Set(
+    String(req.query.layers || 'fires,events,quakes,volcanoes,webcams')
+      .split(',').map(s => s.trim()).filter(Boolean)
+  )
+
+  const tasks = {}
+  if (wanted.has('fires'))     tasks.fires     = ctx.firms.fetchFires({ lat, lon, radiusKm: Math.min(radiusKm, 1500), days: 2 })
+  if (wanted.has('events'))    tasks.events    = ctx.eonet.fetchEvents({ lat, lon, radiusKm: Math.min(radiusKm, 3000) })
+  if (wanted.has('quakes'))    tasks.quakes    = ctx.usgsEvents.fetchQuakes({ lat, lon, radiusKm: Math.min(radiusKm, 3000) })
+  if (wanted.has('volcanoes')) tasks.volcanoes = ctx.usgsEvents.fetchVolcanoAlerts()
+  if (wanted.has('webcams'))   tasks.webcams   = ctx.nps.fetchNearby({ lat, lon, radiusKm: Math.min(radiusKm, 3000), limit: 200 })
+
+  const keys = Object.keys(tasks)
+  const results = await Promise.allSettled(Object.values(tasks))
+  const out = { bbox: [w, s, e, n], center: [lat, lon], radiusKm }
+  keys.forEach((k, i) => {
+    out[k] = results[i].status === 'fulfilled' ? results[i].value : { error: results[i].reason?.message || 'failed' }
+  })
+  res.json(out)
+}))
+
 // GET /api/context/aircraft/:icao
 // Joins every correlation source for one aircraft. If the poller has the
 // aircraft in its latest-flights cache we use that position; otherwise the
