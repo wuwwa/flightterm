@@ -1,0 +1,22 @@
+name: swim-wake
+
+# Keep flightterm-swim awake 8am–8pm ET (12:00–23:59 UTC during EDT).
+# Outside this window no pings land, so Fly idle-stops the machine.
+# Cron runs every 10 minutes during the window — each request counts as
+# HTTP activity for auto_stop_machines='stop', and also cold-starts the
+# machine via auto_start_machines if it's stopped.
+
+on:
+  schedule:
+    - cron: '*/10 12-23 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: wake SWIM
+        run: |
+          curl -sS --max-time 30 --retry 3 --retry-delay 10 \
+            https://flightterm-swim.fly.dev/health \
+            || echo "ping failed (machine may be cold-starting)"

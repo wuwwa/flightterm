@@ -14,18 +14,9 @@ primary_region = 'iad'
 [http_service]
   internal_port = 3002
   force_https = true
-  auto_stop_machines = 'off'
+  auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 1
-
-[checks]
-  [checks.live]
-    type = 'http'
-    port = 3002
-    path = '/health'
-    interval = '15s'
-    timeout = '10s'
-    grace_period = '30s'
+  min_machines_running = 0
 
 [[vm]]
   size = 'shared-cpu-1x'
