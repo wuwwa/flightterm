@@ -2359,6 +2359,53 @@ if (!process.env.VITEST) _server = app.listen(PORT, () => {
   // Heavy maintenance (dedup, vacuum, purge) — runs after server is listening
   runDeferredMaintenance()
 
+  // ── OpenSky credential healthcheck (fire-and-forget) ────────────────────
+  // Tests each configured slot at boot and prints a clear table so you don't
+  // have to dig through poller logs to learn a slot is invalid_client or
+  // rate-limited. Does not block startup.
+  ;(async () => {
+    const slots = [
+      { label: 'slot 1', id: process.env.OS_CLIENT_ID,   secret: process.env.OS_CLIENT_SECRET   },
+      { label: 'slot 2', id: process.env.OS_CLIENT_ID_2, secret: process.env.OS_CLIENT_SECRET_2 },
+      { label: 'slot 3', id: process.env.OS_CLIENT_ID_3, secret: process.env.OS_CLIENT_SECRET_3 },
+    ].filter(s => s.id && s.secret)
+    if (!slots.length) {
+      console.log('  ℹ  OpenSky: no credentials configured')
+      return
+    }
+    console.log(`\n  ── OpenSky credential healthcheck ──`)
+    for (const s of slots) {
+      try {
+        const tokRes = await axios.post(OS_TOKEN_URL,
+          new URLSearchParams({ grant_type: 'client_credentials', client_id: s.id, client_secret: s.secret }).toString(),
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 })
+        const token = tokRes.data?.access_token
+        if (!token) { console.log(`  ${s.label} (${s.id}) — FAIL no token in response`); continue }
+        // Test an actual /states call to distinguish "OAuth works but rate-limited" from "fully working".
+        try {
+          const ping = await axios.get(`${OS_BASE}/states/all?lamin=40&lomin=-75&lamax=42&lomax=-73`,
+            { headers: { Authorization: `Bearer ${token}` }, timeout: 10000 })
+          const remaining = ping.headers?.['x-rate-limit-remaining']
+          console.log(`  ${s.label} (${s.id}) — ✓ OK · ${ping.data?.states?.length ?? 0} states · ${remaining ?? '?'} credits remaining today`)
+        } catch (apiErr) {
+          const status = apiErr.response?.status
+          if (status === 429) {
+            const retry = Number(apiErr.response?.headers?.['x-rate-limit-retry-after-seconds']) || null
+            const hrs = retry ? (retry / 3600).toFixed(1) : '?'
+            console.log(`  ${s.label} (${s.id}) — ⚠ 429 rate-limited · retry in ~${hrs} hours (auth works, credits exhausted)`)
+          } else {
+            console.log(`  ${s.label} (${s.id}) — ✗ /states ${status || 'error'}: ${apiErr.message}`)
+          }
+        }
+      } catch (authErr) {
+        const status = authErr.response?.status
+        const body = authErr.response?.data?.error_description || authErr.response?.data?.error || authErr.message
+        console.log(`  ${s.label} (${s.id}) — ✗ OAuth ${status || ''}: ${body}`)
+      }
+    }
+    console.log('')
+  })()
+
   // Start anomaly poller if enabled via env
   if (process.env.POLLER_ENABLED === 'true') {
     poller.start()

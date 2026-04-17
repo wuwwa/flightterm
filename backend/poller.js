@@ -124,7 +124,15 @@ async function fetchOpenSky(region = 'usa') {
   } catch (err) {
     const status = err.response?.status
     const body = err.response?.data ? JSON.stringify(err.response.data).substring(0, 200) : ''
-    console.error(`poller: opensky API ${status || 'network error'} (${authMode}, key ${slotUsed + 1}/${OS_KEY_SLOTS.length}): ${err.message}${body ? ' — ' + body : ''}`)
+    // v5.7 — surface the retry-after window when OpenSky returns 429 so we
+    // can see at a glance how long we're shut out for. OpenSky returns
+    // X-Rate-Limit-Retry-After-Seconds pointing at the daily-credit reset.
+    let retryHint = ''
+    if (status === 429) {
+      const retry = Number(err.response?.headers?.['x-rate-limit-retry-after-seconds']) || null
+      if (retry) retryHint = ` · retry in ${(retry / 3600).toFixed(1)}h`
+    }
+    console.error(`poller: opensky API ${status || 'network error'} (${authMode}, key ${slotUsed + 1}/${OS_KEY_SLOTS.length})${retryHint}: ${err.message}${body ? ' — ' + body : ''}`)
     // Auto-switch key on 429 (rate limit) or 401 (bad token)
     if ((status === 429 || status === 401) && OS_KEY_SLOTS.length > 1) {
       const nextSlot = (activeKeySlot + 1) % OS_KEY_SLOTS.length
