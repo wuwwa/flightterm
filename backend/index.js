@@ -677,6 +677,66 @@ app.get('/api/sightings/aircraft/:icao', (req, res) => {
   res.json(getAircraftHistory(req.params.icao, limit))
 })
 
+// v5.3.0 — single live flight record by ICAO.
+// The FlightTable has all ~4,400 flights; the Dossier wants just one.
+// Falls back to DB lookup if the icao isn't currently in the poller cache.
+app.get('/api/flights/:icao', (req, res) => {
+  cachePublic(res, 10)
+  const icao = (req.params.icao || '').toLowerCase()
+  const flightBundle = poller.getFlights?.() || { flights: [] }
+  const match = (flightBundle.flights || []).find(f => (f.icao || '').toLowerCase() === icao)
+  if (match) return res.json({ live: true, flight: match })
+
+  // Not live — fall back to the most recent sighting so the dossier can
+  // still render identity + last known position.
+  const recent = getAircraftHistory(icao, 1)
+  if (recent?.length) {
+    const s = recent[0]
+    return res.json({
+      live: false,
+      flight: {
+        icao, callsign: s.callsign,
+        lat: s.lat, lon: s.lon, alt: s.alt, vel: s.vel, hdg: s.hdg,
+        squawk: s.squawk, grounded: !!s.grounded,
+        src: 'sightings', seen_at: s.seen_at,
+      },
+    })
+  }
+  return res.status(404).json({ error: `aircraft ${icao} not in poller cache or sightings DB` })
+})
+
+// v5.3.0 — aggregated flight history summary for the Dossier.
+// Much cheaper than pulling /api/sightings/aircraft/:icao?limit=1000 and
+// counting client-side.
+app.get('/api/flight/:icao/history', (req, res) => {
+  cachePublic(res, 60)
+  const icao = (req.params.icao || '').toLowerCase()
+  try {
+    const rows = getAircraftHistory(icao, 1000)
+    if (!rows.length) return res.json({ count: 0, firstSeen: null, lastSeen: null, days: 0, callsigns: [], countries: [], squawks: [] })
+
+    const times = rows.map(r => new Date(r.seen_at).getTime()).filter(Number.isFinite)
+    const first = Math.min(...times), last = Math.max(...times)
+    const daySet = new Set(rows.map(r => r.seen_at?.slice(0, 10)).filter(Boolean))
+    const tally = (field) => {
+      const m = {}
+      for (const r of rows) if (r[field]) m[r[field]] = (m[r[field]] || 0) + 1
+      return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([v, n]) => ({ value: v, count: n }))
+    }
+    res.json({
+      count: rows.length,
+      firstSeen: new Date(first).toISOString(),
+      lastSeen: new Date(last).toISOString(),
+      days: daySet.size,
+      callsigns: tally('callsign'),
+      countries: tally('country'),
+      squawks: tally('squawk'),
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // Aircraft track — lightweight alt/vel/hdg history for sparkline charts
 // GET /api/sightings/track/:icao?limit=60
 app.get('/api/sightings/track/:icao', (req, res) => {

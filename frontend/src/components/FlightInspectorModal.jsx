@@ -126,7 +126,16 @@ export default function FlightInspectorModal({
           <span className="text-fg3 text-[10px] tabular-nums hidden sm:inline">eta {fmtTime(tfms.eta)}</span>
         )}
         <span className="text-fg3/40 text-[9px] tracking-wide hidden sm:inline">{flight.icao}</span>
-        <span className={clsx('text-[9px] ml-auto', srcTag.color)}>{srcTag.label}</span>
+        <span className="flex-1" />
+        {/* v5.3.0 — open full dossier page */}
+        <a
+          href={`#flight=${flight.icao}${flight.callsign && flight.callsign !== '—' ? '&cs=' + encodeURIComponent(flight.callsign) : ''}`}
+          className="text-acc hover:text-ylw text-[10px] border border-acc/50 hover:border-ylw px-1.5 py-[1px] rounded cursor-pointer"
+          title="Open full dossier"
+        >
+          dossier →
+        </a>
+        <span className={clsx('text-[9px]', srcTag.color)}>{srcTag.label}</span>
       </div>
 
       {/* ── Main: scrollable single column. Map → sparklines → tiles. ── */}

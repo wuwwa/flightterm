@@ -5,6 +5,7 @@ import CommandBar from './components/CommandBar'
 import LogPanel from './components/LogPanel'
 import FlightTable from './components/FlightTable'
 import InterestingFeed from './components/InterestingFeed'
+import FlightDossier from './components/FlightDossier'
 import SettingsModal from './components/SettingsModal'
 import UsagePanel from './components/UsagePanel'
 import NotamPanel from './components/NotamPanel'
@@ -91,6 +92,28 @@ export default function App() {
 
   // ── detail / enrichment state ───────────────────────────────────────────────
   const [selectedFlight, setSelectedFlight] = useState(null)
+
+  // v5.3.0 — hash-based routing for the full-page FlightDossier.
+  // #flight=<icao> (optionally with &cs=<callsign>) opens the dossier overlay.
+  const [dossier, setDossier] = useState(null)  // { icao, callsign } | null
+  useEffect(() => {
+    const parseHash = () => {
+      const h = window.location.hash.slice(1)  // strip leading #
+      if (!h.startsWith('flight=')) return null
+      const params = new URLSearchParams(h)
+      const icao = (params.get('flight') || '').toLowerCase()
+      if (!icao) return null
+      return { icao, callsign: params.get('cs') || null }
+    }
+    setDossier(parseHash())
+    const onHash = () => setDossier(parseHash())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+  const closeDossier = () => {
+    if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search)
+    setDossier(null)
+  }
   const [enrichCache, setEnrichCache] = useState({})
   const [aeroCache, setAeroCache] = useState({})
 
@@ -733,6 +756,16 @@ export default function App() {
 
       {showUsage && (
         <UsagePanel onClose={() => setShowUsage(false)} backendOk={backendOk} />
+      )}
+
+      {/* v5.3.0 Flight Dossier — URL-addressable at #flight=<icao> */}
+      {dossier && (
+        <FlightDossier
+          icao={dossier.icao}
+          callsign={dossier.callsign}
+          flights={flights}
+          onClose={closeDossier}
+        />
       )}
 
       {showNotams && (

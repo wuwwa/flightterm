@@ -1,7 +1,7 @@
 {
   "name": "flightterm-frontend",
-  "version": "2.2.0",
-  "description": "v2.2.0 adds the InterestingFeed component — a ranked list of noteworthy flights above the FlightTable, driven by /api/feed/interesting, auto-refreshed every 20s.",
+  "version": "2.3.0",
+  "description": "v2.3.0 adds FlightDossier.jsx — the full-page deep-dive at #flight=<icao>. Hash-based routing + parallel source aggregation, reuses FlightMap + ContextPanel, adds altitude/speed profile charts (recharts).",
   "private": true,
   "type": "module",
   "scripts": {

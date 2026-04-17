@@ -1,7 +1,7 @@
 {
   "name": "flightterm-backend",
-  "version": "2.2.1",
-  "description": "flightterm Express proxy server. v2.2.1 adds backend/feed/milCache.js (APL /mil periodic fetch for the military signal), re-buckets route-deviation weights with a 500 km credibility cap, and documents the ANOMALY_DETECTION_ENABLED=true requirement for the feed to have full multi-signal input.",
+  "version": "2.3.0",
+  "description": "flightterm Express proxy server. v2.3.0 adds GET /api/flights/:icao (single live flight lookup with sightings fallback) and GET /api/flight/:icao/history (aggregated sightings summary with common callsigns/countries/squawks) for the Flight Dossier.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

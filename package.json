@@ -1,7 +1,7 @@
 {
   "name": "flightterm",
-  "version": "5.2.1",
-  "description": "Flight tracking terminal — React + Express. v5.2.1 fixes the three silent data pipelines (sightings, anomalies, mil flag) that made the v5.2.0 feed a route-deviation-only ranker. Multi-signal corroboration now actually happens: orbit, mil, squawk, and callsign signals overlap on real events.",
+  "version": "5.3.0",
+  "description": "Flight tracking terminal — React + Express. v5.3.0 adds the Flight Dossier: a URL-addressable full-page deep dive at #flight=<icao> aggregating every data source (identity, live telemetry, filed route, track map, altitude/speed profiles, correlation layer, historical sightings, anomaly history, dep/arr METARs, active SIGMETs, external jump-outs).",
   "private": true,
   "scripts": {
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
