@@ -113,14 +113,18 @@ function runInferences({ aircraft, orbit, callsignTags, squawkTag, nearby, env }
     })
   }
 
-  // 6. Volcano overflight / avoidance — within 100km of an elevated-alert volcano
+  // 6. Volcano overflight / avoidance — within 150km of an elevated-alert volcano
   if (nearby.volcanoNear) {
+    const v = nearby.volcanoNear
+    // Boost confidence when the aircraft is low + close to a RED/ORANGE volcano;
+    // ash cloud interactions are a hard aviation-safety constraint.
+    const highRisk = (v.colorCode === 'RED' || v.colorCode === 'ORANGE')
     out.push({
       label: 'volcano_vicinity',
-      confidence: 0.80,
+      confidence: highRisk ? 0.85 : 0.70,
       reasons: [
-        `${nearby.volcanoNear.name} on ${nearby.volcanoNear.colorCode}/${nearby.volcanoNear.alertLevel} (${nearby.volcanoNear.observatory})`,
-        `within 100km of aircraft position`,
+        `${v.name} on ${v.colorCode}/${v.alertLevel} (${v.observatory})`,
+        `${v.distanceKm.toFixed(0)}km from aircraft position`,
       ],
     })
   }
@@ -166,7 +170,16 @@ function runInferences({ aircraft, orbit, callsignTags, squawkTag, nearby, env }
   }
 
   // 10. Air-quality corroboration — PM2.5 spike + nearby fire
-  const pm25 = env.airQuality?.latest?.readings?.find(r => r.sensorId)?.value
+  //
+  // bug_006 — `latest.readings` is a parallel array to `closest.sensors`
+  // keyed by sensorId. We must pick the reading whose sensor's parameter is
+  // `pm25`; previously we grabbed readings[0], which could be O3 / NO2 /
+  // PM10 / temperature / anything, triggering false smoke-plume inferences.
+  const sensors = env.airQuality?.closest?.sensors || []
+  const pm25SensorId = sensors.find(s => s.parameter === 'pm25')?.id
+  const pm25 = pm25SensorId != null
+    ? env.airQuality?.latest?.readings?.find(r => r.sensorId === pm25SensorId)?.value
+    : null
   if (nearby.fires?.count >= 3 && pm25 != null && pm25 >= 35) {
     out.push({
       label: 'fire_related_smoke_plume',
@@ -219,14 +232,22 @@ async function buildContext({ aircraft, track = null, radii = {} }) {
     settled(usgsEvents.fetchVolcanoAlerts(),                            { alerts: [] }),
   ])
 
-  // Find nearest elevated-alert volcano (HANS list is small).
+  // Find nearest elevated-alert volcano within 150km.
+  // v5.1.1 bug_018 — HANS alerts don't carry coords; usgsEvents.js now enriches
+  // each alert via backend/context/volcanoCoords.js so we can do real distance
+  // math here. Alerts whose vnum isn't in the table keep lat/lon=null and are
+  // just skipped rather than breaking the loop.
   let volcanoNear = null
   if (volcanoes.alerts?.length) {
-    // HANS alerts don't carry coords. We match by known observatory region
-    // as a coarse prefilter — Alaska / Cascades / Hawaii. For accuracy the
-    // caller should verify with a volcano coord DB. For now, we surface any
-    // alert within ~100km of aircraft by joining on volcano name separately.
-    // Left to a follow-up; emit the global list under nearby.volcanoAlerts.
+    let best = null
+    for (const v of volcanoes.alerts) {
+      if (v.lat == null || v.lon == null) continue
+      const d = haversineKm(lat, lon, v.lat, v.lon)
+      if (d <= 150 && (!best || d < best.distanceKm)) {
+        best = { ...v, distanceKm: d }
+      }
+    }
+    if (best) volcanoNear = best
   }
   // EONET wildfire near (within a few km)
   const eonetWildfireNear = events.events?.find(e =>

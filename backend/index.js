@@ -1937,27 +1937,43 @@ app.get('/api/context/map', ctxWrap(async (req, res) => {
 // Joins every correlation source for one aircraft. If the poller has the
 // aircraft in its latest-flights cache we use that position; otherwise the
 // caller can pass lat/lon/altitude/etc. as query params.
+//
+// v5.1.1 merged_bug_002 — the poller stores flights with short field names
+// (alt / vel / hdg) and altitude in *meters* (OpenSky's state[7]). This
+// handler previously read .alt_baro / .altitude / .gs / .velocity / .track
+// / .heading — all undefined — and fell through to query params. Any caller
+// without overrides (curl, external integrations) got altitude=null and every
+// altitude-gated inference silently skipped. Fix: read the real fields AND
+// convert m → ft because correlation.js thresholds and reason strings are
+// written in feet.
 app.get('/api/context/aircraft/:icao', ctxWrap(async (req, res) => {
-  cachePublic(res, 30)
   const icao = req.params.icao.toLowerCase()
 
   // Pull aircraft state from poller cache first, then fall back to query.
   // getFlights() returns { flights, fetchedAt, region, count, pollInterval }.
   const pollerFlights = poller.getFlights?.()?.flights || []
   const pollerFlight = pollerFlights.find(f => (f.icao || '').toLowerCase() === icao)
+
+  const altFt = pollerFlight?.alt != null ? pollerFlight.alt * 3.281 : null
+  const velKt = pollerFlight?.vel != null ? pollerFlight.vel * 1.944 : null  // m/s → kt
   const aircraft = {
     icao,
     callsign:  pollerFlight?.callsign || req.query.callsign,
     squawk:    pollerFlight?.squawk   || req.query.squawk,
     lat:       pollerFlight?.lat != null ? pollerFlight.lat : Number(req.query.lat),
     lon:       pollerFlight?.lon != null ? pollerFlight.lon : Number(req.query.lon),
-    altitude:  pollerFlight?.alt_baro ?? pollerFlight?.altitude ?? (req.query.altitude ? Number(req.query.altitude) : null),
-    velocity:  pollerFlight?.gs      ?? pollerFlight?.velocity ?? (req.query.velocity ? Number(req.query.velocity) : null),
-    heading:   pollerFlight?.track   ?? pollerFlight?.heading  ?? (req.query.heading  ? Number(req.query.heading)  : null),
+    altitude:  altFt ?? (req.query.altitude ? Number(req.query.altitude) : null),
+    velocity:  velKt ?? (req.query.velocity ? Number(req.query.velocity) : null),
+    heading:   pollerFlight?.hdg ?? (req.query.heading ? Number(req.query.heading) : null),
   }
   if (!Number.isFinite(aircraft.lat) || !Number.isFinite(aircraft.lon)) {
+    // bug_020 — do NOT let this 404 be cached; the next poll cycle may
+    // populate the aircraft and we don't want browsers serving a stale 404.
+    res.set('Cache-Control', 'no-store')
     return res.status(404).json({ error: 'aircraft position not in poller cache; pass ?lat=&lon=' })
   }
+
+  cachePublic(res, 30)  // only set on the success path
 
   // Pull a short track from the sightings DB to feed orbit detection.
   let track = []
@@ -1969,11 +1985,12 @@ app.get('/api/context/aircraft/:icao', ctxWrap(async (req, res) => {
 
 // POST /api/context/position — same shape but for arbitrary lat/lon + optional track
 app.post('/api/context/position', ctxWrap(async (req, res) => {
-  cachePublic(res, 30)
   const { lat, lon, altitude, velocity, heading, callsign, squawk, icao, track } = req.body || {}
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    res.set('Cache-Control', 'no-store')
     return res.status(400).json({ error: 'body requires lat and lon' })
   }
+  cachePublic(res, 30)
   const bundle = await ctx.correlation.buildContext({
     aircraft: { icao, callsign, squawk, lat, lon, altitude, velocity, heading },
     track: Array.isArray(track) ? track : null,

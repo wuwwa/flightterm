@@ -5,6 +5,7 @@
 
 const axios = require('axios')
 const { haversineKm } = require('./geo')
+const VOLCANO_COORDS = require('./volcanoCoords')
 
 const QUAKE_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson'
 const VOLCANO_URL = 'https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes'
@@ -64,15 +65,23 @@ async function fetchVolcanoAlerts() {
       byVolcano.set(v.volcano_name, v)
     }
   }
-  const alerts = [...byVolcano.values()].map(v => ({
-    name: v.volcano_name,
-    vnum: v.vnum,
-    colorCode: v.color_code,       // GREEN / YELLOW / ORANGE / RED
-    alertLevel: v.alert_level,     // NORMAL / ADVISORY / WATCH / WARNING
-    observatory: v.obs_fullname,
-    sent: v.sent_utc,
-    noticeUrl: v.notice_url,
-  }))
+  const alerts = [...byVolcano.values()].map(v => {
+    // v5.1.1 bug_018 — HANS feed has no lat/lon. Join to our static vnum
+    // table so the correlation engine can do distance math. Missing vnums
+    // surface as `lat:null, lon:null` and the distance-based rule skips them.
+    const coord = VOLCANO_COORDS[v.vnum] || null
+    return {
+      name: v.volcano_name,
+      vnum: v.vnum,
+      colorCode: v.color_code,       // GREEN / YELLOW / ORANGE / RED
+      alertLevel: v.alert_level,     // NORMAL / ADVISORY / WATCH / WARNING
+      observatory: v.obs_fullname,
+      sent: v.sent_utc,
+      noticeUrl: v.notice_url,
+      lat: coord?.lat ?? null,
+      lon: coord?.lon ?? null,
+    }
+  })
   CACHE.set('volcanoes', { t: now, v: { count: alerts.length, alerts } })
   return CACHE.get('volcanoes').v
 }

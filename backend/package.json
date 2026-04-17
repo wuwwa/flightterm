@@ -1,7 +1,7 @@
 {
   "name": "flightterm-backend",
-  "version": "2.1.0",
-  "description": "flightterm Express proxy server. v2.0.0 introduced the Correlation Layer (backend/context/*). v2.1.0 adds /api/context/map bbox fan-out serving all overlay layers at once + NPS pagination dedup fix.",
+  "version": "2.1.1",
+  "description": "flightterm Express proxy server. v2.1.0 added /api/context/map bbox fan-out. v2.1.1 fixes orbit field names, poller field names + altitude unit conversion, 404 caching, PM2.5 sensor selection, and wires volcano_vicinity with a coord table.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

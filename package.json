@@ -1,7 +1,7 @@
 {
   "name": "flightterm",
-  "version": "5.1.0",
-  "description": "Flight tracking terminal — React + Express. v5.0.0 introduced the Correlation Layer; v5.1.0 adds toggleable map overlays (FIRMS fires, EONET events, USGS quakes + volcanoes, NPS webcams) rendered on the NAS map.",
+  "version": "5.1.1",
+  "description": "Flight tracking terminal — React + Express. v5.0.0 introduced the Correlation Layer; v5.1.0 added toggleable map overlays; v5.1.1 is a correctness-focused follow-up that fixes five bugs surfaced in code review.",
   "private": true,
   "scripts": {
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
