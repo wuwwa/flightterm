@@ -1,6 +1,6 @@
 {
   "name": "flightterm-backend",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "flightterm Express proxy server. v2.3.0 adds GET /api/flights/:icao (single live flight lookup with sightings fallback) and GET /api/flight/:icao/history (aggregated sightings summary with common callsigns/countries/squawks) for the Flight Dossier.",
   "main": "index.js",
   "scripts": {

@@ -677,6 +677,119 @@ app.get('/api/sightings/aircraft/:icao', (req, res) => {
   res.json(getAircraftHistory(req.params.icao, limit))
 })
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ── Unified aircraft search (v5.6.0) ────────────────────────────────────────
+// Single endpoint the frontend command-bar calls as you type. Searches:
+//   1. Live flights in the poller cache (callsign, icao, operator, type, reg)
+//   2. The aircraft_cache DB (historical aircraft we've seen, even if offline)
+// Returns up to N ranked suggestions with a { live: true|false } tag so the
+// UI can label them. Live matches always rank above historical.
+// ═════════════════════════════════════════════════════════════════════════════
+app.get('/api/search', (req, res) => {
+  cachePublic(res, 10)
+  const q = String(req.query.q || '').trim().toLowerCase()
+  const limit = Math.max(1, Math.min(Number(req.query.limit) || 15, 50))
+  if (q.length < 2) return res.json({ q, total: 0, results: [] })
+
+  // Detect an exact ICAO hex match (6 hex chars). If the query looks like one,
+  // we bump it to the top of results so Enter goes straight to the dossier.
+  const looksLikeHex = /^[0-9a-f]{6}$/.test(q)
+
+  const bundle = poller.getFlights?.() || { flights: [] }
+  const all = bundle.flights || []
+
+  const results = []
+  const seen = new Set()
+
+  function addLive(f, why) {
+    if (!f?.icao || seen.has(f.icao)) return
+    seen.add(f.icao)
+    results.push({
+      icao: f.icao,
+      callsign: f.callsign || null,
+      acType: f.acType || null,
+      acReg: f.acReg || null,
+      acOperator: f.acOperator || null,
+      country: f.country || null,
+      live: true,
+      lat: f.lat, lon: f.lon,
+      altFt: f.alt != null ? Math.round(f.alt * 3.281) : null,
+      squawk: f.squawk || null,
+      match: why,
+      rank: 0,
+    })
+  }
+
+  // Pass 1: exact ICAO — highest priority.
+  if (looksLikeHex) {
+    const f = all.find(x => x.icao === q)
+    if (f) addLive(f, 'icao')
+  }
+
+  // Pass 2: live flights — exact then prefix then substring matches.
+  const scoreMatch = (f) => {
+    const cs = (f.callsign || '').toLowerCase()
+    const op = (f.acOperator || '').toLowerCase()
+    const ty = (f.acType || '').toLowerCase()
+    const reg = (f.acReg || '').toLowerCase()
+    const ic = (f.icao || '').toLowerCase()
+    if (ic === q || reg === q || cs === q)                         return { w: 100, why: 'exact' }
+    if (cs.startsWith(q) || reg.startsWith(q) || ic.startsWith(q)) return { w: 70,  why: 'prefix' }
+    if (cs.includes(q) || reg.includes(q))                         return { w: 50,  why: 'cs/reg' }
+    if (op.includes(q))                                            return { w: 25,  why: 'operator' }
+    if (ty.includes(q))                                            return { w: 20,  why: 'type' }
+    return null
+  }
+  const liveMatches = []
+  for (const f of all) {
+    const m = scoreMatch(f)
+    if (m) liveMatches.push({ f, ...m })
+  }
+  liveMatches.sort((a, b) => b.w - a.w)
+  for (const { f, why } of liveMatches) {
+    if (results.length >= limit) break
+    addLive(f, why)
+  }
+
+  // Pass 3: historical aircraft_cache — only if we still have room.
+  if (results.length < limit) {
+    try {
+      const need = limit - results.length
+      const rows = rawDb.prepare(`
+        SELECT icao, type, reg, desc, operator
+        FROM aircraft_cache
+        WHERE icao = ? OR reg LIKE ? OR operator LIKE ? OR type LIKE ? OR desc LIKE ?
+        LIMIT ?
+      `).all(q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, need * 3)
+      const lastSeenStmt = rawDb.prepare(`
+        SELECT MAX(seen_at) as last_seen, callsign
+        FROM sightings WHERE icao = ?
+      `)
+      for (const r of rows) {
+        if (seen.has(r.icao) || results.length >= limit) continue
+        seen.add(r.icao)
+        const ls = lastSeenStmt.get(r.icao) || {}
+        results.push({
+          icao: r.icao,
+          callsign: ls.callsign || null,
+          acType: r.type,
+          acReg: r.reg,
+          acOperator: r.operator,
+          country: null,
+          live: false,
+          lastSeen: ls.last_seen || null,
+          match: 'cache',
+          rank: 1,
+        })
+      }
+    } catch (err) {
+      console.warn('search: cache lookup failed:', err.message)
+    }
+  }
+
+  res.json({ q, total: results.length, results })
+})
+
 // v5.4.0 — nearby flights in a radius around a point. Haversine-filtered
 // over the live poller cache. Default radius 20 nm. Sorted by distance.
 // MUST precede /api/flights/:icao so "nearby" doesn't get captured as an ICAO.

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { useSwim } from '../contexts/SwimContext'
+import { searchAircraft } from '../services/search'
 
 const REGIONS = ['global', 'usa', 'europe', 'asia', 'atlantic']
 
@@ -27,6 +28,89 @@ export default function CommandBar({
   const [time, setTime] = useState('')
   const [remaining, setRemaining] = useState(null)
   const { status: swimStatus } = useSwim()
+
+  // v5.6.0 — suggestions dropdown. Debounced search + keyboard-nav open-dossier.
+  const [suggestions, setSuggestions] = useState([])
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [highlighted, setHighlighted] = useState(0)
+  const inputRef = useRef(null)
+  const dropdownRef = useRef(null)
+  const debounceTimerRef = useRef(null)
+
+  const openDossier = (icao, callsign) => {
+    const suffix = callsign ? `&cs=${encodeURIComponent(callsign)}` : ''
+    window.location.hash = `flight=${icao}${suffix}`
+    setDropdownOpen(false)
+    // Defocus the input so the dossier's esc-to-close works naturally.
+    inputRef.current?.blur()
+  }
+
+  // Debounced search on input change.
+  useEffect(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    if (!filter || filter.trim().length < 2) {
+      setSuggestions([])
+      return
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      searchAircraft(filter, { limit: 10 })
+        .then(d => { setSuggestions(d.results || []); setHighlighted(0) })
+        .catch(() => setSuggestions([]))
+    }, 180)
+    return () => { if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current) }
+  }, [filter])
+
+  // Close dropdown on outside click.
+  useEffect(() => {
+    if (!dropdownOpen) return
+    const onDocClick = (e) => {
+      if (!dropdownRef.current) return
+      if (!dropdownRef.current.contains(e.target) && e.target !== inputRef.current) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [dropdownOpen])
+
+  // Global "/" focuses the search input (unless already focused in a field).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault()
+        inputRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const onSearchKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      // 1) If a suggestion is highlighted, open it.
+      const s = suggestions[highlighted]
+      if (s) { openDossier(s.icao, s.callsign); return }
+      // 2) If query is exactly a 6-char hex, treat it as an ICAO directly.
+      const q = (filter || '').trim().toLowerCase()
+      if (/^[0-9a-f]{6}$/.test(q)) { openDossier(q); return }
+      // 3) Otherwise do a one-shot search and open the top result if any.
+      searchAircraft(filter, { limit: 1 }).then(d => {
+        const top = d.results?.[0]
+        if (top) openDossier(top.icao, top.callsign)
+      })
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (!dropdownOpen) setDropdownOpen(true)
+      setHighlighted(h => Math.min(h + 1, suggestions.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHighlighted(h => Math.max(h - 1, 0))
+    } else if (e.key === 'Escape') {
+      setDropdownOpen(false)
+      inputRef.current?.blur()
+    }
+  }
 
   // UTC clock
   useEffect(() => {
@@ -101,15 +185,55 @@ export default function CommandBar({
         </span>
       )}
 
-      {/* Filter — grows to fill */}
-      <div className="flex items-center gap-1 flex-1 min-w-24 sm:min-w-32 ml-1">
+      {/* Search / filter — grows to fill. v5.6.0 adds a dropdown of
+          matching live + historical aircraft and Enter-to-open-dossier. */}
+      <div className="flex items-center gap-1 flex-1 min-w-24 sm:min-w-32 ml-1 relative">
         <span className="text-grn select-none text-[11px]">❯</span>
         <input
+          ref={inputRef}
           className="bg-transparent border-none outline-none text-fg text-[11px] flex-1 caret-fg font-mono min-w-0 placeholder:text-fg3/30"
           value={filter}
-          onChange={e => onFilterChange(e.target.value)}
-          placeholder="callsign, icao, airline, type, airport…"
+          onChange={e => { onFilterChange(e.target.value); setDropdownOpen(true) }}
+          onFocus={() => filter && setDropdownOpen(true)}
+          onKeyDown={onSearchKeyDown}
+          placeholder="type 2+ chars · enter to open dossier · / to focus"
         />
+        {dropdownOpen && suggestions.length > 0 && (
+          <div
+            ref={dropdownRef}
+            className="absolute top-full left-0 right-0 mt-0.5 z-50 bg-bg1 border border-border2 shadow-lg rounded max-h-80 overflow-y-auto"
+          >
+            {suggestions.map((s, i) => {
+              const active = i === highlighted
+              return (
+                <button
+                  key={s.icao}
+                  onMouseEnter={() => setHighlighted(i)}
+                  onClick={() => openDossier(s.icao, s.callsign)}
+                  className={clsx(
+                    'w-full text-left px-2 py-1 border-b border-white/3 last:border-b-0 cursor-pointer flex items-center gap-2 text-[11px]',
+                    active ? 'bg-acc/15' : 'hover:bg-bg2/60'
+                  )}
+                >
+                  <span className={clsx('text-[9px] px-1 py-[1px] border rounded tabular-nums shrink-0',
+                    s.live ? 'border-grn/50 text-grn bg-grn/5' : 'border-border text-fg3 bg-bg2/60')}>
+                    {s.live ? 'live' : 'db'}
+                  </span>
+                  <span className="text-ylw font-mono w-20 shrink-0 truncate">{s.callsign || s.icao}</span>
+                  <span className="text-fg3 font-mono text-[10px] shrink-0">{s.icao}</span>
+                  <span className="text-acc text-[10px] shrink-0">{s.acType}</span>
+                  {s.acReg && <span className="text-cyn text-[10px] shrink-0">{s.acReg}</span>}
+                  <span className="text-fg3 truncate text-[10px]">{s.acOperator}</span>
+                  {s.altFt != null && <span className="text-fg3 text-[9px] tabular-nums shrink-0 ml-auto">{s.altFt.toLocaleString()}ft</span>}
+                  <span className="text-fg3/40 text-[8px] shrink-0">{s.match}</span>
+                </button>
+              )
+            })}
+            <div className="text-fg3/40 text-[9px] px-2 py-0.5 border-t border-border bg-bg2/30">
+              ↑↓ navigate · enter opens dossier · esc closes
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Region selector */}
