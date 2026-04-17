@@ -1,6 +1,6 @@
 {
   "name": "flightterm",
-  "version": "5.3.1",
+  "version": "5.4.0",
   "description": "Flight tracking terminal — React + Express. v5.3.0 adds the Flight Dossier: a URL-addressable full-page deep dive at #flight=<icao> aggregating every data source (identity, live telemetry, filed route, track map, altitude/speed profiles, correlation layer, historical sightings, anomaly history, dep/arr METARs, active SIGMETs, external jump-outs).",
   "private": true,
   "scripts": {

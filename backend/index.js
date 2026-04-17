@@ -677,6 +677,41 @@ app.get('/api/sightings/aircraft/:icao', (req, res) => {
   res.json(getAircraftHistory(req.params.icao, limit))
 })
 
+// v5.4.0 — nearby flights in a radius around a point. Haversine-filtered
+// over the live poller cache. Default radius 20 nm. Sorted by distance.
+// MUST precede /api/flights/:icao so "nearby" doesn't get captured as an ICAO.
+app.get('/api/flights/nearby', (req, res) => {
+  cachePublic(res, 10)
+  const lat = Number(req.query.lat), lon = Number(req.query.lon)
+  const radiusNm = Math.min(Number(req.query.radiusNm) || 20, 500)
+  const excludeIcao = (req.query.excludeIcao || '').toLowerCase()
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: 'lat and lon required' })
+  }
+  const { haversineKm } = require('./context/geo')
+  const NM_PER_KM = 0.539957
+  const bundle = poller.getFlights?.() || { flights: [] }
+  const out = []
+  for (const f of bundle.flights || []) {
+    if (f.lat == null || f.lon == null) continue
+    if (f.icao && f.icao.toLowerCase() === excludeIcao) continue
+    const distNm = haversineKm(lat, lon, f.lat, f.lon) * NM_PER_KM
+    if (distNm <= radiusNm) {
+      out.push({
+        icao: f.icao, callsign: f.callsign, acType: f.acType, acReg: f.acReg,
+        acOperator: f.acOperator, lat: f.lat, lon: f.lon,
+        altFt: f.alt != null ? Math.round(f.alt * 3.281) : null,
+        velKt: f.vel != null ? Math.round(f.vel * 1.944) : null,
+        hdg: f.hdg, squawk: f.squawk, grounded: !!f.grounded, mil: !!f.mil,
+        distNm: +distNm.toFixed(1),
+        bearing: Math.round((Math.atan2(f.lon - lon, f.lat - lat) * 180 / Math.PI + 360) % 360),
+      })
+    }
+  }
+  out.sort((a, b) => a.distNm - b.distNm)
+  res.json({ center: [lat, lon], radiusNm, count: out.length, flights: out.slice(0, 50) })
+})
+
 // v5.3.0 — single live flight record by ICAO.
 // The FlightTable has all ~4,400 flights; the Dossier wants just one.
 // Falls back to DB lookup if the icao isn't currently in the poller cache.
@@ -703,6 +738,65 @@ app.get('/api/flights/:icao', (req, res) => {
     })
   }
   return res.status(404).json({ error: `aircraft ${icao} not in poller cache or sightings DB` })
+})
+
+// v5.4.0 — flights currently airborne for a given operator or aircraft type.
+// Used by the dossier's clickable-value drill-ins.
+app.get('/api/flights/by-operator/:operator', (req, res) => {
+  cachePublic(res, 15)
+  const op = (req.params.operator || '').toLowerCase()
+  const limit = Math.min(Number(req.query.limit) || 20, 100)
+  const bundle = poller.getFlights?.() || { flights: [] }
+  const out = (bundle.flights || [])
+    .filter(f => (f.acOperator || '').toLowerCase() === op)
+    .slice(0, limit)
+    .map(f => ({
+      icao: f.icao, callsign: f.callsign, acType: f.acType, acReg: f.acReg,
+      lat: f.lat, lon: f.lon,
+      altFt: f.alt != null ? Math.round(f.alt * 3.281) : null,
+      velKt: f.vel != null ? Math.round(f.vel * 1.944) : null,
+      grounded: !!f.grounded,
+    }))
+  res.json({ operator: req.params.operator, count: out.length, flights: out })
+})
+
+app.get('/api/flights/by-type/:type', (req, res) => {
+  cachePublic(res, 15)
+  const type = (req.params.type || '').toUpperCase()
+  const limit = Math.min(Number(req.query.limit) || 20, 100)
+  const bundle = poller.getFlights?.() || { flights: [] }
+  const out = (bundle.flights || [])
+    .filter(f => (f.acType || '').toUpperCase() === type)
+    .slice(0, limit)
+    .map(f => ({
+      icao: f.icao, callsign: f.callsign, acType: f.acType, acReg: f.acReg,
+      acOperator: f.acOperator, lat: f.lat, lon: f.lon,
+      altFt: f.alt != null ? Math.round(f.alt * 3.281) : null,
+      velKt: f.vel != null ? Math.round(f.vel * 1.944) : null,
+      grounded: !!f.grounded,
+    }))
+  res.json({ type, count: out.length, flights: out })
+})
+
+// v5.4.0 — sightings history for a callsign (across all ICAOs that used it).
+// Useful for callsign recycling patterns.
+app.get('/api/sightings/callsign/:callsign', (req, res) => {
+  cachePublic(res, 60)
+  const cs = (req.params.callsign || '').toUpperCase().trim()
+  const limit = Math.min(Number(req.query.limit) || 50, 500)
+  try {
+    const rows = rawDb.prepare(`
+      SELECT icao, callsign, country, seen_at, lat, lon, alt, vel, hdg, squawk
+      FROM sightings
+      WHERE UPPER(callsign) = ?
+      ORDER BY seen_at DESC
+      LIMIT ?
+    `).all(cs, limit)
+    const uniqIcaos = [...new Set(rows.map(r => r.icao))]
+    res.json({ callsign: cs, totalRows: rows.length, uniqueIcaos: uniqIcaos.length, icaos: uniqIcaos, rows })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // v5.3.0 — aggregated flight history summary for the Dossier.

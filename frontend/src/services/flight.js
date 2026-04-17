@@ -70,6 +70,40 @@ export async function fetchSigmets(hazard) {
   return res.data
 }
 
+// ── v5.4.0 drill-in helpers ─────────────────────────────────────────────────
+
+export async function fetchNearby({ lat, lon, radiusNm = 20, excludeIcao }) {
+  const res = await axios.get(`/api/flights/nearby`, {
+    params: { lat, lon, radiusNm, excludeIcao },
+    timeout: T_MED,
+  })
+  return res.data
+}
+
+export async function fetchByOperator(operator, limit = 20) {
+  const res = await axios.get(`/api/flights/by-operator/${encodeURIComponent(operator)}`, {
+    params: { limit },
+    timeout: T_MED,
+  })
+  return res.data
+}
+
+export async function fetchByType(type, limit = 20) {
+  const res = await axios.get(`/api/flights/by-type/${encodeURIComponent(type)}`, {
+    params: { limit },
+    timeout: T_MED,
+  })
+  return res.data
+}
+
+export async function fetchCallsignHistory(callsign, limit = 50) {
+  const res = await axios.get(`/api/sightings/callsign/${encodeURIComponent(callsign)}`, {
+    params: { limit },
+    timeout: T_MED,
+  })
+  return res.data
+}
+
 // ── Dossier aggregator ─────────────────────────────────────────────────────
 // Returns a Promise that resolves progressively via onSection callback.
 // Final resolve fires once all sections finished (successfully or not).

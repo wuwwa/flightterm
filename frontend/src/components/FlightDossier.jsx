@@ -10,7 +10,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip as RTTooltip, ResponsiveContaine
 import FlightMap from './FlightMap'
 import ContextPanel from './ContextPanel'
 import { squawkLabel, squawkColor } from '../utils/squawk'
-import { fetchDossier, fetchMetar } from '../services/flight'
+import { fetchDossier, fetchMetar, fetchNearby, fetchByOperator, fetchByType, fetchCallsignHistory } from '../services/flight'
 
 function fmtTime(s) {
   if (!s) return '—'
@@ -25,14 +25,55 @@ function fmtNum(n, suffix = '') {
   return Number(n).toLocaleString() + suffix
 }
 
-function Row({ label, value, color = 'text-fg2', mono = true }) {
+function Row({ label, value, color = 'text-fg2', mono = true, onClick, active }) {
+  const clickable = !!onClick
   return (
-    <div className="flex items-baseline justify-between gap-2 py-0.5 text-[11px] border-b border-white/3 last:border-b-0">
+    <div className={clsx(
+      'flex items-baseline justify-between gap-2 py-0.5 text-[11px] border-b border-white/3 last:border-b-0',
+      clickable && 'cursor-pointer',
+      active && 'bg-acc/10'
+    )}
+      onClick={onClick}
+      title={clickable ? 'click to drill in' : undefined}
+    >
       <span className="text-fg3 text-[10px] uppercase tracking-wide shrink-0">{label}</span>
-      <span className={clsx('text-right truncate', mono && 'tabular-nums', color)}>
+      <span className={clsx('text-right truncate', mono && 'tabular-nums', color, clickable && 'border-b border-dotted border-current/40 hover:text-fg')}>
         {value ?? <span className="text-fg3/30">—</span>}
       </span>
     </div>
+  )
+}
+
+// v5.4.0 — drill-in panel. Appears below a clickable Row, scoped to its tile.
+function DrillIn({ title, loading, error, onClose, children }) {
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-acc/30 bg-acc/5 rounded p-1.5 relative">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-acc text-[9px] uppercase tracking-wide">{title}</span>
+        <button onClick={onClose} className="text-fg3 hover:text-fg text-[10px] cursor-pointer">×</button>
+      </div>
+      {loading && <div className="text-fg3/50 text-[10px] py-1">loading…</div>}
+      {error && <div className="text-red text-[10px] py-1">{error}</div>}
+      {!loading && !error && children}
+    </div>
+  )
+}
+
+// Helper — a compact flight row that's clickable to open its dossier.
+function SiblingRow({ f }) {
+  const href = `#flight=${f.icao}${f.callsign ? '&cs=' + encodeURIComponent(f.callsign) : ''}`
+  return (
+    <a href={href} className="flex justify-between items-baseline text-[10px] py-0.5 border-b border-white/3 last:border-b-0 hover:bg-bg2/60 px-0.5 rounded cursor-pointer">
+      <span className="flex items-baseline gap-1.5 truncate">
+        <span className="text-ylw font-mono">{f.callsign || f.icao}</span>
+        {f.acType && <span className="text-fg3">{f.acType}</span>}
+        {f.mil && <span className="text-red text-[8px] uppercase">mil</span>}
+      </span>
+      <span className="shrink-0 text-fg3 tabular-nums">
+        {f.distNm != null && <span className="text-cyn mr-1">{f.distNm}nm</span>}
+        {f.altFt != null && `${f.altFt.toLocaleString()}ft`}
+      </span>
+    </a>
   )
 }
 
@@ -163,6 +204,24 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
   const [loading, setLoading] = useState(true)
   const [metars, setMetars] = useState(null)
 
+  // v5.4.0 — drill-in state. One active drill-in per tile at a time.
+  // drillIn = { scope: 'identity-operator' | 'identity-type' | 'hist-callsign' | 'anomaly-<id>', data, error, loading }
+  const [drillIn, setDrillIn] = useState(null)
+  const [nearby, setNearby] = useState(null)
+  const [expandedAnomalyId, setExpandedAnomalyId] = useState(null)
+
+  const openDrillIn = async (scope, loader) => {
+    if (drillIn?.scope === scope) { setDrillIn(null); return }
+    setDrillIn({ scope, loading: true })
+    try {
+      const data = await loader()
+      setDrillIn({ scope, loading: false, data })
+    } catch (err) {
+      setDrillIn({ scope, loading: false, error: err.response?.data?.error || err.message })
+    }
+  }
+  const closeDrillIn = () => setDrillIn(null)
+
   // Escape closes
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
@@ -199,6 +258,16 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
   const context = sections.context?.data
   const sigmets = sections.sigmets?.data || []
   const tfms = liveFlight?.tfms
+
+  // v5.4.0 — Pull nearby flights once we have the aircraft's position.
+  useEffect(() => {
+    if (!liveFlight?.lat || !liveFlight?.lon) { setNearby(null); return }
+    let cancelled = false
+    fetchNearby({ lat: liveFlight.lat, lon: liveFlight.lon, radiusNm: 25, excludeIcao: icao })
+      .then(d => { if (!cancelled) setNearby(d) })
+      .catch(() => { if (!cancelled) setNearby(null) })
+    return () => { cancelled = true }
+  }, [liveFlight?.lat, liveFlight?.lon, icao])
 
   // Pull dep/arr METARs once we know the airports.
   useEffect(() => {
@@ -257,12 +326,36 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
         <Tile title="Identity" accent="text-acc">
           <Row label="icao24" value={icao} color="text-fg2" />
           <Row label="callsign" value={cs} color="text-ylw" />
-          <Row label="type" value={type} />
+          <Row
+            label="type" value={type}
+            onClick={type ? () => openDrillIn('identity-type', () => fetchByType(type)) : null}
+            active={drillIn?.scope === 'identity-type'}
+          />
           <Row label="registration" value={reg} color="text-cyn" />
-          <Row label="operator" value={oper} mono={false} />
+          <Row
+            label="operator" value={oper} mono={false}
+            onClick={oper ? () => openDrillIn('identity-operator', () => fetchByOperator(oper)) : null}
+            active={drillIn?.scope === 'identity-operator'}
+          />
           <Row label="country" value={liveFlight?.country} mono={false} />
           <Row label="mil" value={liveFlight?.mil ? 'yes' : 'no'} color={liveFlight?.mil ? 'text-red' : 'text-fg3'} />
           <Row label="src" value={liveFlight?.src} />
+
+          {drillIn?.scope === 'identity-operator' && (
+            <DrillIn title={`other ${oper} flights airborne`} loading={drillIn.loading} error={drillIn.error} onClose={closeDrillIn}>
+              {drillIn.data?.count === 0 && <div className="text-fg3/50 text-[10px]">none other</div>}
+              {(drillIn.data?.flights || []).slice(0, 8).map(f => <SiblingRow key={f.icao} f={f} />)}
+            </DrillIn>
+          )}
+          {drillIn?.scope === 'identity-type' && (
+            <DrillIn title={`other ${type} airborne`} loading={drillIn.loading} error={drillIn.error} onClose={closeDrillIn}>
+              {drillIn.data?.count === 0 && <div className="text-fg3/50 text-[10px]">none other</div>}
+              {(drillIn.data?.flights || []).slice(0, 8).map(f => <SiblingRow key={f.icao} f={f} />)}
+              {drillIn.data?.count > 8 && (
+                <div className="text-fg3/60 text-[9px] mt-0.5">… and {drillIn.data.count - 8} more</div>
+              )}
+            </DrillIn>
+          )}
         </Tile>
 
         {/* LIVE VECTOR */}
@@ -313,17 +406,44 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
           <Row label="last seen"  value={history?.lastSeen  ? fmtDate(history.lastSeen)  + ' ' + fmtTime(history.lastSeen)  : null} />
           <Row label="days seen"  value={history?.days} />
           <Row label="total sightings" value={history?.count?.toLocaleString()} />
-          {history?.callsigns?.length > 1 && (
+          {history?.callsigns?.length > 0 && (
             <div className="mt-1.5 pt-1 border-t border-border">
               <div className="text-fg3 text-[9px] uppercase mb-0.5">callsigns observed</div>
               <div className="flex flex-wrap gap-1">
-                {history.callsigns.slice(0, 6).map(c => (
-                  <span key={c.value} className="text-[10px] font-mono text-fg2">
-                    {c.value}<span className="text-fg3"> ·{c.count}</span>
-                  </span>
-                ))}
+                {history.callsigns.slice(0, 6).map(c => {
+                  const scope = `hist-cs-${c.value}`
+                  return (
+                    <button
+                      key={c.value}
+                      onClick={() => openDrillIn(scope, () => fetchCallsignHistory(c.value))}
+                      className={clsx(
+                        'text-[10px] font-mono border-b border-dotted border-fg3/40 hover:text-acc cursor-pointer px-0.5',
+                        drillIn?.scope === scope && 'text-acc'
+                      )}
+                    >
+                      {c.value}<span className="text-fg3"> ·{c.count}</span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
+          )}
+          {drillIn?.scope?.startsWith('hist-cs-') && (
+            <DrillIn title={`callsign history · ${drillIn.scope.slice(8)}`} loading={drillIn.loading} error={drillIn.error} onClose={closeDrillIn}>
+              <div className="text-[10px] text-fg2 mb-1">
+                {drillIn.data?.totalRows} sightings across {drillIn.data?.uniqueIcaos} aircraft
+              </div>
+              {(drillIn.data?.icaos || []).slice(0, 6).map(hex => {
+                const thisCs = drillIn.scope.slice(8)
+                return (
+                  <a key={hex} href={`#flight=${hex}&cs=${encodeURIComponent(thisCs)}`}
+                     className="flex gap-2 text-[10px] py-0.5 text-fg2 hover:text-acc cursor-pointer">
+                    <span className="font-mono">{hex}</span>
+                    {hex === icao && <span className="text-acc">← this aircraft</span>}
+                  </a>
+                )
+              })}
+            </DrillIn>
           )}
         </Tile>
 
@@ -332,16 +452,57 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
           {anomalies.length === 0 ? (
             <div className="text-fg3/40 text-[10px] text-center py-3">no anomalies on record</div>
           ) : (
-            <div className="space-y-0.5 max-h-40 overflow-y-auto">
-              {anomalies.map((a, i) => (
-                <div key={a.id || i} className="flex justify-between gap-2 text-[10px] py-0.5 border-b border-white/3">
-                  <span>
-                    <Chip tone={a.severity === 'CRITICAL' ? 'red' : a.severity === 'HIGH' ? 'ylw' : 'fg3'}>{a.severity}</Chip>
-                    <span className="text-fg2">{a.category}</span>
-                  </span>
-                  <span className="text-fg3 tabular-nums shrink-0">{fmtDate(a.detected_at)} {fmtTime(a.detected_at)}</span>
-                </div>
-              ))}
+            <div className="space-y-0.5 max-h-60 overflow-y-auto">
+              {anomalies.map((a, i) => {
+                const key = a.id || i
+                const expanded = expandedAnomalyId === key
+                return (
+                  <div key={key} className="border-b border-white/3">
+                    <button
+                      onClick={() => setExpandedAnomalyId(expanded ? null : key)}
+                      className={clsx(
+                        'flex justify-between items-baseline gap-2 text-[10px] py-0.5 w-full cursor-pointer text-left',
+                        expanded && 'text-acc'
+                      )}
+                    >
+                      <span className="flex items-baseline gap-1.5">
+                        <Chip tone={a.severity === 'CRITICAL' ? 'red' : a.severity === 'HIGH' ? 'ylw' : 'fg3'}>{a.severity}</Chip>
+                        <span className="text-fg2">{a.category}</span>
+                        {a.score != null && <span className="text-fg3 tabular-nums">score {a.score}</span>}
+                      </span>
+                      <span className="text-fg3 tabular-nums shrink-0">{fmtDate(a.detected_at)} {fmtTime(a.detected_at)}</span>
+                    </button>
+                    {expanded && (
+                      <div className="pl-1.5 pr-1 py-1 bg-bg2/30 text-[10px] space-y-0.5 border-l-2 border-acc/40">
+                        {a.confirmed != null && <Row label="confirmed" value={a.confirmed ? 'yes' : 'no'} color={a.confirmed ? 'text-grn' : 'text-fg3'} />}
+                        {a.resolved_at && <Row label="resolved" value={fmtDate(a.resolved_at) + ' ' + fmtTime(a.resolved_at)} color="text-grn" />}
+                        {a.callsign && <Row label="callsign" value={a.callsign} color="text-ylw" />}
+                        {a.squawk && <Row label="squawk" value={a.squawk} color={squawkColor(a.squawk)} />}
+                        {a.lat != null && <Row label="lat/lon" value={`${a.lat.toFixed(3)}, ${a.lon.toFixed(3)}`} />}
+                        {a.alt != null && <Row label="altitude" value={Math.round(a.alt * 3.281).toLocaleString() + ' ft'} color="text-cyn" />}
+                        {a.vel != null && <Row label="speed" value={Math.round(a.vel * 1.944) + ' kt'} />}
+                        {a.hdg != null && <Row label="heading" value={a.hdg + '°'} />}
+                        {a.reasons && (
+                          <div className="pt-0.5 border-t border-white/5">
+                            <div className="text-fg3 text-[9px] uppercase mb-0.5">reasons</div>
+                            <ul className="list-disc pl-3 text-fg2 text-[10px] marker:text-fg3/50">
+                              {(typeof a.reasons === 'string' ? a.reasons.split(/[;\n]/) : a.reasons).filter(Boolean).map((r, j) => <li key={j}>{String(r).trim()}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                        {a.weather_context && (
+                          <div className="pt-0.5 border-t border-white/5">
+                            <div className="text-fg3 text-[9px] uppercase mb-0.5">weather at detection</div>
+                            <div className="text-fg2 text-[10px] font-mono whitespace-pre-wrap break-all">
+                              {typeof a.weather_context === 'string' ? a.weather_context.slice(0, 240) : JSON.stringify(a.weather_context).slice(0, 240)}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </Tile>
@@ -378,6 +539,24 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
                   <span className="truncate">{s.airSigmetType}</span>
                 </div>
               ))}
+            </div>
+          )}
+        </Tile>
+
+        {/* v5.4.0 — PLANES NEARBY (radius 25nm around aircraft position) */}
+        <Tile title={`Planes Nearby · ${nearby?.count ?? '—'} within 25nm`} accent="text-cyn">
+          {!nearby ? (
+            <div className="text-fg3/40 text-[10px] text-center py-3">
+              {liveFlight?.lat == null ? 'no position' : 'loading nearby traffic…'}
+            </div>
+          ) : nearby.count === 0 ? (
+            <div className="text-fg3/40 text-[10px] text-center py-3">no other aircraft in range</div>
+          ) : (
+            <div className="space-y-0.5 max-h-60 overflow-y-auto">
+              {(nearby.flights || []).slice(0, 15).map(f => <SiblingRow key={f.icao} f={f} />)}
+              {nearby.count > 15 && (
+                <div className="text-fg3/60 text-[9px] mt-0.5">… and {nearby.count - 15} more</div>
+              )}
             </div>
           )}
         </Tile>
