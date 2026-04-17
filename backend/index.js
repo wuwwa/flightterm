@@ -1893,6 +1893,23 @@ app.get('/api/context/sentinel', ctxWrap(async (_req, res) => {
   res.json(await ctx.sentinel.fetchAccess())
 }))
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ── "Now Showing" interesting-flights feed (v5.2.0) ─────────────────────────
+// Ranks the live flight cache by interestingness (squawk / callsign / orbit /
+// anomaly / route deviation / mil) and returns the top N. This is the home
+// page's primary surface — the one place that says "these flights are worth
+// your time right now."
+// ═════════════════════════════════════════════════════════════════════════════
+
+const { getInterestingFlights } = require('./feed')
+
+// GET /api/feed/interesting?limit=20
+app.get('/api/feed/interesting', ctxWrap(async (req, res) => {
+  cachePublic(res, 15)
+  const limit = Math.max(1, Math.min(Number(req.query.limit) || 20, 100))
+  res.json(getInterestingFlights({ limit }))
+}))
+
 // GET /api/context/map?bbox=W,S,E,N&layers=fires,events,quakes,volcanoes,webcams
 // ─ Unified bbox fan-out for map overlays. Returns all requested layers in one shot.
 // ─ Each layer degrades independently: one source failing never tanks the rest.

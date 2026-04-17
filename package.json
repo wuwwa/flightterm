@@ -1,7 +1,7 @@
 {
   "name": "flightterm",
-  "version": "5.1.1",
-  "description": "Flight tracking terminal — React + Express. v5.0.0 introduced the Correlation Layer; v5.1.0 added toggleable map overlays; v5.1.1 is a correctness-focused follow-up that fixes five bugs surfaced in code review.",
+  "version": "5.2.0",
+  "description": "Flight tracking terminal — React + Express. v5.2.0 adds the \"Now Showing\" ranked feed: every input from v5.0–5.1 (squawk, callsign, anomalies, orbit, route deviation, mil flag) scores every flight, and the top 20 surface as the primary view above the flight table.",
   "private": true,
   "scripts": {
     "install:all": "npm install --prefix backend && npm install --prefix frontend",

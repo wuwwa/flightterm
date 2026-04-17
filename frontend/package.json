@@ -1,7 +1,7 @@
 {
   "name": "flightterm-frontend",
-  "version": "2.1.0",
-  "description": "v2.0.0 added the ContextPanel in FlightInspectorModal. v2.1.0 adds the env layer group on NasMap (fires, events, quakes, volcanoes, webcams) with localStorage-persisted toggles.",
+  "version": "2.2.0",
+  "description": "v2.2.0 adds the InterestingFeed component — a ranked list of noteworthy flights above the FlightTable, driven by /api/feed/interesting, auto-refreshed every 20s.",
   "private": true,
   "type": "module",
   "scripts": {

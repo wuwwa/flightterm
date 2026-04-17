@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import CommandBar from './components/CommandBar'
 import LogPanel from './components/LogPanel'
 import FlightTable from './components/FlightTable'
+import InterestingFeed from './components/InterestingFeed'
 import SettingsModal from './components/SettingsModal'
 import UsagePanel from './components/UsagePanel'
 import NotamPanel from './components/NotamPanel'
@@ -622,6 +623,13 @@ export default function App() {
         {/* Flight table + inspector */}
         <div className="min-h-0 flex flex-col lg:flex-row" style={{ minHeight: 'min(60vh, 400px)' }}>
           <div className="flex-1 min-h-0 flex flex-col">
+            {/* v5.2.0 "Now Showing" — ranked feed of interesting flights */}
+            <InterestingFeed
+              flights={flights}
+              selectedIcao={selectedFlight?.icao}
+              onSelect={handleSelectFlight}
+              backendOk={backendOk}
+            />
             <FlightTable
               flights={flights}
               filter={filter}

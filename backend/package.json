@@ -1,7 +1,7 @@
 {
   "name": "flightterm-backend",
-  "version": "2.1.1",
-  "description": "flightterm Express proxy server. v2.1.0 added /api/context/map bbox fan-out. v2.1.1 fixes orbit field names, poller field names + altitude unit conversion, 404 caching, PM2.5 sensor selection, and wires volcano_vicinity with a coord table.",
+  "version": "2.2.0",
+  "description": "flightterm Express proxy server. v2.2.0 adds backend/feed/* — a scoring engine + /api/feed/interesting route that pre-filters the poller cache and returns top-N ranked flights for the home-page feed.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
