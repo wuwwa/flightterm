@@ -27,6 +27,9 @@ RUN cd backend && npm ci --omit=dev
 COPY backend/*.js backend/
 COPY backend/swim/ backend/swim/
 COPY backend/data/ backend/data/
+# v5.0.0+ — correlation layer + feed scoring subsystems
+COPY backend/context/ backend/context/
+COPY backend/feed/ backend/feed/
 
 # Copy built frontend from stage 1
 COPY --from=frontend-build /app/frontend/dist frontend/dist
