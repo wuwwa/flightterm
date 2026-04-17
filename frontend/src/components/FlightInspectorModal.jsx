@@ -4,6 +4,7 @@ import { fetchFlight } from '../services/aeroapi'
 import { squawkLabel, squawkColor } from '../utils/squawk'
 import TrackChart from './TrackChart'
 import FlightMap from './FlightMap'
+import ContextPanel from './ContextPanel'
 
 // ── FlightInspectorPanel (file kept as ...Modal.jsx for import stability) ───
 // Inline panel mounted next to the FlightTable in the main page grid. No
@@ -227,6 +228,9 @@ export default function FlightInspectorModal({
               </Tile>
 
               {/* AEROAPI section — spans both columns when data is loaded */}
+              {/* Correlation Layer (v2.0.0) — external-source join */}
+              <ContextPanel flight={flight} />
+
               {aeroData ? (
                 <Tile title="FlightAware AeroAPI" accent="text-mag" className="xl:col-span-2">
                   <div className="grid grid-cols-2 gap-x-3 gap-y-0">

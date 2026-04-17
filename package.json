@@ -1,7 +1,7 @@
 {
   "name": "flightterm",
-  "version": "4.0.0",
-  "description": "Flight tracking terminal — React + Express",
+  "version": "5.0.0",
+  "description": "Flight tracking terminal — React + Express. v5.0.0 adds the Correlation Layer: fire/weather/event/webcam/space-weather sources joined to live tracks to turn kinematic inferences into corroborated ones.",
   "private": true,
   "scripts": {
     "install:all": "npm install --prefix backend && npm install --prefix frontend",

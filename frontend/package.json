@@ -1,6 +1,7 @@
 {
   "name": "flightterm-frontend",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "v2.0.0 adds ContextPanel inside FlightInspectorModal, rendering the backend Correlation Layer bundle for the selected flight.",
   "private": true,
   "type": "module",
   "scripts": {

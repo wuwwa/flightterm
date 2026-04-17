@@ -1766,6 +1766,181 @@ app.get('/api/aero/spend', async (_req, res) => {
   })
 })
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ── Correlation Layer (v2.0.0) ──────────────────────────────────────────────
+// External context sources joined to flight tracks. Each endpoint fans out to
+// one adapter in backend/context/ and is independently cacheable. The main
+// entry — /api/context/aircraft/:icao — joins everything for one aircraft.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const ctx = {
+  firms:       require('./context/firms'),
+  eonet:       require('./context/eonet'),
+  openaq:      require('./context/openaq'),
+  owm:         require('./context/owm'),
+  openMeteo:   require('./context/openMeteo'),
+  nps:         require('./context/nps'),
+  mapillary:   require('./context/mapillary'),
+  swpc:        require('./context/swpc'),
+  usgsEvents:  require('./context/usgsEvents'),
+  sentinel:    require('./context/sentinel'),
+  correlation: require('./context/correlation'),
+}
+
+function ctxWrap(handler) {
+  return async (req, res) => {
+    try { await handler(req, res) }
+    catch (err) { res.status(502).json({ error: err.message }) }
+  }
+}
+
+// GET /api/context/fires?lat=&lon=&radiusKm=&days=
+app.get('/api/context/fires', ctxWrap(async (req, res) => {
+  cachePublic(res, 300)
+  const lat = Number(req.query.lat), lon = Number(req.query.lon)
+  const radiusKm = req.query.radiusKm ? Number(req.query.radiusKm) : undefined
+  const days = req.query.days ? Number(req.query.days) : undefined
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: 'lat and lon required' })
+  }
+  res.json(await ctx.firms.fetchFires({ lat, lon, radiusKm, days }))
+}))
+
+// GET /api/context/events?lat=&lon=&radiusKm=
+app.get('/api/context/events', ctxWrap(async (req, res) => {
+  cachePublic(res, 600)
+  const lat = req.query.lat ? Number(req.query.lat) : null
+  const lon = req.query.lon ? Number(req.query.lon) : null
+  const radiusKm = req.query.radiusKm ? Number(req.query.radiusKm) : undefined
+  res.json(await ctx.eonet.fetchEvents({ lat, lon, radiusKm }))
+}))
+
+// GET /api/context/airquality?lat=&lon=
+app.get('/api/context/airquality', ctxWrap(async (req, res) => {
+  cachePublic(res, 300)
+  const lat = Number(req.query.lat), lon = Number(req.query.lon)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: 'lat and lon required' })
+  }
+  res.json(await ctx.openaq.fetchNearbyAQ({ lat, lon, radiusKm: req.query.radiusKm ? Number(req.query.radiusKm) : undefined }))
+}))
+
+// GET /api/context/weather?lat=&lon=&provider=owm|meteo
+app.get('/api/context/weather', ctxWrap(async (req, res) => {
+  cachePublic(res, 300)
+  const lat = Number(req.query.lat), lon = Number(req.query.lon)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: 'lat and lon required' })
+  }
+  const provider = req.query.provider || 'both'
+  const out = {}
+  if (provider === 'owm' || provider === 'both') {
+    out.openWeatherMap = await ctx.owm.fetchCurrent({ lat, lon }).catch(e => ({ error: e.message }))
+  }
+  if (provider === 'meteo' || provider === 'both') {
+    out.openMeteo = await ctx.openMeteo.fetchCurrent({ lat, lon }).catch(e => ({ error: e.message }))
+  }
+  res.json(out)
+}))
+
+// GET /api/context/webcams?lat=&lon=&radiusKm=
+app.get('/api/context/webcams', ctxWrap(async (req, res) => {
+  cachePublic(res, 1800)
+  const lat = Number(req.query.lat), lon = Number(req.query.lon)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: 'lat and lon required' })
+  }
+  res.json(await ctx.nps.fetchNearby({ lat, lon, radiusKm: req.query.radiusKm ? Number(req.query.radiusKm) : undefined }))
+}))
+
+// GET /api/context/streetlevel?lat=&lon=&radiusKm=  (Mapillary nearest images)
+app.get('/api/context/streetlevel', ctxWrap(async (req, res) => {
+  cachePublic(res, 1800)
+  const lat = Number(req.query.lat), lon = Number(req.query.lon)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: 'lat and lon required' })
+  }
+  res.json(await ctx.mapillary.fetchNearest({
+    lat, lon,
+    radiusKm: req.query.radiusKm ? Number(req.query.radiusKm) : undefined,
+  }))
+}))
+
+// GET /api/context/space-weather
+app.get('/api/context/space-weather', ctxWrap(async (_req, res) => {
+  cachePublic(res, 300)
+  res.json(await ctx.swpc.fetchStatus())
+}))
+
+// GET /api/context/quakes?lat=&lon=&radiusKm=
+app.get('/api/context/quakes', ctxWrap(async (req, res) => {
+  cachePublic(res, 300)
+  const lat = req.query.lat ? Number(req.query.lat) : null
+  const lon = req.query.lon ? Number(req.query.lon) : null
+  const radiusKm = req.query.radiusKm ? Number(req.query.radiusKm) : undefined
+  res.json(await ctx.usgsEvents.fetchQuakes({ lat, lon, radiusKm }))
+}))
+
+// GET /api/context/volcanoes — current elevated-alert volcanoes globally
+app.get('/api/context/volcanoes', ctxWrap(async (_req, res) => {
+  cachePublic(res, 600)
+  res.json(await ctx.usgsEvents.fetchVolcanoAlerts())
+}))
+
+// GET /api/context/sentinel — issue a Sentinel Hub bearer token for the frontend
+app.get('/api/context/sentinel', ctxWrap(async (_req, res) => {
+  cachePrivate(res, 900)
+  res.json(await ctx.sentinel.fetchAccess())
+}))
+
+// GET /api/context/aircraft/:icao
+// Joins every correlation source for one aircraft. If the poller has the
+// aircraft in its latest-flights cache we use that position; otherwise the
+// caller can pass lat/lon/altitude/etc. as query params.
+app.get('/api/context/aircraft/:icao', ctxWrap(async (req, res) => {
+  cachePublic(res, 30)
+  const icao = req.params.icao.toLowerCase()
+
+  // Pull aircraft state from poller cache first, then fall back to query.
+  // getFlights() returns { flights, fetchedAt, region, count, pollInterval }.
+  const pollerFlights = poller.getFlights?.()?.flights || []
+  const pollerFlight = pollerFlights.find(f => (f.icao || '').toLowerCase() === icao)
+  const aircraft = {
+    icao,
+    callsign:  pollerFlight?.callsign || req.query.callsign,
+    squawk:    pollerFlight?.squawk   || req.query.squawk,
+    lat:       pollerFlight?.lat != null ? pollerFlight.lat : Number(req.query.lat),
+    lon:       pollerFlight?.lon != null ? pollerFlight.lon : Number(req.query.lon),
+    altitude:  pollerFlight?.alt_baro ?? pollerFlight?.altitude ?? (req.query.altitude ? Number(req.query.altitude) : null),
+    velocity:  pollerFlight?.gs      ?? pollerFlight?.velocity ?? (req.query.velocity ? Number(req.query.velocity) : null),
+    heading:   pollerFlight?.track   ?? pollerFlight?.heading  ?? (req.query.heading  ? Number(req.query.heading)  : null),
+  }
+  if (!Number.isFinite(aircraft.lat) || !Number.isFinite(aircraft.lon)) {
+    return res.status(404).json({ error: 'aircraft position not in poller cache; pass ?lat=&lon=' })
+  }
+
+  // Pull a short track from the sightings DB to feed orbit detection.
+  let track = []
+  try { track = getAircraftTrack(icao, 60) } catch { /* ignore */ }
+
+  const bundle = await ctx.correlation.buildContext({ aircraft, track })
+  res.json(bundle)
+}))
+
+// POST /api/context/position — same shape but for arbitrary lat/lon + optional track
+app.post('/api/context/position', ctxWrap(async (req, res) => {
+  cachePublic(res, 30)
+  const { lat, lon, altitude, velocity, heading, callsign, squawk, icao, track } = req.body || {}
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: 'body requires lat and lon' })
+  }
+  const bundle = await ctx.correlation.buildContext({
+    aircraft: { icao, callsign, squawk, lat, lon, altitude, velocity, heading },
+    track: Array.isArray(track) ? track : null,
+  })
+  res.json(bundle)
+}))
+
 // ── SPA fallback (after all API routes) ──────────────────────────────────────
 if (require('fs').existsSync(STATIC_DIR)) {
   app.get('*', (req, res, next) => {
@@ -1796,6 +1971,15 @@ if (!process.env.VITEST) _server = app.listen(PORT, () => {
   console.log(`  OS_CLIENT_ID_2: ${process.env.OS_CLIENT_ID_2 ? '✓ set' : '✗ not set'}`)
   console.log(`  OS_CLIENT_ID_3: ${process.env.OS_CLIENT_ID_3 ? '✓ set' : '✗ not set'}`)
   console.log(`  FAA_CLIENT_ID:  ${process.env.FAA_CLIENT_ID ? '✓ set' : '✗ not set'}`)
+  console.log(``)
+  console.log(`  ── correlation layer (v2.0.0) ──`)
+  console.log(`  FIRMS_MAP_KEY:       ${process.env.FIRMS_MAP_KEY ? '✓ set' : '✗ not set'}`)
+  console.log(`  OPENWEATHERMAP_KEY:  ${process.env.OPENWEATHERMAP_KEY ? '✓ set' : '✗ not set'}`)
+  console.log(`  OPENAQ_KEY:          ${process.env.OPENAQ_KEY ? '✓ set' : '✗ not set'}`)
+  console.log(`  NPS_KEY:             ${process.env.NPS_KEY ? '✓ set' : '✗ not set'}`)
+  console.log(`  MAPILLARY_TOKEN:     ${process.env.MAPILLARY_ACCESS_TOKEN ? '✓ set' : '✗ not set'}`)
+  console.log(`  SENTINEL_CLIENT_ID:  ${process.env.SENTINEL_CLIENT_ID ? '✓ set' : '✗ not set'}`)
+  console.log(`  AISSTREAM_KEY:       ${process.env.AISSTREAM_KEY ? '✓ set (not wired)' : '✗ not set'}`)
   console.log(``)
   console.log(`  ── s3 archive ──`)
   console.log(`  S3_BUCKET:      ${process.env.S3_BUCKET || '✗ not set'}`)

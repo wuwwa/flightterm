@@ -1,7 +1,7 @@
 {
   "name": "flightterm-backend",
-  "version": "1.0.0",
-  "description": "flightterm Express proxy server",
+  "version": "2.0.0",
+  "description": "flightterm Express proxy server. v2.0.0 introduces the Correlation Layer (backend/context/*): FIRMS, EONET, USGS, SWPC, OpenAQ, OWM, Open-Meteo, NPS, Mapillary, Sentinel Hub adapters + aircraft inference engine.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
