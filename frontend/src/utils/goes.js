@@ -11,8 +11,11 @@
 
 const GOES_CDN = 'https://cdn.star.nesdis.noaa.gov'
 
-// Sector lookup by [latMin, latMax, lonMin, lonMax] → { sat, sector, label }.
+// Sector lookup. bbox = [latMin, latMax, lonMin, lonMax].
 // Ordered from most-specific to most-general so the first match wins.
+// Bounds are approximate (published by NESDIS) — good enough for an overlay
+// marker; for precise pixel positioning at a sector edge, expect a few px
+// of projection distortion (GOES is geostationary, not equirectangular).
 const SECTORS = [
   // GOES-18 (West — covers Pacific + western CONUS)
   { name: 'Hawaii',              sat: 'GOES18', sector: 'hi',   bbox: [17, 24, -162, -152] },
@@ -32,8 +35,8 @@ const SECTORS = [
   { name: 'Tropical Atlantic',   sat: 'GOES16', sector: 'taw',  bbox: [10, 30, -85,  -55] },
 ]
 
-const GOES16_CONUS = { name: 'CONUS',           sat: 'GOES16', sector: 'CONUS' }  // fallback
-const GOES16_FD    = { name: 'Full Disk',       sat: 'GOES16', sector: 'FD'    }  // wider fallback
+const GOES16_CONUS = { name: 'CONUS',           sat: 'GOES16', sector: 'CONUS', bbox: [24, 50, -125, -66] }
+const GOES16_FD    = { name: 'Full Disk',       sat: 'GOES16', sector: 'FD',    bbox: [-65, 65, -135, 5] }
 
 function inBbox(lat, lon, [s, n, w, e]) {
   return lat >= s && lat <= n && lon >= w && lon <= e
@@ -62,4 +65,19 @@ export function goesImageUrl({ sat, sector }, { band = 'GEOCOLOR', res = '1200x1
 export function goesLoopUrl({ sat, sector }) {
   const g = sat === 'GOES16' ? 'G16' : sat === 'GOES18' ? 'G18' : 'G16'
   return `https://www.star.nesdis.noaa.gov/GOES/sector_band.php?sat=${g}&sector=${sector}&band=GEOCOLOR&length=24`
+}
+
+// v5.6.1 — Compute the {x, y} percentage position of (lat, lon) inside a
+// sector image. Returns null if the point is outside the sector bbox.
+// Equirectangular approximation; good to ~few px at sector centers and a
+// bit more at edges due to geostationary projection distortion. Adequate
+// for "here's where the aircraft is in the frame" overlay.
+export function latLonToSectorPct(sector, lat, lon) {
+  if (!sector?.bbox) return null
+  const [latMin, latMax, lonMin, lonMax] = sector.bbox
+  if (lat < latMin || lat > latMax) return null
+  if (lon < lonMin || lon > lonMax) return null
+  const xPct = ((lon - lonMin) / (lonMax - lonMin)) * 100
+  const yPct = (1 - (lat - latMin) / (latMax - latMin)) * 100  // y grows downward
+  return { xPct, yPct }
 }

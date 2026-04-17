@@ -11,7 +11,7 @@ import FlightMap from './FlightMap'
 import ContextPanel from './ContextPanel'
 import { squawkLabel, squawkColor } from '../utils/squawk'
 import { fetchDossier, fetchMetar, fetchNearby, fetchByOperator, fetchByType, fetchCallsignHistory } from '../services/flight'
-import { pickSector, goesImageUrl, goesLoopUrl } from '../utils/goes'
+import { pickSector, goesImageUrl, goesLoopUrl, latLonToSectorPct } from '../utils/goes'
 
 function fmtTime(s) {
   if (!s) return '—'
@@ -562,44 +562,71 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
           )}
         </Tile>
 
-        {/* v5.5.0 — GOES-16/18 SATELLITE IMAGE of aircraft's current sector.
-             The correct visual perspective for aviation — cloud tops from
-             geostationary orbit, updated every 5–10 min. Direct CDN URL,
-             no key, no backend proxy. */}
+        {/* v5.5.0 → v5.6.1 — GOES-16/18 SATELLITE IMAGE. Compact now
+             (max-h-56 instead of max-h-96) with an aircraft marker
+             overlaid at the computed (lat,lon) → sector pixel position.
+             The right visual for aviation (cloud tops from geostationary
+             orbit) but no longer a billboard. */}
         {liveFlight?.lat != null && (() => {
           const sector = pickSector(liveFlight.lat, liveFlight.lon)
           const imgUrl = goesImageUrl(sector)
           const loopUrl = goesLoopUrl(sector)
+          const pos = latLonToSectorPct(sector, liveFlight.lat, liveFlight.lon)
           return (
-            <div className="md:col-span-2 xl:col-span-3">
-              <Tile title={`Satellite · ${sector.sat} · ${sector.name}`} accent="text-cyn">
-                <div className="flex gap-2 flex-col lg:flex-row">
-                  <a href={loopUrl} target="_blank" rel="noopener noreferrer" className="block relative flex-1 min-w-0" title="open 24-frame animation on NESDIS">
-                    <img
-                      src={imgUrl}
-                      alt={`GOES ${sector.name} GEOCOLOR`}
-                      className="w-full max-h-96 object-contain rounded border border-border bg-bg2"
-                      loading="lazy"
-                      onError={(e) => { e.currentTarget.style.display = 'none' }}
-                    />
+            <Tile title={`Satellite · ${sector.sat}/${sector.sector} · ${sector.name}`} accent="text-cyn" className="md:col-span-2 xl:col-span-3">
+              <div className="flex gap-2 items-start">
+                <a
+                  href={loopUrl}
+                  target="_blank" rel="noopener noreferrer"
+                  className="relative block group shrink-0"
+                  title="open 24-frame NESDIS animation"
+                  style={{ height: '14rem', aspectRatio: '4 / 3' }}
+                >
+                  {/* Wrapper is sized to the image's native aspect ratio so
+                      the overlay marker (positioned in percent) lines up with
+                      actual sector pixels. GOES regional sectors are mostly
+                      4:3; CONUS / full-disk are closer but this is good
+                      enough for a "roughly here" indicator. */}
+                  <img
+                    src={imgUrl}
+                    alt={`GOES ${sector.name} GEOCOLOR`}
+                    className="w-full h-full object-cover rounded border border-border bg-bg2"
+                    loading="lazy"
+                    onError={(e) => { e.currentTarget.style.display = 'none' }}
+                  />
+                  {pos && (
+                    <span
+                      className="absolute pointer-events-none"
+                      style={{ left: `${pos.xPct}%`, top: `${pos.yPct}%`, transform: 'translate(-50%, -50%)' }}
+                    >
+                      <span className="block relative">
+                        <span className="absolute inset-0 rounded-full bg-ylw/50 animate-ping" style={{ width: 14, height: 14, margin: -2 }} />
+                        <span className="block rounded-full border-2 border-ylw shadow-lg" style={{ width: 10, height: 10, background: '#f0c674' }} />
+                      </span>
+                    </span>
+                  )}
+                  <span className="absolute bottom-0.5 right-1 text-[8px] text-fg3/70 bg-bg1/60 px-1 rounded">
+                    GEOCOLOR loop ↗
+                  </span>
+                </a>
+                <div className="flex-1 min-w-0 text-[10px] space-y-0.5">
+                  <div className="text-fg3 text-[9px] uppercase">aircraft</div>
+                  <div className="text-ylw font-mono tabular-nums">{liveFlight.lat.toFixed(2)}, {liveFlight.lon.toFixed(2)}</div>
+                  {pos ? (
+                    <div className="text-grn text-[9px]">marked on frame</div>
+                  ) : (
+                    <div className="text-red/80 text-[9px]">outside sector bounds</div>
+                  )}
+                  <div className="text-fg3 text-[9px] uppercase pt-1">sector</div>
+                  <div className="text-fg2 font-mono">{sector.sat}/{sector.sector}</div>
+                  <div className="text-fg3/60 text-[9px]">{sector.name}</div>
+                  <a href={loopUrl} target="_blank" rel="noopener noreferrer"
+                     className="mt-1 inline-block text-acc hover:text-ylw text-[10px] border border-acc/50 hover:border-ylw px-1.5 py-[1px] rounded">
+                    open full ↗
                   </a>
-                  <div className="lg:w-48 text-[10px] space-y-1 shrink-0">
-                    <div className="text-fg3 text-[9px] uppercase">about</div>
-                    <div className="text-fg2">
-                      GEOCOLOR band — true color in daylight, IR at night. Updates every 5–10 min.
-                    </div>
-                    <div className="text-fg3 text-[9px] uppercase pt-1">aircraft lat/lon</div>
-                    <div className="text-fg2 tabular-nums">{liveFlight.lat.toFixed(2)}, {liveFlight.lon.toFixed(2)}</div>
-                    <div className="text-fg3 text-[9px] uppercase pt-1">sector</div>
-                    <div className="text-fg2">{sector.sat} / <span className="font-mono">{sector.sector}</span></div>
-                    <a href={loopUrl} target="_blank" rel="noopener noreferrer"
-                       className="mt-2 inline-block text-acc hover:text-ylw text-[10px] border border-acc/50 hover:border-ylw px-2 py-[2px] rounded">
-                      24-frame loop ↗
-                    </a>
-                  </div>
                 </div>
-              </Tile>
-            </div>
+              </div>
+            </Tile>
           )
         })()}
 

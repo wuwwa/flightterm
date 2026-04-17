@@ -1,6 +1,6 @@
 {
   "name": "flightterm-frontend",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "description": "v2.3.0 adds FlightDossier.jsx — the full-page deep-dive at #flight=<icao>. Hash-based routing + parallel source aggregation, reuses FlightMap + ContextPanel, adds altitude/speed profile charts (recharts).",
   "private": true,
   "type": "module",
