@@ -16,6 +16,7 @@
 const poller = require('../poller')
 const { getAircraftTrack, getActiveAnomalies } = require('../db')
 const { scoreFlight, isCandidate } = require('./score')
+const milCache = require('./milCache')
 
 let _cache = null  // { t, v }
 const TTL_MS = 20_000
@@ -29,6 +30,14 @@ function getInterestingFlights({ limit = DEFAULT_LIMIT } = {}) {
 
   const flightBundle = poller.getFlights?.() || { flights: [] }
   const all = flightBundle.flights || []
+
+  // v5.2.1 — enrich each flight with the military flag from APL /mil cache
+  // before scoring, since OpenSky state vectors don't carry it and the
+  // poller stores `mil: false` for everything.
+  for (const f of all) {
+    if (!f.mil && f.icao && milCache.isMil(f.icao)) f.mil = true
+  }
+
   const candidates = all.filter(isCandidate)
 
   // Index active anomalies by icao for O(1) lookup.

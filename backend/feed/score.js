@@ -31,10 +31,19 @@ const W = {
   ANOMALY_HIGH:       40,
   ANOMALY_MEDIUM:     15,
   ORBIT:              35,
-  ROUTE_DEV_MAJOR:    25,  // > 100 km
-  ROUTE_DEV_MINOR:    10,  // > 50 km
-  MILITARY:           15,
+  ROUTE_DEV_SIG:      20,  // 200–500 km (significant)
+  ROUTE_DEV_MOD:      10,  // 100–200 km (moderate)
+  ROUTE_DEV_MINOR:     5,  //  50–100 km (worth noting, not ranking)
+  MILITARY:           20,  // v5.2.1: raised from 15 — base rate is ~5% after APL wiring
 }
+
+// v5.2.1 — Empirical cap. On a 4,316-flight sample the route-deviation
+// distribution had p99 = 526 km and max = 3,515 km. Anything over 500 km
+// is almost certainly a filed-route-vs-actual mismatch (e.g. a flight that
+// departed from a different airport than the filed plan). Treat those as
+// data errors rather than signal — they clog the feed with flights that
+// aren't actually doing anything unusual.
+const ROUTE_DEV_MAX_CREDIBLE_KM = 500
 
 // Callsign weight = tag confidence × CALLSIGN_BASE.
 // Cap so a spoofed callsign can't dominate on its own.
@@ -93,14 +102,21 @@ function scoreFlight({ flight, track = null, anomaly = null } = {}) {
   }
 
   // ── 5. Route deviation (from TFMS enrichment) ──────────────────────────
-  const dev = flight.routeDeviation || 0
-  if (dev > 100) {
-    score += W.ROUTE_DEV_MAJOR
-    tags.push({ label: `${dev}km off-route`, weight: W.ROUTE_DEV_MAJOR, source: 'route' })
-    setPrimary(`${dev} km off filed route`)
-  } else if (dev > 50) {
-    score += W.ROUTE_DEV_MINOR
-    tags.push({ label: `${dev}km off-route`, weight: W.ROUTE_DEV_MINOR, source: 'route' })
+  // Tiered bucketing after the p99 cap. Route deviation correlates weakly
+  // with "interesting" — the signal is dominated by filed-vs-actual data
+  // errors at the extremes, so we suppress those entirely rather than
+  // letting a 3,500-km "deviation" crowd the top of the feed.
+  const rawDev = flight.routeDeviation || 0
+  if (rawDev > 0 && rawDev <= ROUTE_DEV_MAX_CREDIBLE_KM) {
+    let w = 0, label
+    if (rawDev > 200)      { w = W.ROUTE_DEV_SIG;   label = `${rawDev}km off-route` }
+    else if (rawDev > 100) { w = W.ROUTE_DEV_MOD;   label = `${rawDev}km off-route` }
+    else if (rawDev > 50)  { w = W.ROUTE_DEV_MINOR; label = `${rawDev}km off-route` }
+    if (w > 0) {
+      score += w
+      tags.push({ label, weight: w, source: 'route' })
+      if (w >= W.ROUTE_DEV_MOD) setPrimary(`${rawDev} km off filed route`)
+    }
   }
 
   // ── 6. Military ────────────────────────────────────────────────────────

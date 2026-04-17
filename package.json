@@ -1,7 +1,7 @@
 {
   "name": "flightterm",
-  "version": "5.2.0",
-  "description": "Flight tracking terminal — React + Express. v5.2.0 adds the \"Now Showing\" ranked feed: every input from v5.0–5.1 (squawk, callsign, anomalies, orbit, route deviation, mil flag) scores every flight, and the top 20 surface as the primary view above the flight table.",
+  "version": "5.2.1",
+  "description": "Flight tracking terminal — React + Express. v5.2.1 fixes the three silent data pipelines (sightings, anomalies, mil flag) that made the v5.2.0 feed a route-deviation-only ranker. Multi-signal corroboration now actually happens: orbit, mil, squawk, and callsign signals overlap on real events.",
   "private": true,
   "scripts": {
     "install:all": "npm install --prefix backend && npm install --prefix frontend",

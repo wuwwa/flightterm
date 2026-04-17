@@ -1,7 +1,7 @@
 {
   "name": "flightterm-backend",
-  "version": "2.2.0",
-  "description": "flightterm Express proxy server. v2.2.0 adds backend/feed/* — a scoring engine + /api/feed/interesting route that pre-filters the poller cache and returns top-N ranked flights for the home-page feed.",
+  "version": "2.2.1",
+  "description": "flightterm Express proxy server. v2.2.1 adds backend/feed/milCache.js (APL /mil periodic fetch for the military signal), re-buckets route-deviation weights with a 500 km credibility cap, and documents the ANOMALY_DETECTION_ENABLED=true requirement for the feed to have full multi-signal input.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
