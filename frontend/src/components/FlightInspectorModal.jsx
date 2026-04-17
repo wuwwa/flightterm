@@ -5,6 +5,7 @@ import { squawkLabel, squawkColor } from '../utils/squawk'
 import TrackChart from './TrackChart'
 import FlightMap from './FlightMap'
 import ContextPanel from './ContextPanel'
+import { fetchAircraftInfo } from '../services/adsbdb'
 
 // ── FlightInspectorPanel (file kept as ...Modal.jsx for import stability) ───
 // Inline panel mounted next to the FlightTable in the main page grid. No
@@ -57,8 +58,29 @@ export default function FlightInspectorModal({
 }) {
   const [aeroLoading, setAeroLoading] = useState(false)
   const [aeroError, setAeroError] = useState(null)
+  const [lazyAircraft, setLazyAircraft] = useState(null)
+  const [lazyLoading, setLazyLoading] = useState(false)
 
-  const { aircraft, flightroute, adsbfi, apl } = enrichData || {}
+  const { aircraft: enrichAircraft, flightroute, adsbfi, apl } = enrichData || {}
+  // v5.3.1 — aircraft metadata is no longer pre-fetched on row select.
+  // `enrichAircraft` will always be null via enrichFlight; fall back to
+  // the on-demand `lazyAircraft` which populates on button click.
+  const aircraft = enrichAircraft || lazyAircraft
+
+  // Reset lazy-loaded aircraft info when the selected flight changes.
+  useEffect(() => {
+    setLazyAircraft(null)
+  }, [flight?.icao])
+
+  const loadAircraftInfo = async () => {
+    if (!flight?.icao || lazyLoading) return
+    setLazyLoading(true)
+    try {
+      const ac = await fetchAircraftInfo(flight.icao)
+      setLazyAircraft(ac)
+    } catch { /* silent — 404 is common */ }
+    finally { setLazyLoading(false) }
+  }
   const aeroData = flight ? aeroCache[flight.icao] : null
 
   // Escape closes
@@ -283,8 +305,8 @@ export default function FlightInspectorModal({
               )}
           </div>
 
-          {/* Aircraft photo if available */}
-          {aircraft?.url_photo_thumbnail && (
+          {/* v5.3.1 — Lazy aircraft photo. Only fetches adsbdb on explicit click. */}
+          {aircraft?.url_photo_thumbnail ? (
             <div className="mt-2">
               <img
                 className="w-full block max-h-40 object-cover rounded border border-border filter-[saturate(0.5)_brightness(0.85)]"
@@ -292,6 +314,23 @@ export default function FlightInspectorModal({
                 alt=""
                 onError={(e) => { e.currentTarget.style.display = 'none' }}
               />
+            </div>
+          ) : (
+            <div className="mt-2">
+              <button
+                onClick={loadAircraftInfo}
+                disabled={lazyLoading || (lazyAircraft !== null && !lazyAircraft?.url_photo_thumbnail)}
+                className={clsx(
+                  'w-full bg-bg2/40 border border-border hover:border-acc text-fg3 hover:text-acc text-[10px] py-1 px-2 rounded cursor-pointer transition-colors',
+                  (lazyLoading || (lazyAircraft !== null && !lazyAircraft?.url_photo_thumbnail)) && 'opacity-40 cursor-default'
+                )}
+              >
+                {lazyLoading
+                  ? 'loading aircraft info…'
+                  : lazyAircraft !== null
+                    ? (lazyAircraft?.url_photo_thumbnail ? '' : 'no photo available for this aircraft')
+                    : 'show photo + aircraft details (fetches adsbdb)'}
+              </button>
             </div>
           )}
         </div>

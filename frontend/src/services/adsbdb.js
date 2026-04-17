@@ -3,41 +3,53 @@ import { fetchRoute as fetchHexdbRoute } from './hexdb'
 
 const BASE = 'https://api.adsbdb.com/v0'
 
-// Fetch aircraft info and flight route in parallel.
-// If ADSBdb has no route, falls back to hexdb.io.
+// v5.3.1 — Flight-click enrichment no longer pre-fetches /aircraft.
+// The endpoint 404s for ~half of aircraft (non-commercial / military regs)
+// and the useful metadata (type/reg/operator) is already in the backend
+// poller's aircraft cache. The only thing this call uniquely provides is
+// url_photo_thumbnail, which almost nobody looks at. Moved behind an
+// explicit user action via fetchAircraftInfo().
 export async function enrichFlight(icao, callsign) {
-  const cs = callsign.trim().replace(/\s+/g, '')
+  const cs = (callsign || '').trim().replace(/\s+/g, '')
 
-  const [acResult, csResult] = await Promise.allSettled([
-    axios.get(`${BASE}/aircraft/${icao}`),
-    cs && cs !== '—'
-      ? axios.get(`${BASE}/callsign/${cs}`)
-      : Promise.resolve(null),
-  ])
-
-  const aircraft = acResult.status === 'fulfilled' && acResult.value?.data?.response?.aircraft
-    ? acResult.value.data.response.aircraft
-    : null
-
-  let flightroute = csResult.status === 'fulfilled' && csResult.value?.data?.response?.flightroute
-    ? csResult.value.data.response.flightroute
-    : null
-
-  // Fallback: try hexdb.io if ADSBdb had no route
-  if (!flightroute && cs && cs !== '—') {
+  let flightroute = null
+  if (cs && cs !== '—') {
     try {
-      const hexRoute = await fetchHexdbRoute(cs)
-      if (hexRoute) {
-        flightroute = {
-          origin: hexRoute.origin,
-          destination: hexRoute.destination,
-          _source: 'hexdb',
-        }
-      }
+      const res = await axios.get(`${BASE}/callsign/${cs}`)
+      flightroute = res.data?.response?.flightroute || null
     } catch {}
+
+    // Fallback: try hexdb.io if ADSBdb had no route.
+    if (!flightroute) {
+      try {
+        const hexRoute = await fetchHexdbRoute(cs)
+        if (hexRoute) {
+          flightroute = {
+            origin: hexRoute.origin,
+            destination: hexRoute.destination,
+            _source: 'hexdb',
+          }
+        }
+      } catch {}
+    }
   }
 
-  return { aircraft, flightroute }
+  // aircraft stays null by design; lazy via fetchAircraftInfo().
+  return { aircraft: null, flightroute }
+}
+
+// On-demand aircraft metadata + photo. Call this only when the user
+// explicitly asks for it (e.g. clicking "show photo"). Returns null on
+// 404 — adsbdb doesn't know every registration, especially military
+// and older private aircraft.
+export async function fetchAircraftInfo(icao) {
+  try {
+    const res = await axios.get(`${BASE}/aircraft/${icao}`)
+    return res.data?.response?.aircraft || null
+  } catch (err) {
+    if (err?.response?.status === 404) return null
+    throw err
+  }
 }
 
 // Lightweight route-only lookup by callsign (skips aircraft enrichment).
