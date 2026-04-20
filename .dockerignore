@@ -11,3 +11,4 @@ backend/.env
 .gitignore
 README.md
 *.md
+*.local-wip
