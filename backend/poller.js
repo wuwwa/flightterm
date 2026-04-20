@@ -6,6 +6,7 @@ const axios = require('axios')
 const { EventEmitter } = require('events')
 const { scoreAnomaly, ANOMALY_THRESHOLD } = require('./anomaly')
 const { parseRoute, polylineCrossTrackDistKm } = require('./route-parser')
+const { assignGroups } = require('./feed/groups')
 const db = require('./db')
 
 // ── Event bus ────────────────────────────────────────────────────────────────
@@ -1023,6 +1024,18 @@ function getFlights() {
   const icaos = latestFlights.map(f => f.icao)
   const acCache = icaos.length > 0 ? db.getAircraftCacheBulk(icaos) : {}
 
+  // v5.7 Phase 2 — FAA registry bulk join.
+  // Prefer ICAO24-hex matches; fall back to N-number for flights that have
+  // `acReg` from adsbdb but whose hex is missing/stale in the FAA MASTER file.
+  const faaByIcao = icaos.length > 0 ? db.getFaaRegistryByIcao24Bulk(icaos) : {}
+  const regsToLookup = []
+  for (const icao of icaos) {
+    if (faaByIcao[icao]) continue
+    const reg = acCache[icao]?.reg
+    if (reg && /^N/i.test(reg)) regsToLookup.push(reg)
+  }
+  const faaByReg = regsToLookup.length > 0 ? db.getFaaRegistryByNNumberBulk(regsToLookup) : {}
+
   const flights = latestFlights.map(f => {
     const out = { ...f }
     const ac = acCache[f.icao]
@@ -1038,6 +1051,16 @@ function getFlights() {
       out.routeDeviation = enrich.routeDeviation
       out.routeDeviationMode = enrich.routeDeviationMode || 'gc'
     }
+    // FAA registry join (icao24 preferred, N-number fallback).
+    const faaHex = faaByIcao[f.icao]
+    const faaReg = faaHex || (out.acReg ? faaByReg[String(out.acReg).toUpperCase().replace(/^N/, '')] : null)
+    if (faaReg) out.faaReg = faaReg
+    // Group tags: airline / family / class / role / agency / entity.
+    // Always an array (possibly empty); downstream consumers can safely .includes().
+    const { groups, airline, owner } = assignGroups(out)
+    out.groups = groups
+    if (airline) out.airline = airline
+    if (owner) out.owner = owner
     return out
   })
 

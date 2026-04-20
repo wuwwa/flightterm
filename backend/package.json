@@ -19,6 +19,7 @@
     "express-rate-limit": "^8.3.1",
     "fast-xml-parser": "^5.5.10",
     "flightterm": "file:..",
+    "node-stream-zip": "^1.15.0",
     "solclientjs": "^10.18.3"
   },
   "devDependencies": {

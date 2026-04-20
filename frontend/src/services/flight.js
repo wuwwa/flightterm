@@ -104,6 +104,15 @@ export async function fetchCallsignHistory(callsign, limit = 50) {
   return res.data
 }
 
+// v5.7.0 — group dossier aggregate (airline / family / class / role / gov / entity)
+export async function fetchGroup(groupId, limit = 50) {
+  const res = await axios.get(`/api/groups/${encodeURIComponent(groupId)}`, {
+    params: { limit },
+    timeout: T_MED,
+  })
+  return res.data
+}
+
 // ── Dossier aggregator ─────────────────────────────────────────────────────
 // Returns a Promise that resolves progressively via onSection callback.
 // Final resolve fires once all sections finished (successfully or not).
