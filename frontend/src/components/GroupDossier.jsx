@@ -108,7 +108,7 @@ export default function GroupDossier({ groupId, onClose }) {
   const accent = KIND_ACCENT[kind] || 'text-fg2'
 
   return (
-    <div className="fixed inset-0 z-50 bg-bg/95 flex flex-col">
+    <div className="fixed inset-0 z-[1000] bg-bg1 flex flex-col">
       {/* Header */}
       <div className="border-b border-border px-3 py-2 flex items-baseline justify-between">
         <div className="flex items-baseline gap-2">
