@@ -310,7 +310,7 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
   } : null
 
   return (
-    <div className="fixed inset-0 z-50 bg-bg1 overflow-y-auto">
+    <div className="fixed inset-0 z-[1000] bg-bg1 overflow-y-auto">
       {/* Header (sticky) */}
       <div className="sticky top-0 z-10 bg-bg2/95 backdrop-blur-sm border-b border-border px-3 py-1.5 flex items-center gap-2 flex-wrap">
         <button onClick={onClose} className="text-fg3 hover:text-fg text-[11px] cursor-pointer pr-1" title="close (esc)">‹ back</button>
