@@ -73,6 +73,69 @@ export const FILTER_DIMS = {
       { id: 'enriched', label: 'Enrich',   color: 'text-mag',  desc: 'Has aircraft data' },
     ],
   },
+  // ── Group dimensions (v5.7) ────────────────────────────────────────────────
+  // Chip id is the full group tag so applyFilters() just does an .includes().
+  airline: {
+    label: 'Airline',
+    options: [
+      { id: 'airline:ual', label: 'UAL',  color: 'text-cyn',  desc: 'United Airlines' },
+      { id: 'airline:dal', label: 'DAL',  color: 'text-cyn',  desc: 'Delta Air Lines' },
+      { id: 'airline:aal', label: 'AAL',  color: 'text-cyn',  desc: 'American Airlines' },
+      { id: 'airline:swa', label: 'SWA',  color: 'text-cyn',  desc: 'Southwest Airlines' },
+      { id: 'airline:jbu', label: 'JBU',  color: 'text-cyn',  desc: 'JetBlue Airways' },
+      { id: 'airline:asa', label: 'ASA',  color: 'text-cyn',  desc: 'Alaska Airlines' },
+      { id: 'airline:nks', label: 'NKS',  color: 'text-cyn',  desc: 'Spirit Airlines' },
+      { id: 'airline:fft', label: 'FFT',  color: 'text-cyn',  desc: 'Frontier Airlines' },
+      { id: 'airline:fdx', label: 'FDX',  color: 'text-grn',  desc: 'FedEx Express' },
+      { id: 'airline:ups', label: 'UPS',  color: 'text-grn',  desc: 'UPS Airlines' },
+      { id: 'airline:atn', label: 'ATN',  color: 'text-grn',  desc: 'Atlas Air Transport Intl' },
+      { id: 'airline:eja', label: 'EJA',  color: 'text-mag',  desc: 'NetJets' },
+    ],
+  },
+  family: {
+    label: 'Aircraft',
+    options: [
+      { id: 'family:b737',    label: 'B737',    color: 'text-cyn',  desc: 'Boeing 737 family' },
+      { id: 'family:a320',    label: 'A320',    color: 'text-cyn',  desc: 'Airbus A320 family' },
+      { id: 'family:b777',    label: 'B777',    color: 'text-ylw',  desc: 'Boeing 777' },
+      { id: 'family:b787',    label: 'B787',    color: 'text-ylw',  desc: 'Boeing 787' },
+      { id: 'family:a330',    label: 'A330',    color: 'text-ylw',  desc: 'Airbus A330' },
+      { id: 'family:b747',    label: 'B747',    color: 'text-mag',  desc: 'Boeing 747' },
+      { id: 'family:e-jet',   label: 'E-jet',   color: 'text-grn',  desc: 'Embraer regional' },
+      { id: 'family:crj',     label: 'CRJ',     color: 'text-grn',  desc: 'Bombardier CRJ' },
+      { id: 'class:widebody', label: 'Wide',    color: 'text-mag',  desc: 'All widebodies' },
+      { id: 'class:bizjet',   label: 'BizJet',  color: 'text-mag',  desc: 'Business jets' },
+      { id: 'class:helo',     label: 'Helo',    color: 'text-grn',  desc: 'Helicopters' },
+      { id: 'role:cargo',     label: 'Cargo',   color: 'text-grn',  desc: 'Dedicated freighters' },
+    ],
+  },
+  agency: {
+    label: 'Agency',
+    options: [
+      { id: 'gov:military',     label: 'MIL',    color: 'text-red',  desc: 'Any military flag' },
+      { id: 'gov:usaf',         label: 'USAF',   color: 'text-red',  desc: 'US Air Force' },
+      { id: 'gov:usn',          label: 'Navy',   color: 'text-red',  desc: 'US Navy' },
+      { id: 'gov:usmc',         label: 'USMC',   color: 'text-red',  desc: 'US Marines' },
+      { id: 'gov:uscg',         label: 'USCG',   color: 'text-cyn',  desc: 'Coast Guard' },
+      { id: 'gov:cbp',          label: 'CBP',    color: 'text-ylw',  desc: 'Customs & Border' },
+      { id: 'gov:police',       label: 'Police', color: 'text-ylw',  desc: 'State/local LE' },
+      { id: 'gov:firefighting', label: 'Fire',   color: 'text-mag',  desc: 'Firefighting' },
+    ],
+  },
+  // v5.7 — FAA registry entity types. Populated by nightly MASTER.txt ingest
+  // (see backend/scripts/ingest-faa-registry.js). US-registered aircraft only;
+  // counts stay at 0 until the first ingest has run against the local DB.
+  entity: {
+    label: 'Entity',
+    options: [
+      { id: 'entity:individual',  label: 'Indiv',   color: 'text-fg3',  desc: 'Individual owner (FAA type 1)' },
+      { id: 'entity:corp',        label: 'Corp',    color: 'text-cyn',  desc: 'Corporation (FAA type 3)' },
+      { id: 'entity:llc',         label: 'LLC',     color: 'text-ylw',  desc: 'Limited Liability Co (FAA type 7)' },
+      { id: 'entity:government',  label: 'Govt',    color: 'text-red',  desc: 'Government (FAA type 5)' },
+      { id: 'entity:trust',       label: 'Trust',   color: 'text-mag',  desc: 'Owner name contains TRUST / TRUSTEE' },
+      { id: 'entity:noncitizen',  label: 'NonUS',   color: 'text-grn',  desc: 'Non-Citizen Corp (FAA types 8/9)' },
+    ],
+  },
 }
 
 // ── Smart presets (compound filters) ─────────────────────────────────────────
@@ -86,7 +149,16 @@ export const PRESETS = [
   { id: 'approach',    label: 'Approach',     color: 'text-mag',  icon: 'A',  desc: 'On approach or descent' },
   { id: 'groundops',   label: 'Ground',       color: 'text-fg3',  icon: 'G',  desc: 'Aircraft on ground' },
   { id: 'vfr',         label: 'VFR',          color: 'text-cyn',  icon: 'V',  desc: 'Squawk 1200 VFR traffic' },
+  // v5.7 — group-based presets (compound across airlines/families).
+  { id: 'majors',      label: 'Majors',       color: 'text-cyn',  icon: 'M',  desc: 'UA/DL/AA/WN/B6/AS mainline' },
+  { id: 'cargo',       label: 'Cargo',        color: 'text-grn',  icon: 'C',  desc: 'FedEx/UPS/Atlas/Kalitta/ABX' },
 ]
+
+// ── Preset-to-group-tags mapping (used by applyPreset + counts) ──────────────
+const PRESET_GROUPS = {
+  majors: ['airline:ual', 'airline:dal', 'airline:aal', 'airline:swa', 'airline:jbu', 'airline:asa'],
+  cargo:  ['airline:fdx', 'airline:ups', 'airline:atn', 'airline:cks', 'airline:abx', 'airline:gti'],
+}
 
 // ── Empty filter state ───────────────────────────────────────────────────────
 
@@ -99,6 +171,11 @@ export function emptyFilters() {
     acClass: [],
     status: [],
     data: [],
+    // v5.7 group dimensions
+    airline: [],
+    family: [],
+    agency: [],
+    entity: [],
     airport: '',        // ICAO code for dep OR arr
     preset: null,       // active preset ID (clears dimension filters)
   }
@@ -234,6 +311,22 @@ export function applyFilters(f, filters, { anomalies, trackHistory, enrichCache,
     if (!match) return false
   }
 
+  // v5.7 group dimensions — each chip id IS the full group tag. OR within
+  // dim, AND across dims (handled by each block returning false on mismatch).
+  const groups = f.groups
+  if (filters.airline.length > 0) {
+    if (!groups || !filters.airline.some(t => groups.includes(t))) return false
+  }
+  if (filters.family.length > 0) {
+    if (!groups || !filters.family.some(t => groups.includes(t))) return false
+  }
+  if (filters.agency.length > 0) {
+    if (!groups || !filters.agency.some(t => groups.includes(t))) return false
+  }
+  if (filters.entity.length > 0) {
+    if (!groups || !filters.entity.some(t => groups.includes(t))) return false
+  }
+
   // Airport (matches dep or arr)
   if (filters.airport) {
     const q = filters.airport.toUpperCase()
@@ -271,6 +364,11 @@ function applyPreset(f, preset, { anomalies, trackHistory, enrichCache, detectPh
       return !!f.grounded
     case 'vfr':
       return f.squawk === '1200'
+    case 'majors':
+    case 'cargo': {
+      const tags = PRESET_GROUPS[preset]
+      return Array.isArray(f.groups) && tags.some(t => f.groups.includes(t))
+    }
     default:
       return true
   }
@@ -281,6 +379,7 @@ function applyPreset(f, preset, { anomalies, trackHistory, enrichCache, detectPh
 export function computeFilterCounts(flights, { anomalies, trackHistory, enrichCache, detectPhase, PHASE }) {
   const counts = {
     phase: {}, altBand: {}, speed: {}, vrate: {}, acClass: {}, status: {}, data: {},
+    airline: {}, family: {}, agency: {}, entity: {},
     presets: {},
   }
 
@@ -329,6 +428,20 @@ export function computeFilterCounts(flights, { anomalies, trackHistory, enrichCa
     if (phase === PHASE.APPROACH || phase === PHASE.DESCENT) counts.presets.approach = (counts.presets.approach || 0) + 1
     if (f.grounded) counts.presets.groundops = (counts.presets.groundops || 0) + 1
     if (f.squawk === '1200') counts.presets.vfr = (counts.presets.vfr || 0) + 1
+
+    // v5.7 — tally chip counts by direct group-tag match.
+    if (Array.isArray(f.groups)) {
+      for (const tag of f.groups) {
+        if (tag.startsWith('airline:')) counts.airline[tag] = (counts.airline[tag] || 0) + 1
+        else if (tag.startsWith('family:') || tag.startsWith('class:') || tag.startsWith('role:')) {
+          counts.family[tag] = (counts.family[tag] || 0) + 1
+        } else if (tag.startsWith('gov:')) counts.agency[tag] = (counts.agency[tag] || 0) + 1
+        else if (tag.startsWith('entity:')) counts.entity[tag] = (counts.entity[tag] || 0) + 1
+      }
+      // Preset compounds
+      if (PRESET_GROUPS.majors.some(t => f.groups.includes(t))) counts.presets.majors = (counts.presets.majors || 0) + 1
+      if (PRESET_GROUPS.cargo.some(t => f.groups.includes(t)))  counts.presets.cargo  = (counts.presets.cargo  || 0) + 1
+    }
   }
 
   return counts
@@ -349,7 +462,15 @@ const ACTIVE_BG = {
   'text-fg3':  'bg-fg3/15 border-fg3 text-fg2 font-bold',
 }
 
-function FilterPill({ label, count, active, color, onClick, title }) {
+function FilterPill({ label, count, active, color, onClick, onAuxClick, title }) {
+  const handleClick = (e) => {
+    if ((e.shiftKey || e.metaKey || e.ctrlKey) && onAuxClick) {
+      e.preventDefault()
+      onAuxClick()
+      return
+    }
+    if (onClick) onClick()
+  }
   return (
     <button
       className={clsx(
@@ -360,13 +481,21 @@ function FilterPill({ label, count, active, color, onClick, title }) {
             ? `bg-transparent border-border ${color} opacity-70 hover:opacity-100 hover:border-current`
             : 'bg-transparent border-border text-fg3/30 cursor-default'
       )}
-      onClick={count > 0 || active ? onClick : undefined}
+      onClick={count > 0 || active ? handleClick : undefined}
       title={title}
     >
       {label}{count != null ? ` ${count}` : ''}
     </button>
   )
 }
+
+// Groups are discoverable via shift-click; a chip id like "airline:ual" is
+// already a valid /api/groups/:groupId, so we just drop it into the URL hash.
+function openGroupDossier(groupId) {
+  if (!groupId || !groupId.includes(':')) return
+  window.location.hash = 'group=' + encodeURIComponent(groupId)
+}
+const GROUP_DIMS = new Set(['airline', 'family', 'agency', 'entity'])
 
 export default function FilterBar({ filters, onChange, counts, totalFiltered, totalFlights }) {
   const [expanded, setExpanded] = useState(false)
@@ -439,17 +568,23 @@ export default function FilterBar({ filters, onChange, counts, totalFiltered, to
             <div key={dim} className="flex items-center gap-1">
               <span className="text-fg3 text-[9px] w-12 shrink-0 text-right">{def.label}</span>
               <div className="flex gap-0.5 flex-wrap">
-                {def.options.map(opt => (
-                  <FilterPill
-                    key={opt.id}
-                    label={opt.label}
-                    count={counts[dim]?.[opt.id] || 0}
-                    active={(filters[dim] || []).includes(opt.id)}
-                    color={opt.color}
-                    onClick={() => toggleDim(dim, opt.id)}
-                    title={opt.desc || opt.label}
-                  />
-                ))}
+                {def.options.map(opt => {
+                  const isGroup = GROUP_DIMS.has(dim)
+                  const baseTitle = opt.desc || opt.label
+                  const title = isGroup ? `${baseTitle} — shift-click for group dossier` : baseTitle
+                  return (
+                    <FilterPill
+                      key={opt.id}
+                      label={opt.label}
+                      count={counts[dim]?.[opt.id] || 0}
+                      active={(filters[dim] || []).includes(opt.id)}
+                      color={opt.color}
+                      onClick={() => toggleDim(dim, opt.id)}
+                      onAuxClick={isGroup ? () => openGroupDossier(opt.id) : undefined}
+                      title={title}
+                    />
+                  )
+                })}
               </div>
             </div>
           ))}

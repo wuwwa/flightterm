@@ -6,6 +6,7 @@ import LogPanel from './components/LogPanel'
 import FlightTable from './components/FlightTable'
 import InterestingFeed from './components/InterestingFeed'
 import FlightDossier from './components/FlightDossier'
+import GroupDossier from './components/GroupDossier'
 import SettingsModal from './components/SettingsModal'
 import UsagePanel from './components/UsagePanel'
 import NotamPanel from './components/NotamPanel'
@@ -95,24 +96,42 @@ export default function App() {
 
   // v5.3.0 — hash-based routing for the full-page FlightDossier.
   // #flight=<icao> (optionally with &cs=<callsign>) opens the dossier overlay.
+  // v5.7.0 — #group=<kind>:<id> opens the group dossier.
   const [dossier, setDossier] = useState(null)  // { icao, callsign } | null
+  const [groupDossier, setGroupDossier] = useState(null)  // string groupId or null
   useEffect(() => {
     const parseHash = () => {
       const h = window.location.hash.slice(1)  // strip leading #
-      if (!h.startsWith('flight=')) return null
-      const params = new URLSearchParams(h)
-      const icao = (params.get('flight') || '').toLowerCase()
-      if (!icao) return null
-      return { icao, callsign: params.get('cs') || null }
+      if (h.startsWith('flight=')) {
+        const params = new URLSearchParams(h)
+        const icao = (params.get('flight') || '').toLowerCase()
+        if (!icao) return { flight: null, group: null }
+        return { flight: { icao, callsign: params.get('cs') || null }, group: null }
+      }
+      if (h.startsWith('group=')) {
+        const params = new URLSearchParams(h)
+        const gid = (params.get('group') || '').toLowerCase()
+        if (!gid.includes(':')) return { flight: null, group: null }
+        return { flight: null, group: gid }
+      }
+      return { flight: null, group: null }
     }
-    setDossier(parseHash())
-    const onHash = () => setDossier(parseHash())
-    window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
+    const apply = () => {
+      const { flight, group } = parseHash()
+      setDossier(flight)
+      setGroupDossier(group)
+    }
+    apply()
+    window.addEventListener('hashchange', apply)
+    return () => window.removeEventListener('hashchange', apply)
   }, [])
   const closeDossier = () => {
     if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search)
     setDossier(null)
+  }
+  const closeGroupDossier = () => {
+    if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search)
+    setGroupDossier(null)
   }
   const [enrichCache, setEnrichCache] = useState({})
   const [aeroCache, setAeroCache] = useState({})
@@ -765,6 +784,14 @@ export default function App() {
           callsign={dossier.callsign}
           flights={flights}
           onClose={closeDossier}
+        />
+      )}
+
+      {/* v5.7.0 Group Dossier — URL-addressable at #group=<kind>:<id> */}
+      {groupDossier && (
+        <GroupDossier
+          groupId={groupDossier}
+          onClose={closeGroupDossier}
         />
       )}
 

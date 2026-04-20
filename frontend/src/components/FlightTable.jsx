@@ -174,6 +174,8 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
       f.icao.toLowerCase().includes(q) ||
       (f.acOperator || '').toLowerCase().includes(q) ||
       (f.acType || '').toLowerCase().includes(q) ||
+      (f.airline?.name || '').toLowerCase().includes(q) ||
+      (f.airline?.icao || '').toLowerCase().includes(q) ||
       (f.tfms?.dep_arpt || '').toLowerCase().includes(q) ||
       (f.tfms?.arr_arpt || '').toLowerCase().includes(q)
     )

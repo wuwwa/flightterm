@@ -319,6 +319,42 @@ db.exec(`
   );
 `)
 
+// ── FAA releasable aircraft registration (v5.7 Phase 2) ─────────────────────
+// Populated weekly from the FAA MASTER.txt bulk download via
+// backend/scripts/ingest-faa-registry.js. Drives entity-type grouping
+// (individual / corp / LLC / government / trust / non-citizen).
+//
+// Key columns:
+//   n_number         — MASTER.txt "N-NUMBER" (without leading 'N'; uppercase)
+//   icao24_hex       — MASTER.txt "MODE S CODE HEX" (lowercase 6-char)
+//   type_registrant  — MASTER.txt "TYPE REGISTRANT" code:
+//                       1=Individual, 2=Partnership, 3=Corporation, 4=Co-Owned,
+//                       5=Government, 7=LLC, 8=Non-Citizen Corp, 9=Non-Citizen Co-Owned
+//   owner_name       — "NAME" (trimmed, uppercase)
+//
+// Index on icao24_hex so we can look up by ADS-B hex directly (cheaper than
+// joining on registration when the flight lacks acReg).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS faa_registry (
+    n_number          TEXT PRIMARY KEY,
+    icao24_hex        TEXT,
+    owner_name        TEXT,
+    type_registrant   INTEGER,
+    street            TEXT,
+    city              TEXT,
+    state             TEXT,
+    zip               TEXT,
+    aircraft_mfr_code TEXT,
+    model_code        TEXT,
+    last_action_date  TEXT,
+    status_code       TEXT,
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_faa_reg_icao24 ON faa_registry(icao24_hex);
+  CREATE INDEX IF NOT EXISTS idx_faa_reg_type   ON faa_registry(type_registrant);
+  CREATE INDEX IF NOT EXISTS idx_faa_reg_owner  ON faa_registry(owner_name);
+`)
+
 // ── Zone baseline tracking (daily anomaly counts per grid cell) ─────────────
 // Rolled up daily from the anomalies table. Builds a per-zone baseline so we
 // can detect when a zone is unusually active vs its historical norm.
@@ -1219,6 +1255,39 @@ const _stmts = {
       updated_at = datetime('now')
   `),
 
+  // ── FAA registry statements ───────────────────────────────────────────────
+  faaRegistryByIcao24: db.prepare(`
+    SELECT * FROM faa_registry WHERE icao24_hex IN (SELECT value FROM json_each(?))
+  `),
+  faaRegistryByNNumber: db.prepare(`
+    SELECT * FROM faa_registry WHERE n_number IN (SELECT value FROM json_each(?))
+  `),
+  faaRegistryUpsert: db.prepare(`
+    INSERT INTO faa_registry (
+      n_number, icao24_hex, owner_name, type_registrant,
+      street, city, state, zip,
+      aircraft_mfr_code, model_code, last_action_date, status_code, updated_at
+    ) VALUES (
+      @n_number, @icao24_hex, @owner_name, @type_registrant,
+      @street, @city, @state, @zip,
+      @aircraft_mfr_code, @model_code, @last_action_date, @status_code, datetime('now')
+    ) ON CONFLICT(n_number) DO UPDATE SET
+      icao24_hex        = excluded.icao24_hex,
+      owner_name        = excluded.owner_name,
+      type_registrant   = excluded.type_registrant,
+      street            = excluded.street,
+      city              = excluded.city,
+      state             = excluded.state,
+      zip               = excluded.zip,
+      aircraft_mfr_code = excluded.aircraft_mfr_code,
+      model_code        = excluded.model_code,
+      last_action_date  = excluded.last_action_date,
+      status_code       = excluded.status_code,
+      updated_at        = datetime('now')
+  `),
+  faaRegistryCount: db.prepare(`SELECT COUNT(*) AS c FROM faa_registry`),
+  faaRegistryMostRecent: db.prepare(`SELECT MAX(updated_at) AS t FROM faa_registry`),
+
   anomalyHourly: db.prepare(`
     SELECT
       CAST(strftime('%H', detected_at) AS INTEGER) AS hour,
@@ -2060,6 +2129,73 @@ function upsertAircraftCache(entries) {
     }
   })
   tx()
+}
+
+// ── FAA registry helpers ─────────────────────────────────────────────────────
+
+// Bulk lookup by ICAO24 hex (preferred — direct ADS-B address match).
+// Input: array of lowercase 6-char hex strings. Returns { [hex]: row }.
+function getFaaRegistryByIcao24Bulk(icaos) {
+  if (!icaos || !icaos.length) return {}
+  const normed = icaos.map(h => String(h).toLowerCase())
+  const rows = _stmts.faaRegistryByIcao24.all(JSON.stringify(normed))
+  const map = {}
+  for (const r of rows) map[r.icao24_hex] = r
+  return map
+}
+
+// Bulk lookup by N-number (with or without leading "N"). Stored rows have the
+// N prefix stripped and uppercase, so we normalize inputs the same way.
+function getFaaRegistryByNNumberBulk(regs) {
+  if (!regs || !regs.length) return {}
+  const normed = regs
+    .map(r => String(r).toUpperCase().replace(/^N/, '').trim())
+    .filter(Boolean)
+  if (!normed.length) return {}
+  const rows = _stmts.faaRegistryByNNumber.all(JSON.stringify(normed))
+  const map = {}
+  for (const r of rows) map[r.n_number] = r
+  return map
+}
+
+// Bulk upsert from the ingest script. Called inside a single transaction to
+// keep 300k-row import reasonable (a handful of seconds on local SQLite).
+function upsertFaaRegistryBulk(rows) {
+  if (!rows || !rows.length) return 0
+  let n = 0
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      _stmts.faaRegistryUpsert.run({
+        n_number:          r.n_number,
+        icao24_hex:        r.icao24_hex || null,
+        owner_name:        r.owner_name || null,
+        type_registrant:   r.type_registrant || null,
+        street:            r.street || null,
+        city:              r.city || null,
+        state:             r.state || null,
+        zip:               r.zip || null,
+        aircraft_mfr_code: r.aircraft_mfr_code || null,
+        model_code:        r.model_code || null,
+        last_action_date:  r.last_action_date || null,
+        status_code:       r.status_code || null,
+      })
+      n++
+    }
+  })
+  tx()
+  return n
+}
+
+function getFaaRegistryCount() {
+  return _stmts.faaRegistryCount.get().c
+}
+
+// Most recent updated_at ISO string in faa_registry, or null if the table is
+// empty. Used by the startup self-heal to decide whether a fresh ingest is
+// needed ("if empty or older than 7 days, pull a fresh snapshot").
+function getFaaRegistryMostRecent() {
+  const r = _stmts.faaRegistryMostRecent.get()
+  return r && r.t ? r.t : null
 }
 
 // ── API usage tracking ──────────────────────────────────────────────────────
@@ -3784,6 +3920,12 @@ module.exports = {
   getAircraftCacheIcaos,
   getUnknownAircraftIcaos,
   upsertAircraftCache,
+  // v5.7 Phase 2 — FAA registry
+  getFaaRegistryByIcao24Bulk,
+  getFaaRegistryByNNumberBulk,
+  upsertFaaRegistryBulk,
+  getFaaRegistryCount,
+  getFaaRegistryMostRecent,
   buildRouteBaselines,
   getRouteBaseline,
   getAllBaselines,

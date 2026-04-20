@@ -855,13 +855,19 @@ app.get('/api/flights/:icao', (req, res) => {
 
 // v5.4.0 — flights currently airborne for a given operator or aircraft type.
 // Used by the dossier's clickable-value drill-ins.
+// v5.7.0 — also accepts airline ICAO ("UAL") or IATA ("UA") keys, matched
+// against the airline classifier attached by assignGroups().
 app.get('/api/flights/by-operator/:operator', (req, res) => {
   cachePublic(res, 15)
   const op = (req.params.operator || '').toLowerCase()
   const limit = Math.min(Number(req.query.limit) || 20, 100)
   const bundle = poller.getFlights?.() || { flights: [] }
   const out = (bundle.flights || [])
-    .filter(f => (f.acOperator || '').toLowerCase() === op)
+    .filter(f =>
+      (f.acOperator || '').toLowerCase() === op ||
+      (f.airline?.icao || '').toLowerCase() === op ||
+      (f.airline?.iata || '').toLowerCase() === op
+    )
     .slice(0, limit)
     .map(f => ({
       icao: f.icao, callsign: f.callsign, acType: f.acType, acReg: f.acReg,
@@ -871,6 +877,85 @@ app.get('/api/flights/by-operator/:operator', (req, res) => {
       grounded: !!f.grounded,
     }))
   res.json({ operator: req.params.operator, count: out.length, flights: out })
+})
+
+// v5.7.0 — live aggregate for a group tag (e.g. "airline:ual", "family:b737",
+// "class:widebody", "gov:usaf"). Returns counts, top aircraft types, top
+// departure/arrival airports, and a slice of the actual flights.
+// Memoized 20s to match the interesting-feed cache cadence.
+app.get('/api/groups/:groupId', (req, res) => {
+  cachePublic(res, 20)
+  const groupId = String(req.params.groupId || '').toLowerCase()
+  if (!groupId.includes(':')) {
+    return res.status(400).json({ error: 'groupId must be "<kind>:<id>", e.g. "airline:ual"' })
+  }
+  const [kind, id] = groupId.split(':', 2)
+  const limit = Math.min(Number(req.query.limit) || 50, 200)
+
+  const payload = memoized(`group:${groupId}:${limit}`, 20_000, () => {
+    const bundle = poller.getFlights?.() || { flights: [] }
+    const members = (bundle.flights || []).filter(f => Array.isArray(f.groups) && f.groups.includes(groupId))
+
+    let airborne = 0, grounded = 0
+    const byType = new Map()
+    const byDep  = new Map()
+    const byArr  = new Map()
+
+    for (const f of members) {
+      if (f.grounded) grounded++
+      else airborne++
+
+      if (f.acType) byType.set(f.acType, (byType.get(f.acType) || 0) + 1)
+
+      const dep = f.tfms?.dep_arpt
+      const arr = f.tfms?.arr_arpt
+      if (dep) byDep.set(dep, (byDep.get(dep) || 0) + 1)
+      if (arr) byArr.set(arr, (byArr.get(arr) || 0) + 1)
+    }
+
+    const topN = (m, n) => Array.from(m.entries())
+      .map(([k, v]) => ({ id: k, n: v }))
+      .sort((a, b) => b.n - a.n)
+      .slice(0, n)
+
+    // Pick a label: if this is an airline, echo the full entry; otherwise fall
+    // back to a humanized version of the id.
+    let label = id.toUpperCase()
+    if (kind === 'airline' && members[0]?.airline) {
+      label = members[0].airline.name
+    } else if (kind === 'family' || kind === 'class' || kind === 'role') {
+      label = id.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    }
+
+    return {
+      groupId,
+      kind,
+      id,
+      label,
+      count: members.length,
+      airborne,
+      grounded,
+      types: topN(byType, 10),
+      topDep: topN(byDep, 10),
+      topArr: topN(byArr, 10),
+      flights: members.slice(0, limit).map(f => ({
+        icao: f.icao,
+        callsign: f.callsign,
+        acType: f.acType,
+        acReg: f.acReg,
+        acOperator: f.acOperator,
+        lat: f.lat, lon: f.lon,
+        altFt: f.alt != null ? Math.round(f.alt * 3.281) : null,
+        velKt: f.vel != null ? Math.round(f.vel * 1.944) : null,
+        grounded: !!f.grounded,
+        squawk: f.squawk,
+        tfms: f.tfms ? { dep_arpt: f.tfms.dep_arpt, arr_arpt: f.tfms.arr_arpt } : null,
+        groups: f.groups,
+      })),
+    }
+  })
+
+  res.json(payload)
 })
 
 app.get('/api/flights/by-type/:type', (req, res) => {
@@ -2418,6 +2503,18 @@ if (!process.env.VITEST) _server = app.listen(PORT, () => {
     swim.startAll()
   } else {
     console.log('  ℹ  SWIM worker not configured — set SWIM_WORKER_URL to enable')
+  }
+
+  // v5.7 Phase 2 — FAA registry self-heal + weekly refresh.
+  // Opt-out via FAA_REGISTRY_DISABLED=true for local dev without network.
+  // Deliberately app-level code (not Fly-specific) so the ingest travels with
+  // the repo to any Node host.
+  if (process.env.FAA_REGISTRY_DISABLED !== 'true') {
+    const faaRegistryJob = require('./jobs/faaRegistryJob')
+    faaRegistryJob.scheduleStartupIngest()
+    faaRegistryJob.scheduleWeeklyRefresh()
+  } else {
+    console.log('  ℹ  FAA registry self-heal disabled via FAA_REGISTRY_DISABLED')
   }
 
   // ── Event loop lag monitor (diagnostic) ──────────────────────────────────
