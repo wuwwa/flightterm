@@ -30,6 +30,10 @@ COPY backend/data/ backend/data/
 # v5.0.0+ — correlation layer + feed scoring subsystems
 COPY backend/context/ backend/context/
 COPY backend/feed/ backend/feed/
+# v5.7 — shared FAA registry job module (startup self-heal + weekly refresh)
+# and CLI ingest script (fly ssh console one-shot).
+COPY backend/jobs/ backend/jobs/
+COPY backend/scripts/ backend/scripts/
 
 # Copy built frontend from stage 1
 COPY --from=frontend-build /app/frontend/dist frontend/dist
