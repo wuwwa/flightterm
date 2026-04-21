@@ -355,6 +355,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_faa_reg_owner  ON faa_registry(owner_name);
 `)
 
+// ── Ingest state (v5.7 — skip-if-unchanged tracking) ────────────────────────
+// Keyed by source (e.g. 'faa_registry'). Stores SHA256 of the last successfully
+// ingested artifact so we can bail out early when the upstream file hasn't
+// changed since the last run. Cuts ~311k weekly writes to zero on unchanged
+// FAA snapshots (most weeks the releasable data rolls only a few dozen rows).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ingest_state (
+    source         TEXT PRIMARY KEY,
+    last_hash      TEXT,
+    last_ingest_at TEXT,
+    success        INTEGER DEFAULT 0,
+    metadata       TEXT
+  );
+`)
+
 // ── Zone baseline tracking (daily anomaly counts per grid cell) ─────────────
 // Rolled up daily from the anomalies table. Builds a per-zone baseline so we
 // can detect when a zone is unusually active vs its historical norm.
@@ -1262,6 +1277,9 @@ const _stmts = {
   faaRegistryByNNumber: db.prepare(`
     SELECT * FROM faa_registry WHERE n_number IN (SELECT value FROM json_each(?))
   `),
+  // v5.7 Phase 2 — UPSERT with field-level diff filter. ON CONFLICT DO UPDATE
+  // is a no-op when every field matches, so WAL sees zero writes for the
+  // ~99%+ of rows that FAA didn't actually change between weekly snapshots.
   faaRegistryUpsert: db.prepare(`
     INSERT INTO faa_registry (
       n_number, icao24_hex, owner_name, type_registrant,
@@ -1284,9 +1302,33 @@ const _stmts = {
       last_action_date  = excluded.last_action_date,
       status_code       = excluded.status_code,
       updated_at        = datetime('now')
+    WHERE
+      faa_registry.icao24_hex        IS NOT excluded.icao24_hex        OR
+      faa_registry.owner_name        IS NOT excluded.owner_name        OR
+      faa_registry.type_registrant   IS NOT excluded.type_registrant   OR
+      faa_registry.street            IS NOT excluded.street            OR
+      faa_registry.city              IS NOT excluded.city              OR
+      faa_registry.state             IS NOT excluded.state             OR
+      faa_registry.zip               IS NOT excluded.zip               OR
+      faa_registry.aircraft_mfr_code IS NOT excluded.aircraft_mfr_code OR
+      faa_registry.model_code        IS NOT excluded.model_code        OR
+      faa_registry.last_action_date  IS NOT excluded.last_action_date  OR
+      faa_registry.status_code       IS NOT excluded.status_code
   `),
   faaRegistryCount: db.prepare(`SELECT COUNT(*) AS c FROM faa_registry`),
   faaRegistryMostRecent: db.prepare(`SELECT MAX(updated_at) AS t FROM faa_registry`),
+
+  // ── Ingest state (v5.7) ───────────────────────────────────────────────────
+  ingestStateGet: db.prepare(`SELECT * FROM ingest_state WHERE source = ?`),
+  ingestStateSet: db.prepare(`
+    INSERT INTO ingest_state (source, last_hash, last_ingest_at, success, metadata)
+    VALUES (@source, @last_hash, @last_ingest_at, @success, @metadata)
+    ON CONFLICT(source) DO UPDATE SET
+      last_hash      = excluded.last_hash,
+      last_ingest_at = excluded.last_ingest_at,
+      success        = excluded.success,
+      metadata       = excluded.metadata
+  `),
 
   anomalyHourly: db.prepare(`
     SELECT
@@ -1372,7 +1414,15 @@ const _lastSeen = new Map()
 const DEDUP_ALT_THRESHOLD = 100    // 100 meters
 const DEDUP_VEL_THRESHOLD = 10     // 10 m/s
 const DEDUP_HDG_THRESHOLD = 5      // 5 degrees
-const DEDUP_TIME_MAX = 300_000     // always write if >5 min since last record
+// Airborne aircraft: force-write every 5 min so the sightings history stays
+// dense enough for anomaly scoring + presence queries.
+const DEDUP_TIME_MAX        = Number(process.env.DEDUP_TIME_MAX_MS)        || 5  * 60_000
+// v5.7 write-reduction: grounded aircraft (parked at gate, ramp, GA tie-down)
+// generate thousands of redundant "still parked" sightings per day. Extend
+// the force-write interval to 30 min when BOTH the current and previous
+// samples are grounded and nothing else changed. trackHistory keeps full
+// fidelity, so anomaly detection is unaffected.
+const DEDUP_TIME_MAX_GROUND = Number(process.env.DEDUP_TIME_MAX_GROUND_MS) || 30 * 60_000
 
 // Warm the cache from the most recent fetch
 function _warmDedup() {
@@ -1425,8 +1475,11 @@ function _prepareSightingRows(flights, source, region) {
       const hdgSame = hdgDelta < DEDUP_HDG_THRESHOLD
       const groundSame = (f.grounded ? 1 : 0) === prev.grounded
 
-      // Skip if nothing meaningful changed and it's been less than 5 min
-      if (altSame && velSame && hdgSame && groundSame && timeDelta < DEDUP_TIME_MAX) {
+      // Skip if nothing meaningful changed and we're still inside the window.
+      // Grounded-on-both-sides aircraft get the longer grounded window.
+      const bothGrounded = f.grounded && prev.grounded
+      const maxTime = bothGrounded ? DEDUP_TIME_MAX_GROUND : DEDUP_TIME_MAX
+      if (altSame && velSame && hdgSame && groundSame && timeDelta < maxTime) {
         continue
       }
     }
@@ -2160,12 +2213,16 @@ function getFaaRegistryByNNumberBulk(regs) {
 
 // Bulk upsert from the ingest script. Called inside a single transaction to
 // keep 300k-row import reasonable (a handful of seconds on local SQLite).
+// v5.7 — Returns { total, changed, unchanged } so the ingest script can log
+// how many rows actually wrote vs. were no-ops. The UPSERT's WHERE clause
+// skips the update when every field already matches, so `changes` > 0 means a
+// real data delta landed.
 function upsertFaaRegistryBulk(rows) {
-  if (!rows || !rows.length) return 0
-  let n = 0
+  if (!rows || !rows.length) return { total: 0, changed: 0, unchanged: 0 }
+  let changed = 0, unchanged = 0
   const tx = db.transaction(() => {
     for (const r of rows) {
-      _stmts.faaRegistryUpsert.run({
+      const result = _stmts.faaRegistryUpsert.run({
         n_number:          r.n_number,
         icao24_hex:        r.icao24_hex || null,
         owner_name:        r.owner_name || null,
@@ -2179,11 +2236,12 @@ function upsertFaaRegistryBulk(rows) {
         last_action_date:  r.last_action_date || null,
         status_code:       r.status_code || null,
       })
-      n++
+      if (result.changes > 0) changed++
+      else unchanged++
     }
   })
   tx()
-  return n
+  return { total: rows.length, changed, unchanged }
 }
 
 function getFaaRegistryCount() {
@@ -2196,6 +2254,24 @@ function getFaaRegistryCount() {
 function getFaaRegistryMostRecent() {
   const r = _stmts.faaRegistryMostRecent.get()
   return r && r.t ? r.t : null
+}
+
+// ── Ingest state (v5.7) ─────────────────────────────────────────────────────
+// Generic per-source singleton — stash last_hash / last_ingest_at / success so
+// a weekly job can bail early when the upstream artifact hasn't changed.
+
+function getIngestState(source) {
+  return _stmts.ingestStateGet.get(source) || null
+}
+
+function setIngestState(source, { last_hash = null, last_ingest_at = null, success = 0, metadata = null } = {}) {
+  _stmts.ingestStateSet.run({
+    source,
+    last_hash,
+    last_ingest_at: last_ingest_at || new Date().toISOString(),
+    success: success ? 1 : 0,
+    metadata,
+  })
 }
 
 // ── API usage tracking ──────────────────────────────────────────────────────
@@ -3926,6 +4002,9 @@ module.exports = {
   upsertFaaRegistryBulk,
   getFaaRegistryCount,
   getFaaRegistryMostRecent,
+  // v5.7 — generic per-source ingest bookkeeping (hash-skip etc.)
+  getIngestState,
+  setIngestState,
   buildRouteBaselines,
   getRouteBaseline,
   getAllBaselines,

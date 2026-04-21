@@ -13,11 +13,14 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const crypto = require('crypto')
 const readline = require('readline')
 const axios = require('axios')
 const StreamZip = require('node-stream-zip')
 
 const db = require('../db')
+
+const INGEST_SOURCE = 'faa_registry'
 
 // ── Config (all overridable via env for easy CI/CD tweaks) ──────────────────
 
@@ -120,13 +123,16 @@ async function ingestMasterFile(filePath, { limit = null, silent = false } = {})
     crlfDelay: Infinity,
   })
 
-  let lineNo = 0, parsed = 0, skipped = 0, upserted = 0
+  let lineNo = 0, parsed = 0, skipped = 0
+  let changed = 0, unchanged = 0
   let batch = []
   const byType = {}
 
   const flushBatch = () => {
     if (!batch.length) return
-    upserted += db.upsertFaaRegistryBulk(batch)
+    const r = db.upsertFaaRegistryBulk(batch)
+    changed   += r.changed
+    unchanged += r.unchanged
     batch = []
   }
 
@@ -147,15 +153,34 @@ async function ingestMasterFile(filePath, { limit = null, silent = false } = {})
 
   const durationMs = Date.now() - started
   if (!silent) {
-    console.log(`[faa-registry] lines=${lineNo} parsed=${parsed} skipped=${skipped} upserted=${upserted} in ${(durationMs/1000).toFixed(1)}s`)
+    console.log(`[faa-registry] lines=${lineNo} parsed=${parsed} skipped=${skipped} changed=${changed} unchanged=${unchanged} in ${(durationMs/1000).toFixed(1)}s`)
     console.log(`[faa-registry] registrant type histogram:`, byType)
   }
-  return { parsed, skipped, upserted, durationMs, byType }
+  return { parsed, skipped, changed, unchanged, durationMs, byType }
 }
 
-// Full pipeline: download → unzip → ingest → cleanup. Creates & removes its
-// own temp files so repeated runs never leave 70MB of stragglers behind.
-async function fetchAndIngest({ limit = null, silent = false } = {}) {
+// SHA-256 of a file, computed in streaming 64KB chunks. Used to skip the
+// 311k-row upsert on weeks when the FAA snapshot is byte-identical to last
+// week's (most weeks).
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha256')
+    const s = fs.createReadStream(filePath)
+    s.on('data', chunk => h.update(chunk))
+    s.on('end', () => resolve(h.digest('hex')))
+    s.on('error', reject)
+  })
+}
+
+// Full pipeline: download → hash-check → unzip → ingest → cleanup.
+// v5.7 write-reduction: if the downloaded zip's SHA-256 matches the last
+// successful ingest, skip the 311k-row upsert entirely. On weeks when FAA
+// hasn't rolled the snapshot (common — most weekday refreshes touch only a
+// handful of rows but the zip itself often stays identical), this cuts the
+// write from hundreds of thousands of UPSERTs to zero.
+//
+// `force: true` bypasses the hash check (use for manual backfills / tests).
+async function fetchAndIngest({ limit = null, silent = false, force = false } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'faa-registry-'))
   const zipPath = path.join(tmpDir, 'ReleasableAircraft.zip')
   const masterPath = path.join(tmpDir, 'MASTER.txt')
@@ -165,13 +190,30 @@ async function fetchAndIngest({ limit = null, silent = false } = {}) {
     const zipBytes = await downloadZip(zipPath)
     if (!silent) console.log(`[faa-registry] downloaded ${(zipBytes/1024/1024).toFixed(1)} MB`)
 
+    // Hash-skip gate — runs BEFORE unzip + ingest for maximum savings.
+    const zipHash = await sha256File(zipPath)
+    const prevState = db.getIngestState(INGEST_SOURCE)
+    if (!force && prevState && prevState.success && prevState.last_hash === zipHash) {
+      if (!silent) console.log(`[faa-registry] zip hash unchanged since ${prevState.last_ingest_at} — skipping ingest (0 writes)`)
+      // Still bump last_ingest_at so staleness checks don't re-trigger.
+      db.setIngestState(INGEST_SOURCE, { last_hash: zipHash, success: 1 })
+      return { skipped: true, reason: 'hash-unchanged', zipHash }
+    }
+
     if (!silent) console.log(`[faa-registry] extracting MASTER.txt…`)
     const masterBytes = await extractMasterTxt(zipPath, masterPath)
     if (!silent) console.log(`[faa-registry] extracted ${(masterBytes/1024/1024).toFixed(1)} MB`)
 
     const result = await ingestMasterFile(masterPath, { limit, silent })
     if (!silent) console.log(`[faa-registry] faa_registry now holds ${db.getFaaRegistryCount().toLocaleString()} rows`)
-    return result
+
+    // Record the hash so next week's job can short-circuit.
+    db.setIngestState(INGEST_SOURCE, { last_hash: zipHash, success: 1 })
+    return { ...result, skipped: false, zipHash }
+  } catch (err) {
+    // Persist failure so a retry runs even if the hash would have matched.
+    try { db.setIngestState(INGEST_SOURCE, { success: 0, metadata: err.message }) } catch (_) {}
+    throw err
   } finally {
     // Clean up temp files regardless of outcome
     try { fs.rmSync(tmpDir, { recursive: true, force: true }) }
