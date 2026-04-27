@@ -8,10 +8,14 @@ import LiveFeed from './dashboard/LiveFeed'
 
 export default function NasPanel({ backendOk, region }) {
   const [collapsed, setCollapsed] = useState(false)
-  const { status } = useSwim()
+  const { status, wakeSwim, wakeState } = useSwim()
   const feeds = status?.feeds || {}
   const connectedCount = Object.values(feeds).filter(f => f?.connected).length
   const totalFeeds = Object.keys(feeds).length
+  const workerConnected = Boolean(status?.workerConnected)
+  const wakeBusy = ['starting', 'cooldown'].includes(wakeState?.state)
+  const wakeLabel = wakeState?.state === 'cooldown' ? 'wake pending' : wakeBusy ? 'starting swim' : 'wake swim'
+  const showWake = backendOk && !workerConnected
 
   return (
     <div className="bg-bg1 border-t-2 border-grn/40">
@@ -34,7 +38,23 @@ export default function NasPanel({ backendOk, region }) {
         )}
 
         <span className="text-fg3 text-[9px]">NAS health · NOTAMs · live feed · terminal weather</span>
-        <span className="ml-auto text-fg3 text-[9px]">{collapsed ? '▸' : '▾'}</span>
+        {showWake && (
+          <button
+            className={clsx(
+              'ml-auto text-[9px] uppercase tracking-wide px-2 py-0.5 border transition-colors',
+              wakeBusy ? 'text-ylw border-ylw/40 cursor-wait' : 'text-cyn border-cyn/40 hover:bg-cyn/10'
+            )}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!wakeBusy) wakeSwim().catch(() => {})
+            }}
+            disabled={wakeBusy}
+            title="Start the stopped SWIM worker machine"
+          >
+            {wakeLabel}
+          </button>
+        )}
+        <span className={clsx('text-fg3 text-[9px]', !showWake && 'ml-auto')}>{collapsed ? '▸' : '▾'}</span>
       </div>
 
       {!collapsed && (

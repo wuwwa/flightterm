@@ -46,6 +46,14 @@ const RATE_MAX       = Number(process.env.RATE_MAX)       || 100          // req
 const SSE_MAX_PER_IP = Number(process.env.SSE_MAX_PER_IP) || 5            // concurrent SSE connections
 const SSE_TIMEOUT_MS = Number(process.env.SSE_TIMEOUT_MS) || 5 * 60_000   // 5 minutes
 const POST_MAX_ITEMS = Number(process.env.POST_MAX_ITEMS) || 2000         // max array items per POST
+const SWIM_WAKE_APP = process.env.SWIM_WAKE_APP || 'flightterm-swim'
+const SWIM_WAKE_MACHINE_ID = process.env.SWIM_WAKE_MACHINE_ID || ''
+const SWIM_WAKE_TOKEN = process.env.FLY_MACHINES_TOKEN || ''
+const SWIM_WAKE_API = (process.env.FLY_MACHINES_API || 'https://api.machines.dev/v1').replace(/\/+$/, '')
+const SWIM_WAKE_COOLDOWN_MS = Number(process.env.SWIM_WAKE_COOLDOWN_MS) || 60_000
+const SWIM_WAKE_TIMEOUT_MS = Number(process.env.SWIM_WAKE_TIMEOUT_MS) || 10_000
+let swimWakeLastAttempt = 0
+let swimWakeInFlight = null
 
 app.use('/api/', rateLimit({
   windowMs: RATE_WINDOW_MS,
@@ -83,6 +91,74 @@ function cachePublic(res, maxAge) {
 
 function cachePrivate(res, maxAge) {
   res.set('Cache-Control', `private, max-age=${maxAge}`)
+}
+
+const swimWakeLimiter = rateLimit({
+  windowMs: 60_000,
+  max: Number(process.env.SWIM_WAKE_RATE_MAX) || 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'SWIM wake rate limit exceeded' },
+})
+
+function swimWakeConfigured() {
+  return Boolean(SWIM_WAKE_APP && SWIM_WAKE_MACHINE_ID && SWIM_WAKE_TOKEN)
+}
+
+async function getFlySwimMachine() {
+  const res = await axios.get(
+    `${SWIM_WAKE_API}/apps/${encodeURIComponent(SWIM_WAKE_APP)}/machines/${encodeURIComponent(SWIM_WAKE_MACHINE_ID)}`,
+    {
+      headers: { Authorization: `Bearer ${SWIM_WAKE_TOKEN}` },
+      timeout: SWIM_WAKE_TIMEOUT_MS,
+      validateStatus: status => status < 500,
+    }
+  )
+  if (res.status >= 400) {
+    throw new Error(`Fly Machines API status ${res.status}`)
+  }
+  return res.data
+}
+
+async function startFlySwimMachine() {
+  const res = await axios.post(
+    `${SWIM_WAKE_API}/apps/${encodeURIComponent(SWIM_WAKE_APP)}/machines/${encodeURIComponent(SWIM_WAKE_MACHINE_ID)}/start`,
+    null,
+    {
+      headers: { Authorization: `Bearer ${SWIM_WAKE_TOKEN}` },
+      timeout: SWIM_WAKE_TIMEOUT_MS,
+      validateStatus: status => status < 500,
+    }
+  )
+  if (![200, 202, 204].includes(res.status)) {
+    throw new Error(`Fly Machines API start status ${res.status}`)
+  }
+  return res.data || {}
+}
+
+async function wakeSwimWorker() {
+  if (!swimWakeInFlight) {
+    swimWakeInFlight = (async () => {
+      const machine = await getFlySwimMachine()
+      if (['started', 'starting'].includes(machine.state)) {
+        return { state: machine.state, alreadyRunning: true }
+      }
+      await startFlySwimMachine()
+      return { state: 'starting', started: true }
+    })().finally(() => {
+      swimWakeInFlight = null
+    })
+  }
+  return swimWakeInFlight
+}
+
+function kickSwimWake(reason) {
+  if (!swimWakeConfigured()) return
+  if (swimWakeInFlight) return
+
+  wakeSwimWorker()
+    .then(result => console.log(`swim wake (${reason}): ${result.state}`))
+    .catch(err => console.error(`swim wake (${reason}) failed:`, err.message))
 }
 
 // ── In-memory memoization for heavy aggregation endpoints ────────────────────
@@ -202,6 +278,10 @@ const COST_MAP = {
 const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'dist')
 console.log(`looking for frontend at ${STATIC_DIR} — exists: ${require('fs').existsSync(STATIC_DIR)}`)
 if (require('fs').existsSync(STATIC_DIR)) {
+  app.get(['/', '/index.html'], (req, res, next) => {
+    kickSwimWake('app-hit')
+    next()
+  })
   // Hashed assets (JS/CSS): cache aggressively — filename changes on rebuild
   app.use('/assets', express.static(path.join(STATIC_DIR, 'assets'), {
     maxAge: '1y',
@@ -1546,9 +1626,100 @@ const swimQueue = []
 let swimDropped = 0
 let swimProcessed = 0
 let swimLastDrainMs = 0
+let swimCoalesced = 0
 let swimDraining = false
 
+function dedupeLatest(items, keyFn) {
+  const map = new Map()
+  for (const item of Array.isArray(items) ? items : []) {
+    const key = keyFn(item)
+    if (key) map.set(key, item)
+  }
+  return [...map.values()]
+}
+
+function compactNotamPayload(payload = {}) {
+  const byId = new Map()
+  const xmlById = new Map()
+  const notams = Array.isArray(payload.notams) ? payload.notams : []
+  const rawXmls = Array.isArray(payload.rawXmls) ? payload.rawXmls : []
+  for (let i = 0; i < notams.length; i++) {
+    const notam = notams[i]
+    if (!notam?.id) continue
+    byId.set(notam.id, notam)
+    if (rawXmls[i]) xmlById.set(notam.id, rawXmls[i])
+  }
+  const compact = [...byId.values()]
+  return { notams: compact, rawXmls: compact.map(n => xmlById.get(n.id) || null) }
+}
+
+function flowKey(event = {}) {
+  return [
+    event.event_id || event.id || '',
+    event.event_type || event.eventType || event.msg_type || event.msgType || '',
+    event.facility || event.airport || '',
+    event.start_time || event.startTime || '',
+    event.end_time || event.endTime || '',
+    event.reason || event.text || event.message || '',
+  ].join('|')
+}
+
+function coalesceSwimPayload(kind, payload = {}) {
+  if (kind === 'notams') return compactNotamPayload(payload)
+  if (kind === 'flights') return { plans: dedupeLatest(payload.plans, p => p?.acid || p?.callsign) }
+  if (kind === 'routes') {
+    return {
+      routes: dedupeLatest(payload.routes, r => {
+        if (!r?.callsign || !r?.origin_icao || !r?.destination_icao) return null
+        return `${r.callsign}|${r.origin_icao}|${r.destination_icao}`
+      }),
+    }
+  }
+  if (kind === 'flow') return { events: dedupeLatest(payload.events, flowKey) }
+  if (kind === 'positions' || kind === 'sectors') {
+    const snapshot = Array.isArray(payload.snapshot) ? payload.snapshot.slice(-500) : []
+    return { snapshot }
+  }
+  return payload
+}
+
+function mergeSwimPayload(kind, a = {}, b = {}) {
+  if (kind === 'notams') return coalesceSwimPayload(kind, {
+    notams: [...(a.notams || []), ...(b.notams || [])],
+    rawXmls: [...(a.rawXmls || []), ...(b.rawXmls || [])],
+  })
+  if (kind === 'flights') return coalesceSwimPayload(kind, { plans: [...(a.plans || []), ...(b.plans || [])] })
+  if (kind === 'routes') return coalesceSwimPayload(kind, { routes: [...(a.routes || []), ...(b.routes || [])] })
+  if (kind === 'flow') return coalesceSwimPayload(kind, { events: [...(a.events || []), ...(b.events || [])] })
+  if (kind === 'positions' || kind === 'sectors') return coalesceSwimPayload(kind, b)
+  return b
+}
+
+function payloadHasWork(kind, payload = {}) {
+  if (kind === 'notams') return (payload.notams || []).length > 0
+  if (kind === 'flights') return (payload.plans || []).length > 0
+  if (kind === 'routes') return (payload.routes || []).length > 0
+  if (kind === 'flow') return (payload.events || []).length > 0
+  if (kind === 'positions' || kind === 'sectors') return (payload.snapshot || []).length > 0
+  return true
+}
+
 function enqueueSwim(kind, payload) {
+  payload = coalesceSwimPayload(kind, payload)
+  if (!payloadHasWork(kind, payload)) return
+
+  // Only latest-state snapshots are safe to merge in the queue. Durable TFMS
+  // and NOTAM batches must stay small so SQLite work yields between items.
+  if (kind === 'positions' || kind === 'sectors') {
+    for (let i = swimQueue.length - 1; i >= 0; i--) {
+      if (swimQueue[i].kind !== kind) continue
+      swimQueue[i].payload = mergeSwimPayload(kind, swimQueue[i].payload, payload)
+      swimCoalesced++
+      if (!swimDraining) setImmediate(drainSwim)
+      return
+    }
+  }
+
   if (swimQueue.length >= SWIM_Q_MAX) {
     swimQueue.shift()
     swimDropped++
@@ -1610,6 +1781,7 @@ function getSwimQueueStats() {
     depth: swimQueue.length,
     dropped: swimDropped,
     processed: swimProcessed,
+    coalesced: swimCoalesced,
     lastDrainMs: swimLastDrainMs,
   }
 }
@@ -1639,6 +1811,36 @@ app.post('/internal/swim/routes', requireInternalAuth, (req, res) => {
 app.get('/api/swim/status', (_req, res) => {
   cachePublic(res, 15)
   res.json(swim.getStatus())
+})
+
+// Wake the stopped SWIM worker machine on demand. This starts one configured
+// machine only; it does not create machines or increase capacity.
+app.post('/api/swim/wake', swimWakeLimiter, async (_req, res) => {
+  res.set('Cache-Control', 'no-store, private')
+
+  const status = swim.getStatus()
+  if (status?.workerConnected) {
+    return res.json({ ok: true, state: 'connected', workerConnected: true })
+  }
+
+  if (!swimWakeConfigured()) {
+    return res.status(503).json({ ok: false, configured: false, error: 'SWIM wake not configured' })
+  }
+
+  const now = Date.now()
+  const cooldownMs = Math.max(0, SWIM_WAKE_COOLDOWN_MS - (now - swimWakeLastAttempt))
+  if (cooldownMs > 0 && !swimWakeInFlight) {
+    return res.status(202).json({ ok: true, state: 'cooldown', cooldownMs })
+  }
+
+  try {
+    if (cooldownMs === 0) swimWakeLastAttempt = now
+    const result = await wakeSwimWorker()
+    res.status(202).json({ ok: true, ...result })
+  } catch (err) {
+    console.error('swim wake failed:', err.message)
+    res.status(502).json({ ok: false, error: 'SWIM wake failed' })
+  }
 })
 
 // Active TFRs from SWIM FNS

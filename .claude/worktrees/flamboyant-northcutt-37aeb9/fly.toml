@@ -1,0 +1,54 @@
+# fly.toml app configuration file generated for flightterm on 2026-03-22T22:36:32-04:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'flightterm'
+primary_region = 'iad'
+
+[build]
+
+[env]
+  DB_DIR = '/data'
+  PORT = '3001'
+  POLLER_ENABLED = 'true'
+  CORS_ORIGIN = 'https://flightterm.fly.dev'
+  SWIM_WORKER_URL = 'http://flightterm-swim.internal:3002'
+  # Rate limiting defaults — override here if needed
+  # RATE_WINDOW_MS = '60000'
+  # RATE_MAX = '100'
+  # SSE_MAX_PER_IP = '5'
+  # SSE_TIMEOUT_MS = '300000'
+  # POST_MAX_ITEMS = '2000'
+
+[[mounts]]
+  source = 'flightterm_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 1
+
+[checks]
+  [checks.live]
+    type = 'http'
+    port = 3001
+    path = '/api/health/live'
+    interval = '15s'
+    timeout = '10s'
+    grace_period = '30s'
+
+  [checks.ready]
+    type = 'http'
+    port = 3001
+    path = '/api/health/ready'
+    interval = '30s'
+    timeout = '10s'
+    grace_period = '30s'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '1024mb'

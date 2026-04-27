@@ -1,0 +1,192 @@
+// Maintenance worker thread. Owns its own SQLite connection so VACUUM and
+// large DELETEs don't block the main event loop serving HTTP.
+//
+// SQLite in WAL mode supports multiple connections to the same file; this
+// worker uses its own handle, short lock hold times, and a busy_timeout so
+// it coexists with the main process's connection.
+//
+// Runs a single scheduled cycle: purge expired rows from growth tables,
+// enforce hard size cap, VACUUM if a lot was trimmed, ANALYZE if size
+// changed significantly. No message handling — the main process spawns
+// this worker and lets it run on its own timer.
+
+const { parentPort } = require('worker_threads')
+const Database = require('better-sqlite3')
+const path = require('path')
+
+const DB_DIR = process.env.DB_DIR || path.join(__dirname, '.')
+const DB_PATH = path.join(DB_DIR, 'flightterm.db')
+const STORAGE_CAP_MB = Number(process.env.STORAGE_CAP_MB) || 250
+const TFMS_PLANS_RETENTION_HOURS = Number(process.env.TFMS_PLANS_RETENTION_HOURS) || 4
+const TFMS_FLOW_RETENTION_HOURS = Number(process.env.TFMS_FLOW_RETENTION_HOURS) || 12
+const PURGE_AFTER_HOURS = Number(process.env.PURGE_AFTER_HOURS) || 1
+
+const db = new Database(DB_PATH, { timeout: 15000 })
+db.pragma('journal_mode = WAL')
+db.pragma('synchronous = NORMAL')
+db.pragma('busy_timeout = 15000')
+
+function log(msg) {
+  const line = `mw: ${msg}`
+  console.log(line)
+  if (parentPort) parentPort.postMessage({ type: 'log', msg: line })
+}
+
+function dbSize() {
+  try {
+    const r = db.prepare('SELECT page_count * page_size AS b FROM pragma_page_count, pragma_page_size').get()
+    return r.b
+  } catch { return 0 }
+}
+
+function purgeSightings() {
+  try {
+    const cutoff = new Date(Date.now() - PURGE_AFTER_HOURS * 3600_000).toISOString()
+    const r = db.prepare('DELETE FROM sightings WHERE seen_at < ?').run(cutoff)
+    if (r.changes > 0) log(`purged ${r.changes} sightings`)
+  } catch {}
+}
+
+function purgeAnomalies() {
+  try {
+    const cutoff = new Date(Date.now() - PURGE_AFTER_HOURS * 3600_000).toISOString()
+    const r = db.prepare('DELETE FROM anomalies WHERE detected_at < ?').run(cutoff)
+    if (r.changes > 0) log(`purged ${r.changes} anomalies`)
+  } catch {}
+}
+
+function purgeDaily() {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 3600_000).toISOString().slice(0, 10)
+    const r = db.prepare('DELETE FROM sightings_daily WHERE date < ?').run(cutoff)
+    if (r.changes > 0) log(`purged ${r.changes} daily summaries`)
+  } catch {}
+}
+
+function purgeFlightPlans() {
+  try {
+    const r = db.prepare(`DELETE FROM flight_plans WHERE updated_at < datetime('now', '-' || @hours || ' hours')`).run({ hours: TFMS_PLANS_RETENTION_HOURS })
+    if (r.changes > 0) log(`purged ${r.changes} flight plans`)
+  } catch {}
+}
+
+function purgeFlow() {
+  try {
+    const r = db.prepare(`DELETE FROM flow_events WHERE received_at < datetime('now', '-' || @hours || ' hours')`).run({ hours: TFMS_FLOW_RETENTION_HOURS })
+    if (r.changes > 0) log(`purged ${r.changes} flow events`)
+  } catch {}
+}
+
+function purgeSurface() {
+  try {
+    const r = db.prepare(`DELETE FROM surface_events WHERE received_at < datetime('now', '-6 hours')`).run()
+    if (r.changes > 0) log(`purged ${r.changes} surface events`)
+  } catch {}
+}
+
+function purgeTerminalWeather() {
+  try {
+    const r = db.prepare(`DELETE FROM terminal_weather WHERE received_at < datetime('now', '-24 hours')`).run()
+    if (r.changes > 0) log(`purged ${r.changes} terminal weather events`)
+  } catch {}
+}
+
+function purgeNotams() {
+  try {
+    const r = db.prepare(`
+      DELETE FROM notams
+      WHERE (expiration IS NOT NULL AND expiration < datetime('now', '-7 days'))
+         OR (expiration IS NULL AND permanent = 0 AND received_at < datetime('now', '-7 days'))
+    `).run()
+    if (r.changes > 0) log(`purged ${r.changes} expired/old NOTAMs`)
+  } catch {}
+}
+
+function purgePositions() {
+  try {
+    const r = db.prepare(`DELETE FROM flight_positions WHERE recorded_at < datetime('now', '-6 hours')`).run()
+    if (r.changes > 0) log(`purged ${r.changes} old positions`)
+  } catch {}
+}
+
+function enforceCap() {
+  const capBytes = STORAGE_CAP_MB * 1048576
+  const startSize = dbSize()
+  if (startSize <= capBytes) return 0
+
+  log(`cap: db ${(startSize / 1048576).toFixed(1)} MB exceeds ${STORAGE_CAP_MB} MB cap — trimming`)
+
+  let totalDeleted = 0
+  const CHUNK = 10000
+
+  function trim(table, idCol = 'id') {
+    let deleted = 0
+    for (let i = 0; i < 200; i++) {
+      let r
+      try {
+        r = db.prepare(`DELETE FROM ${table} WHERE ${idCol} IN (SELECT ${idCol} FROM ${table} ORDER BY ${idCol} ASC LIMIT ${CHUNK})`).run()
+      } catch { return 0 }
+      deleted += r.changes
+      if (r.changes === 0) break
+    }
+    if (deleted > 0) log(`cap: trimmed ${deleted} from ${table}`)
+    return deleted
+  }
+
+  totalDeleted += trim('sightings')
+  totalDeleted += trim('sightings_daily', 'rowid')
+  totalDeleted += trim('anomalies')
+  try {
+    const r = db.prepare('DELETE FROM fetches').run()
+    if (r.changes > 0) log(`cap: trimmed ${r.changes} from fetches`)
+    totalDeleted += r.changes
+  } catch {}
+  totalDeleted += trim('position_history', 'rowid')
+
+  if (dbSize() > capBytes) {
+    let n = 0
+    const CHUNK_N = 2000
+    for (let i = 0; i < 50; i++) {
+      const r = db.prepare(`DELETE FROM notams WHERE id IN (SELECT id FROM notams ORDER BY received_at ASC LIMIT ${CHUNK_N})`).run()
+      n += r.changes
+      if (r.changes === 0) break
+      if (dbSize() <= capBytes) break
+    }
+    if (n > 0) log(`cap: trimmed ${n} from notams`)
+    totalDeleted += n
+  }
+  if (dbSize() > capBytes) totalDeleted += trim('flow_events')
+
+  if (totalDeleted > 1000) {
+    try { db.exec('VACUUM') } catch (err) { log(`cap: vacuum failed: ${err.message}`) }
+  }
+
+  const finalSize = dbSize()
+  log(`cap: trimmed ${totalDeleted} rows total, ${(startSize / 1048576).toFixed(1)} MB → ${(finalSize / 1048576).toFixed(1)} MB`)
+  return totalDeleted
+}
+
+function runCycle() {
+  const t0 = Date.now()
+  try {
+    purgeSightings()
+    purgeAnomalies()
+    purgeDaily()
+    purgeFlightPlans()
+    purgeFlow()
+    purgeSurface()
+    purgeTerminalWeather()
+    purgeNotams()
+    purgePositions()
+    enforceCap()
+    log(`maintenance cycle complete in ${Date.now() - t0}ms`)
+  } catch (err) {
+    log(`maintenance error: ${err.message}`)
+  }
+}
+
+// First cycle after a short warmup (let main process stabilize), then every 30m.
+setTimeout(runCycle, 30_000)
+setInterval(runCycle, 30 * 60 * 1000)
+
+log('maintenance worker started')

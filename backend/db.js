@@ -13,6 +13,18 @@ db.pragma('synchronous = NORMAL')
 db.pragma('foreign_keys = ON')
 db.pragma('cache_size = -16000') // 16 MB cache
 
+const WAL_CHECKPOINT_INTERVAL_MS = Number(process.env.WAL_CHECKPOINT_INTERVAL_MS) || 5 * 60 * 1000
+
+function checkpointWal(mode = 'PASSIVE') {
+  try {
+    db.pragma(`wal_checkpoint(${mode})`)
+    return true
+  } catch (err) {
+    console.warn(`db: WAL checkpoint ${mode} failed:`, err.message)
+    return false
+  }
+}
+
 // ── schema migration ────────────────────────────────────────────────────────
 // v2: dropped lat, lon, mil, source, region from sightings (moved to fetches table)
 
@@ -952,7 +964,30 @@ const _stmts = {
   `),
 
   purgeExpiredNotams: db.prepare(`
-    DELETE FROM notams WHERE expiration IS NOT NULL AND expiration < datetime('now', '-7 days')
+    DELETE FROM notams
+    WHERE
+      -- Expired NOTAMs are no longer actionable for the dashboard.
+      (expiration IS NOT NULL AND expiration < datetime('now'))
+      OR
+      -- Cancelled notices are useful only as recent activity.
+      (text LIKE 'CANCELLED%' AND received_at < datetime('now', '-' || @hours || ' hours'))
+      OR
+      -- Most FNS messages without an expiration are transient feed noise; keep
+      -- only the recent window unless they are TFR/permanent-style notices.
+      (
+        received_at < datetime('now', '-' || @hours || ' hours')
+        AND is_tfr = 0
+        AND permanent = 0
+        AND (expiration IS NULL OR expiration < datetime('now'))
+      )
+      OR
+      -- TFR/permanent notices with no expiration are worth a longer lookback,
+      -- but should not accumulate forever.
+      (
+        received_at < datetime('now', '-' || @tfrHours || ' hours')
+        AND (is_tfr = 1 OR permanent = 1)
+        AND (expiration IS NULL OR expiration < datetime('now'))
+      )
   `),
 
   // Airports with active NOTAMs — grouped, with keyword counts.
@@ -1739,6 +1774,8 @@ const _upsertNotamBatch = db.transaction((rows) => {
   for (const row of rows) _stmts.upsertNotam.run(row)
 })
 
+const STORE_NOTAM_RAW_XML = process.env.NOTAM_STORE_RAW_XML === 'true'
+
 function upsertNotam(notam, rawXml = null) {
   _stmts.upsertNotam.run({
     id: notam.id || `FNS_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1757,7 +1794,7 @@ function upsertNotam(notam, rawXml = null) {
     permanent: notam.permanent ? 1 : 0,
     text: notam.text || null,
     full_text: notam.fullText || null,
-    raw_xml: rawXml || null,
+    raw_xml: STORE_NOTAM_RAW_XML ? (rawXml || null) : null,
   })
 }
 
@@ -1779,7 +1816,7 @@ function upsertNotamBatch(notams, rawXmls = []) {
     permanent: n.permanent ? 1 : 0,
     text: n.text || null,
     full_text: n.fullText || null,
-    raw_xml: rawXmls[i] || null,
+    raw_xml: STORE_NOTAM_RAW_XML ? (rawXmls[i] || null) : null,
   }))
   _upsertNotamBatch(rows)
   return rows.length
@@ -1804,7 +1841,10 @@ function getNotamStats() {
 }
 
 function purgeExpiredNotams() {
-  return _stmts.purgeExpiredNotams.run().changes
+  return _stmts.purgeExpiredNotams.run({
+    hours: NOTAM_RETENTION_HOURS,
+    tfrHours: NOTAM_TFR_RETENTION_HOURS,
+  }).changes
 }
 
 function getNotamsByAirport(limit = 20) {
@@ -1973,6 +2013,8 @@ function getTfmsStats() { return _stmts.getTfmsStats.get() }
 
 const TFMS_PLANS_RETENTION_HOURS = Number(process.env.TFMS_PLANS_RETENTION_HOURS) || 4
 const TFMS_FLOW_RETENTION_HOURS = Number(process.env.TFMS_FLOW_RETENTION_HOURS) || 12
+const NOTAM_RETENTION_HOURS = Number(process.env.NOTAM_RETENTION_HOURS) || 6
+const NOTAM_TFR_RETENTION_HOURS = Number(process.env.NOTAM_TFR_RETENTION_HOURS) || 24
 
 function purgeOldTfms() {
   const plans = _stmts.purgeOldFlightPlans.run({ hours: TFMS_PLANS_RETENTION_HOURS }).changes
@@ -2112,8 +2154,8 @@ function getRoutesBulk(callsigns) {
   return map
 }
 
-// Upsert a route (insert or update if callsign already exists)
 function upsertRoute(route) {
+  if (!route?.callsign) return false
   _stmts.routeUpsert.run({
     callsign: route.callsign,
     origin_icao: route.origin_icao || null,
@@ -2124,6 +2166,7 @@ function upsertRoute(route) {
     destination_lon: route.destination_lon ?? null,
     source: route.source || 'adsbdb',
   })
+  return true
 }
 
 // Batch upsert (transactional)
@@ -2619,7 +2662,6 @@ function runDeferredMaintenance() {
       // will VACUUM if it actually trimmed anything.
       await runPurgeCycle({ vacuum: false })
       await enforceStorageCap()
-
       console.log('db: deferred maintenance complete')
     } catch (err) {
       console.error('deferred maintenance error:', err.message)
@@ -2664,10 +2706,17 @@ const _purgeTimer = setInterval(async () => {
     console.error('purge cycle error:', err.message)
   }
 }, 30 * 60 * 1000)
+_purgeTimer.unref?.()
+
+const _walCheckpointTimer = setInterval(() => {
+  checkpointWal('PASSIVE')
+}, WAL_CHECKPOINT_INTERVAL_MS)
+_walCheckpointTimer.unref?.()
 
 // Graceful close: stop purge timer + close database connection
 function close() {
   clearInterval(_purgeTimer)
+  clearInterval(_walCheckpointTimer)
   try { db.close() } catch {}
 }
 
@@ -3969,6 +4018,7 @@ module.exports = {
   runDeferredMaintenance,
   deduplicateExisting,
   vacuumDb,
+  checkpointWal,
   DB_PATH,
   recordAnomalies,
   resolveAnomalies,

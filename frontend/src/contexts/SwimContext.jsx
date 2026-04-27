@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 
 const SwimContext = createContext(null)
@@ -21,6 +21,9 @@ export function SwimProvider({ backendOk, children }) {
   const [weather, setWeather] = useState([])
   const [oooi, setOooi] = useState([])
   const [nasSummary, setNasSummary] = useState(null)
+  const [wakeState, setWakeState] = useState({ state: 'idle' })
+  const wakeInFlightRef = useRef(null)
+  const autoWakeAttemptedRef = useRef(false)
 
   // Fast tier (10s): flight positions, surface events, feed status, NAS health
   const refreshFast = useCallback(async () => {
@@ -38,6 +41,32 @@ export function SwimProvider({ backendOk, children }) {
     setOooi(arr(2))
     if (val(3)) setNasSummary(val(3))
   }, [backendOk])
+
+  const wakeSwim = useCallback(async () => {
+    if (!backendOk) return null
+    if (status?.workerConnected) {
+      setWakeState({ state: 'connected' })
+      return { ok: true, state: 'connected' }
+    }
+    if (wakeInFlightRef.current) return wakeInFlightRef.current
+
+    setWakeState({ state: 'starting' })
+    wakeInFlightRef.current = axios.post('/api/swim/wake')
+      .then((res) => {
+        setWakeState(res.data || { state: 'starting' })
+        setTimeout(refreshFast, 3000)
+        return res.data
+      })
+      .catch((err) => {
+        const data = err.response?.data
+        setWakeState({ state: 'error', error: data?.error || err.message })
+        throw err
+      })
+      .finally(() => {
+        wakeInFlightRef.current = null
+      })
+    return wakeInFlightRef.current
+  }, [backendOk, refreshFast, status?.workerConnected])
 
   // Medium tier (30s): flow events, weather, TFRs
   const refreshMedium = useCallback(async () => {
@@ -76,9 +105,16 @@ export function SwimProvider({ backendOk, children }) {
     return () => { clearInterval(fastId); clearInterval(medId); clearInterval(slowId) }
   }, [backendOk, refreshFast, refreshMedium, refreshSlow])
 
+  useEffect(() => {
+    if (!backendOk || autoWakeAttemptedRef.current || status?.workerConnected) return
+    autoWakeAttemptedRef.current = true
+    wakeSwim().catch(() => {})
+  }, [backendOk, status?.workerConnected, wakeSwim])
+
   return (
     <SwimContext.Provider value={{
       status, flowEvents, flights, airportConfigs, tfrs, notamAirports, weather, oooi, nasSummary,
+      wakeSwim, wakeState,
     }}>
       {children}
     </SwimContext.Provider>

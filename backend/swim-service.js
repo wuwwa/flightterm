@@ -21,6 +21,12 @@ const { AIRPORTS } = require('./anomaly')
 const PORT = process.env.SWIM_PORT || process.env.PORT || 3002
 const MAIN_APP_URL = process.env.MAIN_APP_URL || 'http://flightterm.internal:3001'
 const INTERNAL_SECRET = process.env.SWIM_INTERNAL_SECRET || ''
+const WORKER_API_SECRET = process.env.SWIM_WORKER_API_SECRET || INTERNAL_SECRET
+const MAIN_POST_TIMEOUT_MS = Number(process.env.MAIN_POST_TIMEOUT_MS) || 10000
+const MAIN_SLOW_MS = Number(process.env.MAIN_SLOW_MS) || 8000
+const MAX_DURABLE_BUFFER = Number(process.env.SWIM_MAX_DURABLE_BUFFER) || 5000
+const MAX_BACKOFF_TICKS = Number(process.env.SWIM_BACKOFF_MAX_TICKS) || 6
+const SEND_NOTAM_RAW_XML = process.env.SEND_NOTAM_RAW_XML === 'true'
 
 const AIRPORT_COORDS = {}
 for (const ap of AIRPORTS) AIRPORT_COORDS[ap.icao] = { lat: ap.lat, lon: ap.lon }
@@ -47,8 +53,11 @@ const tfmsFlowBuffer = []
 const routeBuffer = []
 const consumers = {}
 
-const FLUSH_BATCH = 50
-const FLUSH_INTERVAL = 5000
+const FLUSH_BATCH = Number(process.env.SWIM_FLUSH_BATCH) || 50
+const FLUSH_INTERVAL = Number(process.env.SWIM_FLUSH_INTERVAL_MS) || 5000
+let mainBackoffTicks = 0
+let durableTrimTicker = 0
+let lastDropLogAt = 0
 
 const feedStats = {
   fns: { received: 0, processed: 0 },
@@ -61,16 +70,65 @@ const feedStats = {
 // ── HTTP client for posting to main app ────────────────────────────────────
 const mainApi = axios.create({
   baseURL: MAIN_APP_URL,
-  timeout: 10000,
+  timeout: MAIN_POST_TIMEOUT_MS,
   headers: INTERNAL_SECRET ? { Authorization: `Bearer ${INTERNAL_SECRET}` } : {},
 })
 
 async function postToMain(path, data) {
+  const t0 = Date.now()
   try {
     await mainApi.post(path, data)
+    const ms = Date.now() - t0
+    if (ms > MAIN_SLOW_MS) {
+      mainBackoffTicks = Math.min(MAX_BACKOFF_TICKS, mainBackoffTicks + 1)
+      console.warn(`swim-service: POST ${path} slow (${ms}ms), backing off durable flushes`)
+    } else if (mainBackoffTicks > 0) {
+      mainBackoffTicks--
+    }
+    return true
   } catch (err) {
     console.error(`swim-service: POST ${path} failed:`, err.message)
+    mainBackoffTicks = Math.min(MAX_BACKOFF_TICKS, mainBackoffTicks + 2)
+    return false
   }
+}
+
+function compactLatest(buffer, keyFn) {
+  const keyed = new Map()
+  const unkeyed = []
+  for (const item of buffer) {
+    const key = keyFn(item)
+    if (key) keyed.set(key, item)
+    else unkeyed.push(item)
+  }
+  buffer.splice(0, buffer.length, ...unkeyed, ...keyed.values())
+}
+
+function dropOldest(buffer, max, label) {
+  if (buffer.length <= max) return 0
+  const dropped = buffer.splice(0, buffer.length - max).length
+  const now = Date.now()
+  if (now - lastDropLogAt > 10000) {
+    lastDropLogAt = now
+    console.warn(`swim-service: dropped ${dropped} old ${label} records under backpressure`)
+  }
+  return dropped
+}
+
+function trimDurableBuffers(force = false) {
+  if (!force && ++durableTrimTicker % 50 !== 0) return
+  compactLatest(fnsBuffer, b => b?.notam?.id)
+  compactLatest(tfmsFlightBuffer, fp => fp?.acid)
+  compactLatest(routeBuffer, r => r?.callsign && r?.origin_icao && r?.destination_icao
+    ? `${r.callsign}|${r.origin_icao}|${r.destination_icao}`
+    : null)
+
+  const routeMax = mainBackoffTicks > 0 ? Math.max(FLUSH_BATCH, Math.floor(MAX_DURABLE_BUFFER / 4)) : MAX_DURABLE_BUFFER
+  const flowMax = mainBackoffTicks > 0 ? Math.max(FLUSH_BATCH, Math.floor(MAX_DURABLE_BUFFER / 2)) : MAX_DURABLE_BUFFER
+  dropOldest(routeBuffer, routeMax, 'route')
+  dropOldest(tfmsFlowBuffer, flowMax, 'flow')
+  dropOldest(tfmsFlightBuffer, MAX_DURABLE_BUFFER, 'flight-plan')
+  dropOldest(fnsBuffer, MAX_DURABLE_BUFFER, 'NOTAM')
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -106,16 +164,22 @@ function handleFnsMessage(xml, props) {
 
   if (!notam) return
   fnsBuffer.push({ notam, xml: xml || null })
+  trimDurableBuffers()
   feedStats.fns.processed++
 }
 
 async function flushFns() {
   if (fnsBuffer.length === 0) return
+  compactLatest(fnsBuffer, b => b?.notam?.id)
   const batch = fnsBuffer.splice(0, FLUSH_BATCH)
-  await postToMain('/internal/swim/notams', {
+  const ok = await postToMain('/internal/swim/notams', {
     notams: batch.map(b => b.notam),
-    rawXmls: batch.map(b => b.xml),
+    rawXmls: SEND_NOTAM_RAW_XML ? batch.map(b => b.xml) : undefined,
   })
+  if (!ok) {
+    fnsBuffer.unshift(...batch)
+    trimDurableBuffers(true)
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -146,19 +210,34 @@ function handleTfmsMessage(xml, props) {
       }
     }
   }
+  trimDurableBuffers()
   feedStats.tfms.processed++
 }
 
 async function flushTfms() {
   if (tfmsFlightBuffer.length > 0) {
+    compactLatest(tfmsFlightBuffer, fp => fp?.acid)
     const batch = tfmsFlightBuffer.splice(0, FLUSH_BATCH)
-    await postToMain('/internal/swim/flights', { plans: batch })
+    const ok = await postToMain('/internal/swim/flights', { plans: batch })
+    if (!ok) {
+      tfmsFlightBuffer.unshift(...batch)
+      trimDurableBuffers(true)
+    }
   }
   if (tfmsFlowBuffer.length > 0) {
+    if (mainBackoffTicks > 0 && tfmsFlowBuffer.length > FLUSH_BATCH) {
+      dropOldest(tfmsFlowBuffer, FLUSH_BATCH, 'flow')
+    }
     const batch = tfmsFlowBuffer.splice(0, FLUSH_BATCH)
     await postToMain('/internal/swim/flow', { events: batch })
   }
   if (routeBuffer.length > 0) {
+    compactLatest(routeBuffer, r => r?.callsign && r?.origin_icao && r?.destination_icao
+      ? `${r.callsign}|${r.origin_icao}|${r.destination_icao}`
+      : null)
+    if (mainBackoffTicks > 0 && routeBuffer.length > FLUSH_BATCH) {
+      dropOldest(routeBuffer, FLUSH_BATCH, 'route')
+    }
     const batch = routeBuffer.splice(0, FLUSH_BATCH)
     await postToMain('/internal/swim/routes', { routes: batch })
   }
@@ -315,6 +394,16 @@ const app = express()
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 
+function requireWorkerAuth(req, res, next) {
+  if (!WORKER_API_SECRET) return res.status(503).json({ error: 'worker api secret not configured' })
+  const auth = req.headers.authorization || ''
+  const token = auth.replace(/^Bearer\s+/i, '')
+  if (token !== WORKER_API_SECRET) return res.status(401).json({ error: 'unauthorized' })
+  next()
+}
+
+app.use('/api', requireWorkerAuth)
+
 // Full snapshot (polled by main app every 2s)
 app.get('/api/snapshot', (_req, res) => {
   const consumerStats = {}
@@ -330,6 +419,13 @@ app.get('/api/snapshot', (_req, res) => {
     stdds: stddsRing.slice(-SNAPSHOT_CAP),
     surfaceStats: buildSurfaceStats(),
     weatherStats: buildWeatherStats(),
+    durableBuffers: {
+      notams: fnsBuffer.length,
+      flightPlans: tfmsFlightBuffer.length,
+      flow: tfmsFlowBuffer.length,
+      routes: routeBuffer.length,
+      backoffTicks: mainBackoffTicks,
+    },
   })
 })
 

@@ -10,6 +10,7 @@ primary_region = 'iad'
 
 [env]
   DB_DIR = '/data'
+  NODE_ENV = 'production'
   PORT = '3001'
   POLLER_ENABLED = 'true'
   CORS_ORIGIN = 'https://flightterm.fly.dev'

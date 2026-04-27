@@ -10,6 +10,8 @@ const axios = require('axios')
 const db = require('../db')
 
 const WORKER_URL = process.env.SWIM_WORKER_URL || 'http://flightterm-swim.internal:3002'
+const WORKER_API_SECRET = process.env.SWIM_WORKER_API_SECRET || process.env.SWIM_INTERNAL_SECRET || ''
+const workerHeaders = WORKER_API_SECRET ? { Authorization: `Bearer ${WORKER_API_SECRET}` } : {}
 // Polling interval bumped from 5s → 15s. Snapshots are bulky and we don't need
 // real-time updates for ephemeral feeds; the lower frequency gives the main
 // event loop more headroom and reduces JSON parse + persist overhead 3x.
@@ -34,7 +36,7 @@ let _positionPersistCount = 0
 
 async function pollWorker() {
   try {
-    const res = await axios.get(`${WORKER_URL}/api/snapshot`, { timeout: 15000 })
+    const res = await axios.get(`${WORKER_URL}/api/snapshot`, { timeout: 15000, headers: workerHeaders })
     _sfdps = res.data.sfdps || []
     _itws = res.data.itws || []
     _stdds = res.data.stdds || []
