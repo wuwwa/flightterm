@@ -67,6 +67,8 @@ const feedStats = {
   stdds: { received: 0, processed: 0 },
 }
 
+const FNS_FLUSH_INTERVAL = Number(process.env.SWIM_FNS_FLUSH_INTERVAL_MS) || 30 * 60_000
+
 // ── HTTP client for posting to main app ────────────────────────────────────
 const mainApi = axios.create({
   baseURL: MAIN_APP_URL,
@@ -379,11 +381,16 @@ async function startAll() {
     console.log(`swim-service: ${active.length} feed(s) active: ${active.join(', ')}`)
   }
 
-  // Flush durable data to main app every 5s
+  // TFMS stays near-real-time; FNS/NOTAMs are lower urgency and can be batched.
   setInterval(async () => {
-    await flushFns()
     await flushTfms()
   }, FLUSH_INTERVAL)
+  setInterval(async () => {
+    await flushFns()
+  }, FNS_FLUSH_INTERVAL)
+
+  // Send any startup burst promptly, then settle into the slower NOTAM cadence.
+  setTimeout(() => { flushFns().catch(() => {}) }, FLUSH_INTERVAL)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -11,6 +11,8 @@ primary_region = 'iad'
   NODE_ENV = 'production'
   PORT = '3002'
   MAIN_APP_URL = 'http://flightterm.internal:3001'
+  SWIM_FLUSH_INTERVAL_MS = '15000'
+  SWIM_FNS_FLUSH_INTERVAL_MS = '1800000'
 
 [http_service]
   internal_port = 3002

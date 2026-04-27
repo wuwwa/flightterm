@@ -611,7 +611,7 @@ db.exec(`
 // ── SFDPS flight position trail ─────────────────────────────────────────────
 // Selectively persisted from SFDPS snapshots for flights with matching flight plans.
 // Used for altitude profiles, phase duration analysis, and en-route tracking.
-// Purged after 6 hours to keep table lean.
+// Purged after 2 hours to keep table lean.
 db.exec(`
   CREATE TABLE IF NOT EXISTS flight_positions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -838,24 +838,24 @@ const _stmts = {
       SUM(CASE WHEN category = 'INTENT' THEN 1 ELSE 0 END) as cat_intent,
       COUNT(DISTINCT icao) as unique_aircraft
     FROM anomalies
-    WHERE detected_at > datetime('now', '-24 hours')
+    WHERE detected_at > datetime('now', '-2 hours')
   `),
 
-  // Mean time to resolution (only for resolved anomalies in last 24h)
+  // Mean time to resolution (only for resolved anomalies in recent live window)
   anomalyMttr: db.prepare(`
     SELECT AVG(
       (julianday(resolved_at) - julianday(detected_at)) * 24 * 60
     ) as avg_minutes
     FROM anomalies
     WHERE resolved = 1 AND resolved_at IS NOT NULL
-      AND detected_at > datetime('now', '-24 hours')
+      AND detected_at > datetime('now', '-2 hours')
   `),
 
-  // Repeat offenders: aircraft with 2+ anomalies in last 24h
+  // Repeat offenders: aircraft with 2+ anomalies in recent live window
   anomalyRepeaters: db.prepare(`
     SELECT icao, callsign, COUNT(*) as count, MAX(score) as max_score, MAX(severity) as max_severity
     FROM anomalies
-    WHERE detected_at > datetime('now', '-24 hours')
+    WHERE detected_at > datetime('now', '-2 hours')
     GROUP BY icao
     HAVING count > 1
     ORDER BY count DESC
@@ -941,6 +941,7 @@ const _stmts = {
   getActiveTfrs: db.prepare(`
     SELECT * FROM notams
     WHERE is_tfr = 1
+      AND received_at > datetime('now', '-' || ? || ' hours')
       AND (expiration IS NULL OR expiration > datetime('now'))
       AND (effective IS NULL OR effective <= datetime('now'))
     ORDER BY effective DESC
@@ -949,6 +950,7 @@ const _stmts = {
   getActiveNotamsByLocation: db.prepare(`
     SELECT * FROM notams
     WHERE location = ?
+      AND received_at > datetime('now', '-' || ? || ' hours')
       AND (expiration IS NULL OR expiration > datetime('now'))
       AND (effective IS NULL OR effective <= datetime('now'))
     ORDER BY effective DESC
@@ -978,7 +980,6 @@ const _stmts = {
         received_at < datetime('now', '-' || @hours || ' hours')
         AND is_tfr = 0
         AND permanent = 0
-        AND (expiration IS NULL OR expiration < datetime('now'))
       )
       OR
       -- TFR/permanent notices with no expiration are worth a longer lookback,
@@ -986,8 +987,11 @@ const _stmts = {
       (
         received_at < datetime('now', '-' || @tfrHours || ' hours')
         AND (is_tfr = 1 OR permanent = 1)
-        AND (expiration IS NULL OR expiration < datetime('now'))
       )
+  `),
+
+  clearNotamRawXml: db.prepare(`
+    UPDATE notams SET raw_xml = NULL WHERE raw_xml IS NOT NULL
   `),
 
   // Airports with active NOTAMs — grouped, with keyword counts.
@@ -1010,6 +1014,7 @@ const _stmts = {
       MAX(received_at) as latest
     FROM notams
     WHERE location IS NOT NULL
+      AND received_at > datetime('now', '-' || ? || ' hours')
       AND location NOT IN ('FDC', 'FYI')
       AND (
         location GLOB '[A-Z][A-Z][A-Z]'
@@ -1037,6 +1042,7 @@ const _stmts = {
            received_at
     FROM notams
     WHERE location = ?
+      AND received_at > datetime('now', '-' || ? || ' hours')
       AND (text IS NULL OR text NOT LIKE 'CANCELLED%')
       AND (expiration IS NULL OR expiration > datetime('now'))
     ORDER BY
@@ -1135,7 +1141,7 @@ const _stmts = {
   `),
 
   purgeOldTerminalWeather: db.prepare(`
-    DELETE FROM terminal_weather WHERE received_at < datetime('now', '-24 hours')
+    DELETE FROM terminal_weather WHERE received_at < datetime('now', '-2 hours')
   `),
 
   // Surface events (STDDS)
@@ -1170,7 +1176,7 @@ const _stmts = {
   `),
 
   purgeOldSurfaceEvents: db.prepare(`
-    DELETE FROM surface_events WHERE received_at < datetime('now', '-6 hours')
+    DELETE FROM surface_events WHERE received_at < datetime('now', '-2 hours')
   `),
 
   getFlightPlan: db.prepare(`SELECT * FROM flight_plans WHERE acid = ?`),
@@ -1188,7 +1194,7 @@ const _stmts = {
 
   getActiveFlowEvents: db.prepare(`
     SELECT * FROM flow_events
-    WHERE received_at > datetime('now', '-6 hours')
+    WHERE received_at > datetime('now', '-2 hours')
       AND event_type NOT IN ('TMI_LIST', 'TMI_UPDATE')
     ORDER BY received_at DESC LIMIT ?
   `),
@@ -1196,7 +1202,7 @@ const _stmts = {
   // Flow control programs only (GS, GDP, AFP, CTOP, REROUTE) — never drowned by RSTR/FXA noise
   getActiveFlowPrograms: db.prepare(`
     SELECT * FROM flow_events
-    WHERE received_at > datetime('now', '-6 hours')
+    WHERE received_at > datetime('now', '-2 hours')
       AND event_type IN ('GS', 'GDP', 'AFP', 'CTOP', 'REROUTE')
     ORDER BY received_at DESC LIMIT 200
   `),
@@ -1220,7 +1226,7 @@ const _stmts = {
 
   getFlowEventsByAirport: db.prepare(`
     SELECT * FROM flow_events
-    WHERE airport = ? AND received_at > datetime('now', '-12 hours')
+    WHERE airport = ? AND received_at > datetime('now', '-2 hours')
     ORDER BY received_at DESC LIMIT ?
   `),
 
@@ -1229,20 +1235,19 @@ const _stmts = {
       (SELECT COUNT(*) FROM flight_plans) as total_plans,
       (SELECT COUNT(*) FROM flight_plans WHERE updated_at > datetime('now', '-1 hour')) as recent_plans,
       (SELECT COUNT(*) FROM flight_plans WHERE flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING')) as active_flights,
-      (SELECT COUNT(*) FROM flow_events WHERE received_at > datetime('now', '-6 hours')) as recent_flow_events,
-      (SELECT COUNT(*) FROM flow_events WHERE event_type = 'GDP' AND received_at > datetime('now', '-6 hours')) as active_gdps,
-      (SELECT COUNT(*) FROM flow_events WHERE event_type = 'GS' AND received_at > datetime('now', '-6 hours')) as active_gs
+      (SELECT COUNT(*) FROM flow_events WHERE received_at > datetime('now', '-2 hours')) as recent_flow_events,
+      (SELECT COUNT(*) FROM flow_events WHERE event_type = 'GDP' AND received_at > datetime('now', '-2 hours')) as active_gdps,
+      (SELECT COUNT(*) FROM flow_events WHERE event_type = 'GS' AND received_at > datetime('now', '-2 hours')) as active_gs
   `),
 
-  // Tightened from 24h → 4h. The dashboard only needs currently-active and
-  // recently-completed flights; 4h covers any in-progress flight including
-  // long-haul approach. Set TFMS_PLANS_RETENTION_HOURS to override.
+  // The dashboard only needs currently-active and recently-completed flights.
+  // Set TFMS_PLANS_RETENTION_HOURS to override.
   purgeOldFlightPlans: db.prepare(`
     DELETE FROM flight_plans WHERE updated_at < datetime('now', '-' || @hours || ' hours')
   `),
 
-  // Tightened from 7d → 12h. The dashboard cares about CURRENT ground stops,
-  // GDPs, and reroutes, not week-old flow history. Set TFMS_FLOW_RETENTION_HOURS to override.
+  // The dashboard cares about current ground stops, GDPs, and reroutes, not
+  // historical flow data. Set TFMS_FLOW_RETENTION_HOURS to override.
   purgeOldFlowEvents: db.prepare(`
     DELETE FROM flow_events WHERE received_at < datetime('now', '-' || @hours || ' hours')
   `),
@@ -1371,7 +1376,7 @@ const _stmts = {
       COUNT(*) AS count,
       SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical
     FROM anomalies
-    WHERE detected_at > datetime('now', '-24 hours')
+    WHERE detected_at > datetime('now', '-2 hours')
     GROUP BY hour
     ORDER BY hour
   `),
@@ -1823,7 +1828,7 @@ function upsertNotamBatch(notams, rawXmls = []) {
 }
 
 function getActiveTfrs() {
-  const rows = _stmts.getActiveTfrs.all()
+  const rows = _stmts.getActiveTfrs.all(NOTAM_TFR_RETENTION_HOURS)
   return rows.map(r => ({
     ...r,
     geometry: r.geometry ? JSON.parse(r.geometry) : null,
@@ -1833,7 +1838,7 @@ function getActiveTfrs() {
 }
 
 function getActiveNotamsByLocation(location) {
-  return _stmts.getActiveNotamsByLocation.all(location)
+  return _stmts.getActiveNotamsByLocation.all(location, NOTAM_RETENTION_HOURS)
 }
 
 function getNotamStats() {
@@ -1841,18 +1846,20 @@ function getNotamStats() {
 }
 
 function purgeExpiredNotams() {
-  return _stmts.purgeExpiredNotams.run({
+  const expired = _stmts.purgeExpiredNotams.run({
     hours: NOTAM_RETENTION_HOURS,
     tfrHours: NOTAM_TFR_RETENTION_HOURS,
   }).changes
+  const rawCleared = STORE_NOTAM_RAW_XML ? 0 : _stmts.clearNotamRawXml.run().changes
+  return { expired, rawCleared, changes: expired + rawCleared }
 }
 
 function getNotamsByAirport(limit = 20) {
-  return _stmts.notamsByAirport.all(limit)
+  return _stmts.notamsByAirport.all(NOTAM_RETENTION_HOURS, limit)
 }
 
 function getNotamsForLocation(location) {
-  return _stmts.notamsForLocation.all(location)
+  return _stmts.notamsForLocation.all(location, NOTAM_RETENTION_HOURS)
 }
 
 function getRecentNotams(limit = 15) {
@@ -2011,10 +2018,10 @@ function getSurfacePositions(limit = 300) { return _stmts.getSurfacePositions.al
 function getFlowEventsByAirport(airport, limit = 10) { return _stmts.getFlowEventsByAirport.all(airport, limit) }
 function getTfmsStats() { return _stmts.getTfmsStats.get() }
 
-const TFMS_PLANS_RETENTION_HOURS = Number(process.env.TFMS_PLANS_RETENTION_HOURS) || 4
-const TFMS_FLOW_RETENTION_HOURS = Number(process.env.TFMS_FLOW_RETENTION_HOURS) || 12
-const NOTAM_RETENTION_HOURS = Number(process.env.NOTAM_RETENTION_HOURS) || 6
-const NOTAM_TFR_RETENTION_HOURS = Number(process.env.NOTAM_TFR_RETENTION_HOURS) || 24
+const TFMS_PLANS_RETENTION_HOURS = Number(process.env.TFMS_PLANS_RETENTION_HOURS) || 2
+const TFMS_FLOW_RETENTION_HOURS = Number(process.env.TFMS_FLOW_RETENTION_HOURS) || 2
+const NOTAM_RETENTION_HOURS = Number(process.env.NOTAM_RETENTION_HOURS) || 2
+const NOTAM_TFR_RETENTION_HOURS = Number(process.env.NOTAM_TFR_RETENTION_HOURS) || 2
 
 function purgeOldTfms() {
   const plans = _stmts.purgeOldFlightPlans.run({ hours: TFMS_PLANS_RETENTION_HOURS }).changes
@@ -2386,7 +2393,7 @@ function getDbSize() {
   return total
 }
 
-// ── auto-purge: 6-hour retention window ─────────────────────────────────────
+// ── auto-purge: live retention window ────────────────────────────────────────
 // Retention window for raw sightings + fetches. The app is now used purely as
 // a dashboard (no anomaly detection), so we don't need historical sightings —
 // only enough to populate any "recent activity" UI. Tunable via PURGE_AFTER_HOURS.
@@ -2469,7 +2476,9 @@ async function runPurgeCycle({ vacuum = true } = {}) {
     const wx = purgeOldTerminalWeather()
     if (wx.changes > 0) console.log(`  purge: ${wx.changes} terminal weather events`)
     const notams = purgeExpiredNotams()
-    if (notams.changes > 0) console.log(`  purge: ${notams.changes} expired NOTAMs`)
+    if (notams.expired > 0 || notams.rawCleared > 0) {
+      console.log(`  purge: ${notams.expired} old NOTAMs, cleared raw XML on ${notams.rawCleared} kept NOTAMs`)
+    }
     const positions = purgeOldPositions()
     if (positions > 0) console.log(`  purge: ${positions} old flight positions`)
     const sectors = purgeSectorCounts()
@@ -2901,7 +2910,7 @@ const _stmtTurnaroundsByAirline = db.prepare(`
     FROM surface_events a
     JOIN surface_events b ON a.callsign = b.callsign AND b.event_type = 'SPOT_OUT' AND b.airport = a.airport
     WHERE a.airport = ? AND a.event_type = 'SPOT_IN'
-      AND a.received_at > datetime('now', '-6 hours')
+      AND a.received_at > datetime('now', '-2 hours')
       AND b.received_at > a.received_at
       AND (julianday(b.received_at) - julianday(a.received_at)) * 1440 BETWEEN 15 AND 300
     GROUP BY a.callsign, a.received_at
@@ -2921,7 +2930,7 @@ const _stmtWeatherCausation = db.prepare(`
     AND tw.received_at BETWEEN datetime(fe.received_at, '-15 minutes') AND fe.received_at
   WHERE fe.airport = ?
     AND fe.event_type IN ('GS', 'GDP')
-    AND fe.received_at > datetime('now', '-12 hours')
+    AND fe.received_at > datetime('now', '-2 hours')
   ORDER BY fe.received_at DESC
 `)
 
@@ -3349,7 +3358,7 @@ const _stmtLifecycleEvents = db.prepare(`
   FROM surface_events
   WHERE callsign = ?
     AND event_type IN ('SPOT_OUT','OFF','ON','SPOT_IN')
-    AND received_at > datetime('now', '-6 hours')
+    AND received_at > datetime('now', '-2 hours')
   ORDER BY received_at ASC
 `)
 
@@ -3598,7 +3607,7 @@ const _stmtWeatherDelayCausation = db.prepare(`
     AND tw.received_at BETWEEN datetime(fe.received_at, '-60 minutes') AND fe.received_at
     AND tw.event_type IN ('TORNADO', 'MICROBURST', 'WINDSHEAR', 'GUST_FRONT', 'PRECIP', 'STORM_MOTION')
   WHERE fe.event_type IN ('GS', 'GDP', 'AFP')
-    AND fe.received_at > datetime('now', '-6 hours')
+    AND fe.received_at > datetime('now', '-2 hours')
   ORDER BY fe.received_at DESC
 `)
 
@@ -3634,7 +3643,7 @@ const _stmtWeatherToFlowHistory = db.prepare(`
   WHERE tw.airport = ?
     AND tw.event_type IN ('TORNADO', 'MICROBURST', 'WINDSHEAR', 'GUST_FRONT')
     AND tw.severity IN ('CRITICAL', 'HIGH')
-    AND tw.received_at > datetime('now', '-24 hours')
+    AND tw.received_at > datetime('now', '-2 hours')
 `)
 
 function getWeatherDelayCausation() {
@@ -3755,7 +3764,7 @@ const _stmtArtccHistory = db.prepare(`
 `)
 
 const _stmtPurgeSectorCounts = db.prepare(`
-  DELETE FROM sector_counts WHERE sampled_at < datetime('now', '-3 hours')
+  DELETE FROM sector_counts WHERE sampled_at < datetime('now', '-2 hours')
 `)
 
 function getSectorCongestion() {
@@ -3819,7 +3828,7 @@ const _stmtGetPositionTrail = db.prepare(`
   SELECT callsign, lat, lon, altitude, speed, heading, sector, artcc, recorded_at
   FROM flight_positions
   WHERE callsign = ?
-    AND recorded_at > datetime('now', '-6 hours')
+    AND recorded_at > datetime('now', '-2 hours')
   ORDER BY recorded_at ASC
 `)
 
@@ -3828,7 +3837,7 @@ function getPositionTrail(callsign) {
 }
 
 const _stmtPurgeOldPositions = db.prepare(`
-  DELETE FROM flight_positions WHERE recorded_at < datetime('now', '-6 hours')
+  DELETE FROM flight_positions WHERE recorded_at < datetime('now', '-2 hours')
 `)
 
 function purgeOldPositions() {
@@ -3852,7 +3861,7 @@ const _stmtDepQueue = db.prepare(`
   ORDER BY a.received_at ASC
 `)
 
-// Hourly throughput: dep/arr counts in 15-min bins over last 3 hours
+// Recent throughput: dep/arr counts in 15-min bins over last 2 hours
 const _stmtThroughputBins = db.prepare(`
   SELECT
     strftime('%H:%M', received_at, 'start of minute',
@@ -3862,7 +3871,7 @@ const _stmtThroughputBins = db.prepare(`
   FROM surface_events
   WHERE airport = ?
     AND event_type IN ('OFF', 'ON')
-    AND received_at > datetime('now', '-3 hours')
+    AND received_at > datetime('now', '-2 hours')
   GROUP BY bin
   ORDER BY bin ASC
 `)

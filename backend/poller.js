@@ -22,6 +22,7 @@ const ENRICH_BATCH  = 50  // how many aircraft to background-enrich per cycle
 const ENRICH_DELAY  = 5000 // ms between enrichment requests
 const MAX_ENRICH_CACHE = 10_000  // cap enrichCache to prevent unbounded growth
 const ENRICH_CACHE_TTL = 60 * 60 * 1000 // 1 hour — evict stale entries
+const ANOMALY_SCORE_DIVISOR = Math.max(1, parseInt(process.env.ANOMALY_SCORE_DIVISOR || '3', 10))
 
 const OS_BASE = 'https://opensky-network.org/api'
 const OS_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
@@ -56,6 +57,7 @@ let baselineCache = new Map()      // "KJFK→KLAX" → baseline object
 let pollTimer = null
 let baselineTimer = null
 let running = false
+let anomalyScoreCursor = 0
 
 // ── OpenSky dual-key auth ───────────────────────────────────────────────────
 // Supports two sets of credentials. Each key gets 4000 credits/day.
@@ -70,8 +72,49 @@ const OS_KEY_SLOTS = [
 
 let activeKeySlot = 0                // index into OS_KEY_SLOTS
 const osTokens = Array(OS_KEY_SLOTS.length).fill(null) // cached tokens per slot
+const osKeyPausedUntil = Array(OS_KEY_SLOTS.length).fill(0)
+let osPauseReason = null
 
 function getActiveKeyCount() { return OS_KEY_SLOTS.length }
+
+function nextOpenSkyResetMs(retryAfterSeconds = null) {
+  if (retryAfterSeconds && retryAfterSeconds > 0) {
+    return Date.now() + retryAfterSeconds * 1000
+  }
+  const reset = new Date()
+  reset.setUTCDate(reset.getUTCDate() + 1)
+  reset.setUTCHours(0, 5, 0, 0)
+  return reset.getTime()
+}
+
+function pauseOpenSkySlot(slotIndex, reason, retryAfterSeconds = null) {
+  const until = nextOpenSkyResetMs(retryAfterSeconds)
+  osKeyPausedUntil[slotIndex] = until
+  osPauseReason = reason
+  const mins = Math.max(1, Math.round((until - Date.now()) / 60000))
+  console.warn(`poller: opensky key ${slotIndex + 1} paused for ${mins}m (${reason})`)
+}
+
+function selectOpenSkySlot() {
+  const now = Date.now()
+  for (let i = 0; i < OS_KEY_SLOTS.length; i++) {
+    const idx = (activeKeySlot + i) % OS_KEY_SLOTS.length
+    if ((osKeyPausedUntil[idx] || 0) <= now) {
+      activeKeySlot = idx
+      return idx
+    }
+  }
+  return -1
+}
+
+function getOpenSkyPause() {
+  const future = osKeyPausedUntil.filter(ts => ts > Date.now())
+  if (future.length === 0) return null
+  return {
+    until: new Date(Math.min(...future)).toISOString(),
+    reason: osPauseReason || 'credits exhausted',
+  }
+}
 
 async function getOsToken(slotIndex) {
   const slot = OS_KEY_SLOTS[slotIndex ?? activeKeySlot]
@@ -100,10 +143,18 @@ async function getOsToken(slotIndex) {
 // ── Data fetching ────────────────────────────────────────────────────────────
 
 async function fetchOpenSky(region = 'usa') {
+  const selectedSlot = selectOpenSkySlot()
+  if (selectedSlot < 0) {
+    const pause = getOpenSkyPause()
+    const err = new Error(`OpenSky credits exhausted; paused until ${pause?.until || 'reset'}`)
+    err.code = 'OPENSKY_PAUSED'
+    throw err
+  }
+
   const reg = REGIONS[region] || REGIONS.usa
   const params = reg.bbox ? { ...reg.bbox } : {}
   const headers = {}
-  const slotUsed = activeKeySlot
+  const slotUsed = selectedSlot
 
   try {
     const token = await getOsToken()
@@ -132,6 +183,7 @@ async function fetchOpenSky(region = 'usa') {
     if (status === 429) {
       const retry = Number(err.response?.headers?.['x-rate-limit-retry-after-seconds']) || null
       if (retry) retryHint = ` · retry in ${(retry / 3600).toFixed(1)}h`
+      pauseOpenSkySlot(slotUsed, 'credits exhausted', retry)
     }
     console.error(`poller: opensky API ${status || 'network error'} (${authMode}, key ${slotUsed + 1}/${OS_KEY_SLOTS.length})${retryHint}: ${err.message}${body ? ' — ' + body : ''}`)
     // Auto-switch key on 429 (rate limit) or 401 (bad token)
@@ -151,6 +203,9 @@ async function fetchOpenSky(region = 'usa') {
   const remaining = res.headers?.['x-rate-limit-remaining']
   if (remaining != null) {
     const rem = Number(remaining)
+    if (rem <= 0) {
+      pauseOpenSkySlot(slotUsed, 'credits exhausted')
+    }
     if (rem < CREDIT_SWITCH_THRESHOLD && OS_KEY_SLOTS.length > 1) {
       const nextSlot = (activeKeySlot + 1) % OS_KEY_SLOTS.length
       if (nextSlot !== activeKeySlot) {
@@ -632,11 +687,18 @@ async function pollCycle() {
   try {
     flights = await fetchOpenSky(region)
   } catch (err) {
+    if (err.code === 'OPENSKY_PAUSED') {
+      console.warn(`poller: ${err.message}`)
+      return
+    }
     if ((err.response?.status === 429 || err.response?.status === 401) && OS_KEY_SLOTS.length > 1) {
       console.log(`poller: retrying immediately with key ${activeKeySlot + 1}`)
       try {
         flights = await fetchOpenSky(region)
       } catch (retryErr) {
+        if (retryErr.code === 'OPENSKY_PAUSED') {
+          console.warn(`poller: ${retryErr.message}`)
+        }
         return
       }
     } else {
@@ -650,11 +712,20 @@ async function pollCycle() {
   latestFlights = flights
   lastFetchAt = Date.now()
 
+  const anomalyFlightsThisCycle = ANOMALY_DETECTION_ENABLED && ANOMALY_SCORE_DIVISOR > 1
+    ? flights.filter((_, idx) => idx % ANOMALY_SCORE_DIVISOR === anomalyScoreCursor)
+    : flights
+  if (ANOMALY_DETECTION_ENABLED && ANOMALY_SCORE_DIVISOR > 1) {
+    anomalyScoreCursor = (anomalyScoreCursor + 1) % ANOMALY_SCORE_DIVISOR
+  }
+  const scoredIcaos = new Set(anomalyFlightsThisCycle.map(f => f.icao))
+
   // Persist sightings to DB only when anomaly detection is on. Sightings are
   // the input to anomaly history; without scoring, they're write-only data.
+  // When enabled, sample the feed across cycles to keep DB writes bounded.
   if (ANOMALY_DETECTION_ENABLED) {
     try {
-      await db.recordSightingsChunked(flights, 'opensky', region)
+      await db.recordSightingsChunked(anomalyFlightsThisCycle, 'opensky', region)
     } catch (err) {
       console.error('poller: sightings record error:', err.message)
     }
@@ -693,7 +764,7 @@ async function pollCycle() {
   const anomalyFlights = []
   let enrichStats = { scored: 0, withRoute: 0, withApl: 0, withAdsbfi: 0, withAny: 0 }
 
-  for (const f of flights) {
+  for (const f of anomalyFlightsThisCycle) {
     const hist = trackHistory.get(f.icao)
     if (!hist || hist.length < 2) continue
 
@@ -853,13 +924,14 @@ async function pollCycle() {
 
   // Clear pending entries that didn't re-score this cycle (transient noise)
   for (const icao of pendingAnomalies.keys()) {
+    if (!scoredIcaos.has(icao)) continue
     if (!gatedIcaos.includes(icao) && !newAnomalies[icao]) {
       pendingAnomalies.delete(icao)
     }
   }
 
   // 5. Update track history (after scoring, so prev ≠ current)
-  updateTrackHistory(flights)
+  updateTrackHistory(anomalyFlightsThisCycle)
 
   // 6. Anomaly lifecycle — grace period & resolution
   const anomalyList = Object.values(newAnomalies)
@@ -868,6 +940,7 @@ async function pollCycle() {
     if (newAnomalies[icao]) {
       anomalyMisses.delete(icao)
     } else {
+      if (!scoredIcaos.has(icao)) continue
       const misses = (anomalyMisses.get(icao) || 0) + 1
       anomalyMisses.set(icao, misses)
       if (misses >= RESOLVE_AFTER) {
@@ -922,11 +995,11 @@ async function pollCycle() {
       }
     }
 
-    console.log(`poller: ${flights.length} flights, ${anomalyList.length} anomalies (${resolvedIcaos.length} resolved) | enrichment: ${enrichStats.scored} scored, ${enrichStats.withRoute} route (${enrichStats.scored > 0 ? Math.round(enrichStats.withRoute / enrichStats.scored * 100) : 0}%), ${enrichStats.withAny} any`)
+    console.log(`poller: ${flights.length} flights, ${anomalyFlightsThisCycle.length} anomaly-sampled, ${anomalyList.length} anomalies (${resolvedIcaos.length} resolved) | enrichment: ${enrichStats.scored} scored, ${enrichStats.withRoute} route (${enrichStats.scored > 0 ? Math.round(enrichStats.withRoute / enrichStats.scored * 100) : 0}%), ${enrichStats.withAny} any`)
   } else {
     // No anomalies — still update weather context to null for next cycle
     if (weatherContext) weatherContext = null
-    console.log(`poller: ${flights.length} flights, 0 anomalies (${resolvedIcaos.length} resolved) | enrichment: ${enrichStats.scored} scored, ${enrichStats.withRoute} route (${enrichStats.scored > 0 ? Math.round(enrichStats.withRoute / enrichStats.scored * 100) : 0}%)`)
+    console.log(`poller: ${flights.length} flights, ${anomalyFlightsThisCycle.length} anomaly-sampled, 0 anomalies (${resolvedIcaos.length} resolved) | enrichment: ${enrichStats.scored} scored, ${enrichStats.withRoute} route (${enrichStats.scored > 0 ? Math.round(enrichStats.withRoute / enrichStats.scored * 100) : 0}%)`)
   }
 
   // 8. Persist route deviations to flight_plans table (for analytics aggregation)
@@ -1006,10 +1079,13 @@ function stop() {
 }
 
 function getStatus() {
+  const openSkyPause = getOpenSkyPause()
   return {
     running,
     interval: POLL_INTERVAL,
     region: process.env.POLL_REGION || 'usa',
+    openSkyPaused: !!openSkyPause,
+    openSkyPause,
     // When anomaly detection is off we don't maintain trackHistory, so report
     // the latest flight count instead — the readiness check just wants proof
     // that the poller has completed at least one cycle.
