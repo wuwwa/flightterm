@@ -1141,7 +1141,7 @@ const _stmts = {
   `),
 
   purgeOldTerminalWeather: db.prepare(`
-    DELETE FROM terminal_weather WHERE received_at < datetime('now', '-2 hours')
+    DELETE FROM terminal_weather WHERE received_at < datetime('now', '-' || @hours || ' hours')
   `),
 
   // Surface events (STDDS)
@@ -1176,7 +1176,7 @@ const _stmts = {
   `),
 
   purgeOldSurfaceEvents: db.prepare(`
-    DELETE FROM surface_events WHERE received_at < datetime('now', '-2 hours')
+    DELETE FROM surface_events WHERE received_at < datetime('now', '-' || @hours || ' hours')
   `),
 
   getFlightPlan: db.prepare(`SELECT * FROM flight_plans WHERE acid = ?`),
@@ -1187,7 +1187,7 @@ const _stmts = {
 
   getActiveFlightPlans: db.prepare(`
     SELECT * FROM flight_plans
-    WHERE flight_status IN ('ACTIVE', 'ASCENDING', 'CRUISING', 'DESCENDING', 'FILED')
+    WHERE (flight_status IS NULL OR flight_status IN ('ACTIVE', 'ASCENDING', 'CRUISING', 'DESCENDING', 'FILED', 'PLANNED'))
       AND updated_at > datetime('now', '-2 hours')
     ORDER BY updated_at DESC LIMIT ?
   `),
@@ -1234,7 +1234,7 @@ const _stmts = {
     SELECT
       (SELECT COUNT(*) FROM flight_plans) as total_plans,
       (SELECT COUNT(*) FROM flight_plans WHERE updated_at > datetime('now', '-1 hour')) as recent_plans,
-      (SELECT COUNT(*) FROM flight_plans WHERE flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING')) as active_flights,
+      (SELECT COUNT(*) FROM flight_plans WHERE updated_at > datetime('now', '-1 hour') AND (flight_status IS NULL OR flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED','PLANNED'))) as active_flights,
       (SELECT COUNT(*) FROM flow_events WHERE received_at > datetime('now', '-2 hours')) as recent_flow_events,
       (SELECT COUNT(*) FROM flow_events WHERE event_type = 'GDP' AND received_at > datetime('now', '-2 hours')) as active_gdps,
       (SELECT COUNT(*) FROM flow_events WHERE event_type = 'GS' AND received_at > datetime('now', '-2 hours')) as active_gs
@@ -2003,12 +2003,10 @@ function getRecentSurfaceEvents(limit = 30) { return _stmts.getRecentSurfaceEven
 function getSurfaceEventsByAirport(airport, limit = 20) { return _stmts.getSurfaceEventsByAirport.all(airport, limit) }
 function getOooi(limit = 30) { return _stmts.getOooi.all(limit) }
 function getSurfaceStats() { return _stmts.getSurfaceStats.get() }
-function purgeOldSurfaceEvents() { return _stmts.purgeOldSurfaceEvents.run().changes }
 
 function getRecentTerminalWeather(limit = 20) { return _stmts.getRecentTerminalWeather.all(limit) }
 function getTerminalWeatherByAirport(airport, limit = 10) { return _stmts.getTerminalWeatherByAirport.all(airport, limit) }
 function getTerminalWeatherStats() { return _stmts.getTerminalWeatherStats.get() }
-function purgeOldTerminalWeather() { return _stmts.purgeOldTerminalWeather.run().changes }
 
 function getFlightPlan(acid) { return _stmts.getFlightPlan.get(acid) || null }
 function getActiveFlightPlans(limit = 50) { return _stmts.getActiveFlightPlans.all(limit) }
@@ -2022,6 +2020,15 @@ const TFMS_PLANS_RETENTION_HOURS = Number(process.env.TFMS_PLANS_RETENTION_HOURS
 const TFMS_FLOW_RETENTION_HOURS = Number(process.env.TFMS_FLOW_RETENTION_HOURS) || 2
 const NOTAM_RETENTION_HOURS = Number(process.env.NOTAM_RETENTION_HOURS) || 2
 const NOTAM_TFR_RETENTION_HOURS = Number(process.env.NOTAM_TFR_RETENTION_HOURS) || 2
+const SWIM_EPHEMERAL_DB_RETENTION_HOURS = Number(process.env.SWIM_EPHEMERAL_DB_RETENTION_HOURS) || 1
+
+function purgeOldSurfaceEvents() {
+  return _stmts.purgeOldSurfaceEvents.run({ hours: SWIM_EPHEMERAL_DB_RETENTION_HOURS }).changes
+}
+
+function purgeOldTerminalWeather() {
+  return _stmts.purgeOldTerminalWeather.run({ hours: SWIM_EPHEMERAL_DB_RETENTION_HOURS }).changes
+}
 
 function purgeOldTfms() {
   const plans = _stmts.purgeOldFlightPlans.run({ hours: TFMS_PLANS_RETENTION_HOURS }).changes
@@ -2472,9 +2479,9 @@ async function runPurgeCycle({ vacuum = true } = {}) {
     const tfms = purgeOldTfms()
     if (tfms.plans > 0 || tfms.events > 0) console.log(`  purge: ${tfms.plans} flight plans, ${tfms.events} flow events`)
     const surface = purgeOldSurfaceEvents()
-    if (surface.changes > 0) console.log(`  purge: ${surface.changes} surface events`)
+    if (surface > 0) console.log(`  purge: ${surface} surface events`)
     const wx = purgeOldTerminalWeather()
-    if (wx.changes > 0) console.log(`  purge: ${wx.changes} terminal weather events`)
+    if (wx > 0) console.log(`  purge: ${wx} terminal weather events`)
     const notams = purgeExpiredNotams()
     if (notams.expired > 0 || notams.rawCleared > 0) {
       console.log(`  purge: ${notams.expired} old NOTAMs, cleared raw XML on ${notams.rawCleared} kept NOTAMs`)
@@ -2799,17 +2806,17 @@ const _stmtTaxiIn = db.prepare(`
   ) GROUP BY callsign ORDER BY taxi_min DESC LIMIT ?
 `)
 
-// Inbound count: flights with arr_arpt = airport and active status
+// Inbound count: flights with arr_arpt = airport and active/scheduled status
 const _stmtInboundCount = db.prepare(`
   SELECT COUNT(*) as count FROM flight_plans
-  WHERE arr_arpt = ? AND flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING')
+  WHERE arr_arpt = ? AND (flight_status IS NULL OR flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED','PLANNED'))
     AND updated_at > datetime('now', '-2 hours')
 `)
 
-// Outbound count: flights with dep_arpt = airport and active/filed status
+// Outbound count: flights with dep_arpt = airport and active/scheduled status
 const _stmtOutboundCount = db.prepare(`
   SELECT COUNT(*) as count FROM flight_plans
-  WHERE dep_arpt = ? AND flight_status IN ('ACTIVE','ASCENDING','FILED')
+  WHERE dep_arpt = ? AND (flight_status IS NULL OR flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED','PLANNED'))
     AND updated_at > datetime('now', '-2 hours')
 `)
 
@@ -2818,18 +2825,18 @@ const _stmtAirportArrivals = db.prepare(`
   SELECT acid, dep_arpt, arr_arpt, flight_status, eta, ata, altitude, speed, aircraft_type, lat, lon, beacon_code, reported_alt
   FROM flight_plans
   WHERE arr_arpt = ?
-    AND flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED')
+    AND (flight_status IS NULL OR flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED','PLANNED'))
     AND updated_at > datetime('now', '-2 hours')
-  ORDER BY eta ASC LIMIT ?
+  ORDER BY eta IS NULL, eta ASC, updated_at DESC LIMIT ?
 `)
 
 const _stmtAirportDepartures = db.prepare(`
   SELECT acid, dep_arpt, arr_arpt, flight_status, etd, atd, altitude, speed, aircraft_type, lat, lon, beacon_code, reported_alt
   FROM flight_plans
   WHERE dep_arpt = ?
-    AND flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED')
+    AND (flight_status IS NULL OR flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED','PLANNED'))
     AND updated_at > datetime('now', '-2 hours')
-  ORDER BY etd ASC LIMIT ?
+  ORDER BY etd IS NULL, etd ASC, updated_at DESC LIMIT ?
 `)
 
 // Recently completed arrivals (landed in last 30 min)
@@ -3159,10 +3166,10 @@ function getNasAnalytics() {
   const trafficRows = db.prepare(`
     SELECT airport, direction, COUNT(*) as cnt FROM (
       SELECT arr_arpt AS airport, 'in' AS direction FROM flight_plans
-        WHERE flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING') AND updated_at > datetime('now', '-2 hours')
+        WHERE (flight_status IS NULL OR flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED','PLANNED')) AND updated_at > datetime('now', '-2 hours')
       UNION ALL
       SELECT dep_arpt AS airport, 'out' AS direction FROM flight_plans
-        WHERE flight_status IN ('ACTIVE','ASCENDING','FILED') AND updated_at > datetime('now', '-2 hours')
+        WHERE (flight_status IS NULL OR flight_status IN ('ACTIVE','ASCENDING','CRUISING','DESCENDING','FILED','PLANNED')) AND updated_at > datetime('now', '-2 hours')
     ) GROUP BY airport, direction
   `).all()
   const traffic = {}
@@ -3764,7 +3771,7 @@ const _stmtArtccHistory = db.prepare(`
 `)
 
 const _stmtPurgeSectorCounts = db.prepare(`
-  DELETE FROM sector_counts WHERE sampled_at < datetime('now', '-2 hours')
+  DELETE FROM sector_counts WHERE sampled_at < datetime('now', '-' || @hours || ' hours')
 `)
 
 function getSectorCongestion() {
@@ -3780,7 +3787,7 @@ function getSectorDetail(artcc, limit = 20) {
 }
 
 function purgeSectorCounts() {
-  return _stmtPurgeSectorCounts.run().changes
+  return _stmtPurgeSectorCounts.run({ hours: SWIM_EPHEMERAL_DB_RETENTION_HOURS }).changes
 }
 
 // ── Flight positions: persist + query (SFDPS en-route trail) ────────────────
@@ -3837,11 +3844,11 @@ function getPositionTrail(callsign) {
 }
 
 const _stmtPurgeOldPositions = db.prepare(`
-  DELETE FROM flight_positions WHERE recorded_at < datetime('now', '-2 hours')
+  DELETE FROM flight_positions WHERE recorded_at < datetime('now', '-' || @hours || ' hours')
 `)
 
 function purgeOldPositions() {
-  return _stmtPurgeOldPositions.run().changes
+  return _stmtPurgeOldPositions.run({ hours: SWIM_EPHEMERAL_DB_RETENTION_HOURS }).changes
 }
 
 // ── Surface flow analytics ──────────────────────────────────────────────────

@@ -219,17 +219,18 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
   const { nasSummary, flights: swimFlights, flowEvents, notamAirports } = useSwim()
   const flights = propFlights || swimFlights
 
-  // Layer toggles — default OFF for busy layers, ON for key operational layers
+  // Layer toggles — default to route/weather context only; users opt into the rest.
   const [showIfrPositions, setShowIfrPositions] = useState(false)
   const [showFlights, setShowFlights] = useState(false)
-  const [showCascades, setShowCascades] = useState(true)
+  const [showAirports, setShowAirports] = useState(false)
+  const [showCascades, setShowCascades] = useState(false)
   const [showSigmets, setShowSigmets] = useState(true)
   const [showPireps, setShowPireps] = useState(false)
-  const [showTfrs, setShowTfrs] = useState(true)
-  const [showAnomalies, setShowAnomalies] = useState(true)
-  const [showWxCells, setShowWxCells] = useState(true)
-  const [showNotams, setShowNotams] = useState(true)
-  const [showFlowPrograms, setShowFlowPrograms] = useState(true)
+  const [showTfrs, setShowTfrs] = useState(false)
+  const [showAnomalies, setShowAnomalies] = useState(false)
+  const [showWxCells, setShowWxCells] = useState(false)
+  const [showNotams, setShowNotams] = useState(false)
+  const [showFlowPrograms, setShowFlowPrograms] = useState(false)
   const [showTracon, setShowTracon] = useState(false)
   const [showRouteDevs, setShowRouteDevs] = useState(true)
 
@@ -399,14 +400,14 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
 
   // Flow event geometry (FXA, RSTR with polygons)
   const flowPolys = useMemo(() =>
-    (flowEvents || []).filter(e => e.geometry).map(e => {
+    showFlowPrograms ? (flowEvents || []).filter(e => e.geometry).map(e => {
       try {
         const geo = typeof e.geometry === 'string' ? JSON.parse(e.geometry) : e.geometry
         if (!Array.isArray(geo) || geo.length < 3) return null
         return { coords: geo.map(([lat, lon]) => [lat, lon]), ...e }
       } catch { return null }
-    }).filter(Boolean),
-    [flowEvents]
+    }).filter(Boolean) : [],
+    [flowEvents, showFlowPrograms]
   )
 
   // Flow programs (GDP, GS, REROUTE, RSTR, GADV — airport markers)
@@ -560,6 +561,7 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
             <LayerBtn active={showFlights} onClick={() => setShowFlights(v => !v)} color="acc">ADS-B</LayerBtn>
             <LayerBtn active={showIfrPositions} onClick={() => setShowIfrPositions(v => !v)} color="grn" count={ifrPositions.length}>IFR</LayerBtn>
             <LayerBtn active={showTracon} onClick={() => setShowTracon(v => !v)} color="cyn" count={surfacePositions.length}>TRACON</LayerBtn>
+            <LayerBtn active={showAirports} onClick={() => setShowAirports(v => !v)} color="grn" count={airportMarkers.length}>airports</LayerBtn>
           </span>
           {/* Events group */}
           <span className="flex gap-1 items-center">
@@ -624,7 +626,7 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
           ))}
 
           {/* ── Flow restriction geometry (FXA, RSTR areas) ────��──────────── */}
-          {flowPolys.map((p, i) => (
+          {showFlowPrograms && flowPolys.map((p, i) => (
             <Polygon key={`flow-${i}`} positions={p.coords} pathOptions={FLOW_GEOM_STYLE}>
               <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
                 {p.event_type} {p.facility || ''}<br />
@@ -790,7 +792,7 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
           ))}
 
           {/* ── Airport markers (always on, top layer) ─────────��─────────── */}
-          {airportMarkers.map(a => (
+          {showAirports && airportMarkers.map(a => (
             <CircleMarker key={a.airport} center={[a.lat, a.lon]} radius={airportRadius(a)}
               pathOptions={{
                 color: airportColor(a), fillColor: airportColor(a),

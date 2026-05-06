@@ -52,8 +52,11 @@ const SWIM_WAKE_TOKEN = process.env.FLY_MACHINES_TOKEN || ''
 const SWIM_WAKE_API = (process.env.FLY_MACHINES_API || 'https://api.machines.dev/v1').replace(/\/+$/, '')
 const SWIM_WAKE_COOLDOWN_MS = Number(process.env.SWIM_WAKE_COOLDOWN_MS) || 60_000
 const SWIM_WAKE_TIMEOUT_MS = Number(process.env.SWIM_WAKE_TIMEOUT_MS) || 10_000
+const SWIM_IDLE_TIMEOUT_MS = Number(process.env.SWIM_IDLE_TIMEOUT_MS) || 5 * 60_000
 let swimWakeLastAttempt = 0
 let swimWakeInFlight = null
+let swimLastActivityAt = 0
+let swimIdleTimer = null
 
 app.use('/api/', rateLimit({
   windowMs: RATE_WINDOW_MS,
@@ -159,6 +162,44 @@ function kickSwimWake(reason) {
   wakeSwimWorker()
     .then(result => console.log(`swim wake (${reason}): ${result.state}`))
     .catch(err => console.error(`swim wake (${reason}) failed:`, err.message))
+}
+
+function scheduleSwimIdleCheck() {
+  if (swimIdleTimer) clearTimeout(swimIdleTimer)
+  if (!process.env.SWIM_WORKER_URL || SWIM_IDLE_TIMEOUT_MS <= 0) return
+
+  swimIdleTimer = setTimeout(() => {
+    const idleFor = Date.now() - swimLastActivityAt
+    if (idleFor >= SWIM_IDLE_TIMEOUT_MS) {
+      swim.stopAll()
+      console.log(`swim: idle for ${Math.round(idleFor / 1000)}s; stopped worker polling`)
+      return
+    }
+    scheduleSwimIdleCheck()
+  }, SWIM_IDLE_TIMEOUT_MS).unref()
+}
+
+function markSwimActivity(reason, { wake = true } = {}) {
+  if (!process.env.SWIM_WORKER_URL) return
+
+  const now = Date.now()
+  const wasIdle = !swimLastActivityAt || (now - swimLastActivityAt) >= SWIM_IDLE_TIMEOUT_MS
+  swimLastActivityAt = now
+  swim.startAll()
+  scheduleSwimIdleCheck()
+
+  if (wake && wasIdle) kickSwimWake(reason)
+}
+
+function getSwimActivityStatus() {
+  const now = Date.now()
+  const idleForMs = swimLastActivityAt ? now - swimLastActivityAt : null
+  return {
+    active: idleForMs != null && idleForMs < SWIM_IDLE_TIMEOUT_MS,
+    idleForMs,
+    idleTimeoutMs: SWIM_IDLE_TIMEOUT_MS,
+    lastActivityAt: swimLastActivityAt ? new Date(swimLastActivityAt).toISOString() : null,
+  }
 }
 
 // ── In-memory memoization for heavy aggregation endpoints ────────────────────
@@ -279,7 +320,7 @@ const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'dist')
 console.log(`looking for frontend at ${STATIC_DIR} — exists: ${require('fs').existsSync(STATIC_DIR)}`)
 if (require('fs').existsSync(STATIC_DIR)) {
   app.get(['/', '/index.html'], (req, res, next) => {
-    kickSwimWake('app-hit')
+    markSwimActivity('app-hit')
     next()
   })
   // Hashed assets (JS/CSS): cache aggressively — filename changes on rebuild
@@ -302,6 +343,11 @@ if (require('fs').existsSync(STATIC_DIR)) {
 }
 
 // ── routes ────────────────────────────────────────────────────────────────────
+
+app.use('/api/swim', (req, _res, next) => {
+  markSwimActivity(`api:${req.path}`)
+  next()
+})
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -328,8 +374,9 @@ app.get('/api/health/live', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
-// Readiness — is the service ready to handle real traffic?
-// Checks DB connectivity and (if enabled) that the poller has fetched at least once.
+// Readiness — is the service ready to handle HTTP traffic?
+// Keep upstream feed availability out of readiness so transient provider/network
+// issues do not block deploys or cause machine churn.
 app.get('/api/health/ready', (_req, res) => {
   const checks = {}
   // DB: can we execute a trivial query?
@@ -339,12 +386,12 @@ app.get('/api/health/ready', (_req, res) => {
   } catch {
     checks.db = 'fail'
   }
-  // Poller: if enabled, has it completed at least one cycle?
   if (process.env.POLLER_ENABLED === 'true') {
     const ps = poller.getStatus()
-    checks.poller = ps.running && ps.trackedAircraft > 0 ? 'ok' : 'waiting'
+    checks.poller = ps.running ? 'running' : 'stopped'
+    checks.pollerAircraft = ps.trackedAircraft
   }
-  const ready = checks.db === 'ok' && (!checks.poller || checks.poller === 'ok')
+  const ready = checks.db === 'ok'
   res.status(ready ? 200 : 503).json({ ready, checks })
 })
 
@@ -1810,7 +1857,7 @@ app.post('/internal/swim/routes', requireInternalAuth, (req, res) => {
 // GET /api/swim/status
 app.get('/api/swim/status', (_req, res) => {
   cachePublic(res, 15)
-  res.json(swim.getStatus())
+  res.json({ ...swim.getStatus(), activity: getSwimActivityStatus() })
 })
 
 // Wake the stopped SWIM worker machine on demand. This starts one configured
@@ -2145,8 +2192,7 @@ app.get('/api/swim/weather-delays', (_req, res) => {
 app.get('/api/swim/sectors', (_req, res) => {
   cachePublic(res, 30)
   try {
-    const { getSectorCongestion } = require('./db')
-    res.json(memoized('sectorCongestion', 30000, () => getSectorCongestion()))
+    res.json(memoized('sectorCongestion', 30000, () => swim.getSectorCongestion()))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -2156,9 +2202,8 @@ app.get('/api/swim/sectors', (_req, res) => {
 app.get('/api/swim/sectors/:artcc', (req, res) => {
   cachePublic(res, 30)
   try {
-    const { getSectorDetail } = require('./db')
     const artcc = req.params.artcc.toUpperCase()
-    res.json(memoized(`sectorDetail:${artcc}`, 30000, () => getSectorDetail(artcc)))
+    res.json(memoized(`sectorDetail:${artcc}`, 30000, () => swim.getSectorDetail(artcc)))
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -2700,9 +2745,10 @@ if (!process.env.VITEST) _server = app.listen(PORT, () => {
     console.log('  ℹ  Anomaly poller disabled — set POLLER_ENABLED=true to enable')
   }
 
-  // Start polling SWIM worker service for ephemeral data snapshots
+  // SWIM worker polling is started on frontend/app SWIM activity and stopped
+  // after SWIM_IDLE_TIMEOUT_MS so Fly can auto-stop the separate worker.
   if (process.env.SWIM_WORKER_URL) {
-    swim.startAll()
+    console.log(`  ℹ  SWIM worker polling idle — starts on frontend activity, idle timeout ${SWIM_IDLE_TIMEOUT_MS}ms`)
   } else {
     console.log('  ℹ  SWIM worker not configured — set SWIM_WORKER_URL to enable')
   }

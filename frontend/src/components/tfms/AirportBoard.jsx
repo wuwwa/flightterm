@@ -232,12 +232,13 @@ function SideRow({ icao, ap, selected, onClick, onHover }) {
 const STATUS_COLORS = {
   ACTIVE: 'text-grn', ASCENDING: 'text-cyn', CRUISING: 'text-acc',
   DESCENDING: 'text-ylw', COMPLETED: 'text-fg3', FILED: 'text-mag', CANCELLED: 'text-red',
+  PLANNED: 'text-mag',
 }
 
 const STATUS_SHORT = {
   ACTIVE: 'Active', ASCENDING: 'Climb', CRUISING: 'Cruise',
   DESCENDING: 'Descend', COMPLETED: 'Done', FILED: 'Filed',
-  CANCELLED: 'Cancel', LANDED: 'Landed',
+  CANCELLED: 'Cancel', LANDED: 'Landed', PLANNED: 'Plan',
 }
 
 function fmtTime(ts) {
@@ -604,7 +605,7 @@ function FlightRow({ f, onClick, isNew, isSelected, accent, originField, timeFie
       <span className={clsx('font-bold w-14 shrink-0 truncate', isSelected ? 'text-acc' : 'text-fg2')}>{f.acid}</span>
       <span className="text-fg3 w-8 shrink-0">{f[originField]?.replace(/^K/, '') || '?'}</span>
       <span className={clsx('w-10 shrink-0', STATUS_COLORS[f.flight_status] || 'text-fg3/40')}>
-        {STATUS_SHORT[f.flight_status] || '—'}
+        {STATUS_SHORT[f.flight_status] || 'Sched'}
       </span>
       <span className="text-fg3/60 w-10 shrink-0 text-right">{fl || ''}</span>
       {/* Combined time: shows relative if known and recent, otherwise absolute */}

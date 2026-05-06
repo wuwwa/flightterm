@@ -12,6 +12,7 @@ const db = require('../db')
 const WORKER_URL = process.env.SWIM_WORKER_URL || 'http://flightterm-swim.internal:3002'
 const WORKER_API_SECRET = process.env.SWIM_WORKER_API_SECRET || process.env.SWIM_INTERNAL_SECRET || ''
 const workerHeaders = WORKER_API_SECRET ? { Authorization: `Bearer ${WORKER_API_SECRET}` } : {}
+const PERSIST_SFDPS = process.env.SWIM_PERSIST_SFDPS === 'true'
 // Polling interval bumped from 5s → 15s. Snapshots are bulky and we don't need
 // real-time updates for ephemeral feeds; the lower frequency gives the main
 // event loop more headroom and reduces JSON parse + persist overhead 3x.
@@ -48,10 +49,9 @@ async function pollWorker() {
       _connected = true
       console.log('swim: connected to worker service')
     }
-    // Persist SFDPS positions + sector counts via the in-process SWIM queue so
-    // the SQLite writes drain on setImmediate ticks instead of blocking the
-    // poll handler. Every other poll (~30s) is plenty for trail/sector data.
-    if (_sfdps.length > 0 && ++_positionPersistCount % 2 === 0) {
+    // SFDPS is live-only by default. Persisting trails/sector samples grows
+    // SQLite quickly; enable SWIM_PERSIST_SFDPS=true only for short diagnostics.
+    if (PERSIST_SFDPS && _sfdps.length > 0 && ++_positionPersistCount % 2 === 0) {
       const main = require('../index')
       main.enqueueSwim('positions', { snapshot: _sfdps })
       main.enqueueSwim('sectors', { snapshot: _sfdps })
@@ -83,7 +83,7 @@ function stopAll() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function getStatus() {
-  const status = { feeds: {}, workerConnected: _connected }
+  const status = { feeds: {}, workerConnected: _connected, pollingActive: Boolean(_pollTimer) }
 
   const feedNames = ['fns', 'tfms', 'sfdps', 'itws', 'stdds']
   for (const name of feedNames) {
@@ -168,6 +168,41 @@ function getOooi(limit = 30) {
 
 function getSurfaceStats() { return _surfaceStats }
 
+function getSectorCongestion() {
+  const counts = new Map()
+  for (const t of _sfdps) {
+    if (!t.artcc) continue
+    const current = counts.get(t.artcc) || { total_flights: 0, sectors: new Map() }
+    current.total_flights++
+    if (t.sector) current.sectors.set(t.sector, (current.sectors.get(t.sector) || 0) + 1)
+    counts.set(t.artcc, current)
+  }
+  return Array.from(counts.entries())
+    .map(([artcc, c]) => ({
+      artcc,
+      total_flights: c.total_flights,
+      active_sectors: c.sectors.size,
+      busiest_sector_count: Math.max(0, ...c.sectors.values()),
+    }))
+    .sort((a, b) => b.total_flights - a.total_flights)
+}
+
+function getSectorDetail(artcc, limit = 20) {
+  const sectorCounts = new Map()
+  for (const t of _sfdps) {
+    if (t.artcc !== artcc || !t.sector) continue
+    sectorCounts.set(t.sector, (sectorCounts.get(t.sector) || 0) + 1)
+  }
+  return {
+    artcc,
+    sectors: Array.from(sectorCounts.entries())
+      .map(([sector, count]) => ({ sector, avg_count: count, max_count: count, samples: 1 }))
+      .sort((a, b) => b.avg_count - a.avg_count)
+      .slice(0, limit),
+    history: [],
+  }
+}
+
 // Stubs (worker lifecycle is managed by Fly.io, not by this module)
 function startFns() {} function stopFns() {}
 function startTfms() {} function stopTfms() {}
@@ -193,4 +228,6 @@ module.exports = {
   getSurfacePositions,
   getOooi,
   getSurfaceStats,
+  getSectorCongestion,
+  getSectorDetail,
 }

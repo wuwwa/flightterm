@@ -18,9 +18,9 @@ factoryProps.profile = solace.SolclientFactoryProfiles.version10
 factoryProps.logLevel = solace.LogLevel.WARN
 solace.SolclientFactory.init(factoryProps)
 
-const PROCESS_BATCH = 10         // messages per processing tick
-const PROCESS_INTERVAL_MS = 200  // ms between processing ticks
-const MAX_QUEUE_SIZE = 5000      // drop oldest if queue exceeds this (OOM protection)
+const DEFAULT_PROCESS_BATCH = Number(process.env.SCDS_PROCESS_BATCH) || 10
+const DEFAULT_PROCESS_INTERVAL_MS = Number(process.env.SCDS_PROCESS_INTERVAL_MS) || 200
+const DEFAULT_MAX_QUEUE_SIZE = Number(process.env.SCDS_MAX_QUEUE_SIZE) || 5000
 
 class ScdsConsumer {
   constructor(config, handler) {
@@ -32,12 +32,18 @@ class ScdsConsumer {
     this._externalPause = false
     this._queue = []              // raw Solace message objects waiting to be processed
     this._processTimer = null
+    this.sampleRate = Math.max(1, Number(config.sampleRate) || 1)
+    this.processBatch = Math.max(1, Number(config.processBatch) || DEFAULT_PROCESS_BATCH)
+    this.processIntervalMs = Math.max(25, Number(config.processIntervalMs) || DEFAULT_PROCESS_INTERVAL_MS)
+    this.maxQueueSize = Math.max(this.processBatch, Number(config.maxQueueSize) || DEFAULT_MAX_QUEUE_SIZE)
     this.stats = {
       received: 0,
       processed: 0,
       errors: 0,
       queueDepth: 0,
       connectedAt: null,
+      dropped: 0,
+      sampledOut: 0,
     }
   }
 
@@ -117,7 +123,7 @@ class ScdsConsumer {
       queueDescriptor: { name: queueName, type: solace.QueueType.QUEUE },
       acknowledgeMode: solace.MessageConsumerAcknowledgeMode.CLIENT,
       createIfMissing: false,
-      windowSize: 50,
+      windowSize: Number(this.config.windowSize) || 50,
     })
 
     messageConsumer.on(solace.MessageConsumerEventName.UP, () => {
@@ -135,13 +141,19 @@ class ScdsConsumer {
 
     // ── MESSAGE callback: ZERO processing, just queue ──────────────────────
     messageConsumer.on(solace.MessageConsumerEventName.MESSAGE, (message) => {
-      this._queue.push(message)
       this.stats.received++
+      if (this.sampleRate > 1 && this.stats.received % this.sampleRate !== 0) {
+        this.stats.sampledOut++
+        try { message.acknowledge() } catch {}
+        return
+      }
+
+      this._queue.push(message)
       // OOM protection: drop oldest unprocessed messages if queue is too deep
-      if (this._queue.length > MAX_QUEUE_SIZE) {
-        const dropped = this._queue.splice(0, this._queue.length - MAX_QUEUE_SIZE)
+      if (this._queue.length > this.maxQueueSize) {
+        const dropped = this._queue.splice(0, this._queue.length - this.maxQueueSize)
         for (const msg of dropped) { try { msg.acknowledge() } catch {} }
-        this.stats.dropped = (this.stats.dropped || 0) + dropped.length
+        this.stats.dropped += dropped.length
       }
     })
 
@@ -153,7 +165,7 @@ class ScdsConsumer {
 
   _startProcessing() {
     if (this._processTimer) return
-    this._processTimer = setInterval(() => this._processBatch(), PROCESS_INTERVAL_MS)
+    this._processTimer = setInterval(() => this._processBatch(), this.processIntervalMs)
   }
 
   _stopProcessing() {
@@ -161,7 +173,7 @@ class ScdsConsumer {
   }
 
   _processBatch() {
-    const batch = this._queue.splice(0, PROCESS_BATCH)
+    const batch = this._queue.splice(0, this.processBatch)
     this.stats.queueDepth = this._queue.length
 
     for (const message of batch) {

@@ -32,8 +32,8 @@ const AIRPORT_COORDS = {}
 for (const ap of AIRPORTS) AIRPORT_COORDS[ap.icao] = { lat: ap.lat, lon: ap.lon }
 
 // ── Ring buffer for ephemeral feeds ────────────────────────────────────────
-const RING_CAP = 2000
-const SNAPSHOT_CAP = 500 // max items sent per snapshot
+const RING_CAP = Number(process.env.SWIM_EPHEMERAL_RING_CAP) || 500
+const SNAPSHOT_CAP = Number(process.env.SWIM_SNAPSHOT_CAP) || 150 // max items sent per snapshot
 
 function toSnake(obj) {
   const out = {}
@@ -340,6 +340,17 @@ function buildSurfaceStats() {
 
 const delay = (ms) => new Promise(r => setTimeout(r, ms))
 
+function feedOptions(name) {
+  const key = name.toUpperCase()
+  return {
+    sampleRate: Number(process.env[`SWIM_${key}_SAMPLE_RATE`]) || 1,
+    maxQueueSize: Number(process.env[`SWIM_${key}_MAX_QUEUE`]) || undefined,
+    processBatch: Number(process.env[`SWIM_${key}_PROCESS_BATCH`]) || undefined,
+    processIntervalMs: Number(process.env[`SWIM_${key}_PROCESS_INTERVAL_MS`]) || undefined,
+    windowSize: Number(process.env[`SWIM_${key}_WINDOW_SIZE`]) || undefined,
+  }
+}
+
 async function startAll() {
   const feedConfigs = [
     { name: 'FNS', handler: handleFnsMessage, vpnDefault: 'AIM_FNS', queueEnv: 'SWIM_FNS_QUEUE', vpnEnv: 'SWIM_FNS_VPN' },
@@ -362,6 +373,7 @@ async function startAll() {
       username: process.env.SWIM_USERNAME,
       password: process.env.SWIM_PASSWORD,
       queue,
+      ...feedOptions(fc.name),
     }
 
     try {
