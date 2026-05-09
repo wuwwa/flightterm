@@ -18,7 +18,7 @@ export default function TfmsPanel({ backendOk }) {
   const healthLabel = health >= 80 ? 'NORMAL' : health >= 50 ? 'DEGRADED' : 'IMPACTED'
 
   return (
-    <div className="bg-bg1 border-t-2 border-cyn/40">
+    <div className="bg-bg1 border-t-2 border-cyn/40" data-testid="airport-ops-panel">
       {/* Header */}
       <div className="bg-bg2 border-b border-border py-1 px-3 flex items-center gap-2">
         <div className="flex items-center gap-2 cursor-pointer select-none" onClick={() => setCollapsed(c => !c)}>
@@ -51,7 +51,7 @@ export default function TfmsPanel({ backendOk }) {
       </div>
 
       {!collapsed && (
-        <div className="bg-bg1" style={{ height: '340px' }}>
+        <div className="bg-bg1 h-[360px] overflow-hidden">
           <AirportBoard backendOk={backendOk} airport={selectedAirport} onAirportChange={setSelectedAirport} />
         </div>
       )}

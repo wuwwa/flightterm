@@ -39,6 +39,6 @@ export async function fetchKeyStatus() {
 }
 
 export async function checkHealth() {
-  const response = await axios.get('/api/health')
+  const response = await axios.get('/api/health', { timeout: 5000 })
   return response.data
 }

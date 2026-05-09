@@ -23,6 +23,10 @@
   --breakpoint-md: 860px;
 }
 
+:root {
+  --statusbar-height: 22px;
+}
+
 /* ── base resets ─────────────────────────────────────────────────────────── */
 @layer base {
   html,
@@ -65,6 +69,60 @@
   }
   a {
     @apply text-acc no-underline;
+  }
+}
+
+.app-shell {
+  padding-bottom: var(--statusbar-height);
+}
+
+.status-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-height: var(--statusbar-height);
+  align-items: center;
+}
+
+@media (min-width: 1024px) {
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100dvh - var(--statusbar-height));
+    padding-bottom: 0;
+    overflow-x: hidden;
+    overflow-y: visible;
+  }
+
+  .business-jet-shell {
+    flex-shrink: 0;
+    min-height: 0;
+    height: auto;
+    overflow: visible;
+  }
+
+  .flight-record-shell {
+    flex: 1 1 430px;
+    min-height: clamp(360px, 46dvh, 520px);
+  }
+}
+
+@media (min-width: 1024px) and (max-height: 860px) {
+  .flight-record-shell {
+    min-height: 340px;
+  }
+}
+
+@media (min-width: 580px) and (max-width: 1023px) {
+  .flight-record-shell {
+    min-height: 420px;
+  }
+}
+
+@media (max-width: 579px) {
+  .flight-record-shell {
+    min-height: 70dvh;
   }
 }
 
@@ -159,6 +217,26 @@
 
 .flight-map-tooltip::before {
   border-top-color: var(--color-border2) !important;
+}
+
+.bj-plane-icon-wrap {
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.bj-plane-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  transform: rotate(var(--hdg));
+  transform-origin: center;
+  font-size: 18px;
+  line-height: 1;
+  text-shadow:
+    0 0 3px #000,
+    0 0 9px currentColor;
+  filter: drop-shadow(0 0 2px #000);
 }
 
 /* ── leaflet zoom controls ─────────────────────────────────────────────── */

@@ -12,10 +12,9 @@ import UsagePanel from './components/UsagePanel'
 import NotamPanel from './components/NotamPanel'
 import NasPanel from './components/NasPanel'
 import TfmsPanel from './components/tfms/TfmsPanel'
-import DashboardPanel from './components/DashboardPanel'
+import BusinessJetTracker from './components/BusinessJetTracker'
 import FlightInspectorModal from './components/FlightInspectorModal'
 import MobileFlightsHome from './components/mobile/MobileFlightsHome'
-import NasMap from './components/dashboard/NasMap'
 import MobileHeader from './components/mobile/MobileHeader'
 import { SwimProvider } from './contexts/SwimContext'
 
@@ -238,6 +237,9 @@ export default function App() {
   // ── loading state for initial boot ──────────────────────────────────────────
   const [booting, setBooting] = useState(true)
   const [bootMsg, setBootMsg] = useState('connecting to backend…')
+  const [bootStage, setBootStage] = useState('waking backend')
+  const [bootAttempt, setBootAttempt] = useState(1)
+  const [bootProgress, setBootProgress] = useState(8)
 
   // ── backend health check → initial fetch → auto ────────────────────────────
   useEffect(() => {
@@ -248,14 +250,19 @@ export default function App() {
     console.log('[boot] starting — isProd:', isProd)
 
     // Retry health check up to 10 times (covers Fly cold start)
-    async function waitForBackend(retries = 10, delay = 2000) {
+    async function waitForBackend(retries = 18, delay = 2500) {
       for (let i = 0; i < retries; i++) {
         try {
           console.log(`[boot] health check attempt ${i + 1}/${retries}`)
+          setBootAttempt(i + 1)
+          setBootProgress(Math.min(42, 8 + i * 2))
+          setBootStage(i === 0 ? 'waking backend' : 'waiting for backend')
           setBootMsg(i === 0 ? 'connecting to backend…' : `waiting for backend… (${i + 1}/${retries})`)
           if (i > 0) log(`backend: retrying… (${i + 1}/${retries})`, 'warn')
           const d = await checkHealth()
           if (cancelled) return null
+          setBootProgress(48)
+          setBootStage('backend online')
           setBackendOk(true)
           log(`backend ok · opensky: ${d.opensky_configured ? '✓' : '✗'} · aeroapi: ${d.aeroapi_configured ? '✓' : '✗'} · notam: ${d.faa_notam_configured ? '✓' : '✗'}`, 'ok')
           console.log('[boot] backend ready:', {
@@ -273,6 +280,8 @@ export default function App() {
         }
       }
       setBackendOk(false)
+      setBootStage('backend unavailable')
+      setBootProgress(100)
       log('backend offline — start the Express server (cd backend && npm run dev)', 'warn')
       console.log('[boot] backend unreachable after retries')
       return null
@@ -285,6 +294,8 @@ export default function App() {
 
       if (health) {
         log('loading usage data…', 'info')
+        setBootStage('loading account signals')
+        setBootProgress(62)
         setBootMsg('loading usage data…')
         console.log('[boot] refreshing usage data')
         await Promise.allSettled([refreshAeroSpend(), refreshOpenskyUsage()])
@@ -293,12 +304,15 @@ export default function App() {
 
       if (health) {
         log('fetching initial flight data…', 'info')
+        setBootStage('loading live aircraft')
+        setBootProgress(78)
         setBootMsg('fetching flights…')
         console.log('[boot] initial fetch')
         await fetchFlightsRef.current?.()
         if (cancelled) return
         const intervalSec = pollInterval ? Math.round(pollInterval / 1000) : '?'
         log(`live sync enabled (${intervalSec}s)`, 'ok')
+        setBootProgress(96)
         console.log('[boot] live sync enabled')
       }
 
@@ -623,23 +637,57 @@ export default function App() {
     <>
       {/* Boot loading bar — shared across both layouts */}
       {booting && (
-        <div className="fixed top-0 left-0 right-0 z-100">
-          <div className="h-0.5 bg-acc/30 overflow-hidden">
-            <div className="h-full bg-acc animate-pulse w-2/3" style={{ animation: 'bootbar 1.5s ease-in-out infinite' }} />
+        <div className="fixed inset-0 z-[100] bg-bg/96 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="w-full max-w-xl border border-acc/50 bg-bg1 shadow-[0_0_40px_rgba(129,162,190,0.12)]">
+            <div className="px-4 py-3 border-b border-border bg-bg2 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-acc text-[13px] uppercase tracking-wide">flightterm starting</div>
+                <div className="text-fg3 text-[10px] mt-0.5">waking services, poller cache, and live aircraft feed</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-fg text-[18px] tabular-nums leading-none">{Math.round(bootProgress)}%</div>
+                <div className="text-fg3 text-[9px]">attempt {bootAttempt}</div>
+              </div>
+            </div>
+            <div className="p-4">
+              <div className="flex items-baseline justify-between gap-3 mb-2">
+                <span className="text-ylw text-[12px] uppercase">{bootStage}</span>
+                <span className="text-fg3 text-[10px] tabular-nums">{bootMsg}</span>
+              </div>
+              <div className="h-2 bg-bg border border-border overflow-hidden">
+                <div
+                  className="h-full bg-acc animate-pulse transition-all duration-500"
+                  style={{ width: `${Math.max(6, Math.min(100, bootProgress))}%` }}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-4 text-[10px]">
+                <div className="border border-border bg-bg/60 p-2">
+                  <div className="text-fg3 uppercase text-[8px]">backend</div>
+                  <div className={backendOk ? 'text-grn' : 'text-ylw'}>{backendOk ? 'online' : 'waking'}</div>
+                </div>
+                <div className="border border-border bg-bg/60 p-2">
+                  <div className="text-fg3 uppercase text-[8px]">poller</div>
+                  <div className={flights.length ? 'text-grn' : 'text-ylw'}>{flights.length ? 'loaded' : 'warming'}</div>
+                </div>
+                <div className="border border-border bg-bg/60 p-2">
+                  <div className="text-fg3 uppercase text-[8px]">aircraft</div>
+                  <div className="text-cyn tabular-nums">{flights.length ? flights.length.toLocaleString() : 'pending'}</div>
+                </div>
+              </div>
+              <div className="mt-3 text-[10px] text-fg3 leading-relaxed">
+                If this is a production cold start, Fly may need a few seconds before the first live cache appears.
+              </div>
+            </div>
           </div>
-          <div className="bg-bg2/95 border-b border-border text-center py-1.5 text-[10px] text-fg3">
-            {bootMsg}
-          </div>
-          <style>{`@keyframes bootbar { 0% { transform: translateX(-100%) } 50% { transform: translateX(50%) } 100% { transform: translateX(200%) } }`}</style>
         </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
           UNIFIED LAYOUT — same structure for all screen sizes.
-          Desktop: fixed viewport grid. Mobile: scrollable single page.
+          Desktop and mobile: one scrollable page.
           Flight inspector: inline sidebar on lg+, slide-up overlay on mobile.
           ═══════════════════════════════════════════════════════════════════════ */}
-      <div className="flex flex-col min-h-screen lg:grid lg:grid-rows-[auto_auto_minmax(0,1fr)_auto_auto] lg:grid-cols-1 lg:h-screen lg:overflow-hidden">
+      <div className="app-shell flex flex-col min-h-screen">
         {/* CommandBar */}
         <div className="col-span-full">
           <CommandBar
@@ -662,8 +710,12 @@ export default function App() {
           <LogPanel entries={logEntries} />
         </div>
 
+        <div className="business-jet-shell col-span-full min-h-0">
+          <BusinessJetTracker backendOk={backendOk} />
+        </div>
+
         {/* Flight table + inspector */}
-        <div className="min-h-0 flex flex-col lg:flex-row" style={{ minHeight: 'min(60vh, 400px)' }}>
+        <div className="flight-record-shell min-h-0 flex flex-col lg:flex-row">
           <div className="flex-1 min-h-0 flex flex-col">
             {/* v5.2.0 "Now Showing" — ranked feed of interesting flights */}
             <InterestingFeed
@@ -708,20 +760,18 @@ export default function App() {
         </div>
 
         {/* TFMS / Airport Ops */}
-        <div className="col-span-full overflow-y-auto">
+        <div className="col-span-full">
           <TfmsPanel backendOk={backendOk} />
         </div>
 
         {/* FAA SWIM / NAS */}
-        <div className="col-span-full overflow-y-auto">
+        <div className="col-span-full">
           <NasPanel backendOk={backendOk} region={region} />
         </div>
       </div>
 
-      {/* Dashboard */}
-      <div id="dashboard">
-        <DashboardPanel backendOk={backendOk} flights={flights} trackedIcaos={trackedIcaos} trackHistory={trackHistory} />
-      </div>
+      {/* U.S. airspace map is shelved for now.
+          DashboardPanel/NasMap remain in the codebase if we need to bring it back. */}
 
       {/* Mobile flight inspector — bottom sheet with backdrop */}
       {selectedFlight && (
@@ -756,7 +806,7 @@ export default function App() {
       )}
 
       {/* Status bar */}
-      <div className="sticky bottom-0 z-40 bg-acc py-0.5 px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg">
+      <div className="status-bar z-40 bg-acc px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg">
         <div className="truncate">
           <span className="bg-bg text-acc py-0 px-2 mr-1.5">NORMAL</span>
           <span className="hidden sm:inline">{botSrc}</span>

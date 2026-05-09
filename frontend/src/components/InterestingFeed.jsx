@@ -121,7 +121,7 @@ export default function InterestingFeed({ selectedIcao, onSelect, flights, backe
 
       {/* Feed rows */}
       {!collapsed && (
-        <div className="max-h-52 overflow-y-auto">
+        <div className="max-h-36 lg:max-h-40 xl:max-h-44 overflow-y-auto">
           {visible.length === 0 && data && (
             <div className="text-fg3/50 text-[10px] py-3 text-center">
               Nothing interesting right now — everything looks routine.

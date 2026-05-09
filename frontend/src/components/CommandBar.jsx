@@ -9,13 +9,23 @@ function Pill({ children, active, danger, onClick }) {
   return (
     <button
       className={clsx(
-        'text-[10px] py-0 px-1.5 border transition-colors',
-        danger ? 'border-border text-red hover:border-red/50'
-          : active ? 'border-acc/60 text-acc'
-          : 'border-border text-fg3 hover:text-fg2 hover:border-border2',
+        'h-5 px-1.5 border text-[9px] leading-none uppercase tracking-wide transition-colors',
+        'inline-flex items-center justify-center shrink-0',
+        danger ? 'border-red/25 text-red/85 bg-red/5 hover:border-red/50 hover:text-red'
+          : active ? 'border-acc/55 text-acc bg-acc/8'
+          : 'border-border text-fg3 bg-bg1/40 hover:text-fg2 hover:border-border2',
       )}
       onClick={onClick}
     >{children}</button>
+  )
+}
+
+function Metric({ value, label, tone = 'text-fg' }) {
+  return (
+    <span className="h-5 px-1.5 border border-border/80 bg-bg1/35 inline-flex items-center gap-1 shrink-0">
+      <span className={clsx('tabular-nums text-[11px] leading-none', tone)}>{value}</span>
+      <span className="text-fg3 text-[8px] uppercase tracking-wide leading-none">{label}</span>
+    </span>
   )
 }
 
@@ -136,51 +146,46 @@ export default function CommandBar({
   const connectedFeeds = Object.entries(feeds).filter(([, f]) => f?.connected).map(([k]) => k)
 
   return (
-    <div className="bg-bg2 border-b border-border py-1 px-1.5 sm:px-2.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] shrink-0">
+    <div className="bg-bg2 border-b border-border px-1.5 sm:px-2 py-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[9px] shrink-0">
       {/* Left: branding + headline counts */}
-      <span className="text-acc text-[13px] tracking-tight">flightterm</span>
-      <span className="text-border2 hidden sm:inline">|</span>
-      <span className="flex items-baseline gap-0.5">
-        <span className="text-fg tabular-nums text-[12px]">{(stats.total ?? 0).toLocaleString()}</span>
-        <span className="text-fg3 text-[8px] uppercase tracking-wide">ac</span>
+      <span className="h-5 px-1.5 border-y border-r border-border/80 border-l-2 border-l-acc bg-bg1/55 text-fg text-[10px] font-mono inline-flex items-center leading-none shadow-[inset_0_-1px_0_rgba(129,162,190,0.18)]">
+        flightterm
       </span>
-      <span className="hidden sm:flex items-baseline gap-0.5">
-        <span className="text-grn tabular-nums text-[12px]">{(stats.airborne ?? 0).toLocaleString()}</span>
-        <span className="text-fg3 text-[8px] uppercase tracking-wide">air</span>
+      <Metric value={(stats.total ?? 0).toLocaleString()} label="ac" />
+      <span className="hidden sm:inline-flex">
+        <Metric value={(stats.airborne ?? 0).toLocaleString()} label="air" tone="text-grn" />
       </span>
 
       {/* SWIM feed indicators — individual dots per feed */}
-      <span className="text-border2 hidden sm:inline">|</span>
-      <div className="hidden sm:flex items-center gap-1.5 text-[9px]">
+      <div className="hidden sm:flex items-center h-5 gap-1 px-1.5 border border-border/80 bg-bg1/35">
         {['fns', 'tfms', 'sfdps', 'itws', 'stdds'].map(name => {
           const f = feeds[name]
           const on = f?.connected
           return (
-            <span key={name} className="flex items-center gap-0.5">
-              <span className={`inline-block w-1.5 h-1.5 rounded-full ${on ? 'bg-grn' : f?.enabled ? 'bg-red' : 'bg-fg3/30'}`} />
-              <span className={on ? 'text-fg3' : 'text-fg3/30'}>{name.toUpperCase()}</span>
+            <span key={name} className="flex items-center gap-1">
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${on ? 'bg-grn' : f?.enabled ? 'bg-red' : 'bg-fg3/25'}`} />
+              <span className={clsx('text-[8px] uppercase tracking-wide', on ? 'text-fg3' : 'text-fg3/30')}>{name}</span>
             </span>
           )
         })}
       </div>
       {tfms?.active_flights > 0 && (
-        <span className="hidden sm:flex items-baseline gap-0.5">
-          <span className="text-fg2 tabular-nums text-[11px]">{tfms.active_flights.toLocaleString()}</span>
-          <span className="text-fg3 text-[8px] uppercase tracking-wide">flights</span>
+        <span className="hidden sm:inline-flex">
+          <Metric value={tfms.active_flights.toLocaleString()} label="flights" tone="text-fg2" />
         </span>
       )}
       {tfms?.active_gs > 0 && (
-        <span className="bg-red/15 text-red text-[9px] uppercase px-1.5 py-px rounded border border-red/40 animate-pulse">
+        <span className="h-5 px-1.5 bg-red/12 text-red text-[9px] uppercase inline-flex items-center border border-red/35 animate-pulse">
           {tfms.active_gs} GS
         </span>
       )}
       {tfms?.active_gdps > 0 && (
-        <span className="bg-ylw/15 text-ylw text-[9px] uppercase px-1.5 py-px rounded border border-ylw/40">
+        <span className="h-5 px-1.5 bg-ylw/12 text-ylw text-[9px] uppercase inline-flex items-center border border-ylw/35">
           {tfms.active_gdps} GDP
         </span>
       )}
       {notams?.active_tfrs > 0 && (
-        <span className="bg-red/10 text-red text-[9px] uppercase px-1.5 py-px rounded border border-red/30">
+        <span className="h-5 px-1.5 bg-red/10 text-red text-[9px] uppercase inline-flex items-center border border-red/30">
           {notams.active_tfrs} TFR
         </span>
       )}
@@ -191,17 +196,17 @@ export default function CommandBar({
           magnifier icon, kbd hint, clear button — so it reads as a real
           search box rather than another chip in the toolbar. */}
       <div className={clsx(
-        'flex items-center gap-1.5 flex-1 min-w-32 sm:min-w-48 ml-1 relative',
-        'px-2 py-[3px] rounded border bg-bg1/80 transition-colors',
+        'h-5 flex items-center gap-1.5 flex-1 min-w-32 sm:min-w-48 ml-0.5 relative',
+        'px-2 border bg-bg1/80 transition-colors',
         dropdownOpen ? 'border-acc/60 bg-bg1' : 'border-border2 hover:border-border2/80 focus-within:border-acc/60 focus-within:bg-bg1'
       )}>
-        <svg className="w-3 h-3 text-fg3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <svg className="w-2.5 h-2.5 text-fg3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
           <circle cx="7" cy="7" r="5" />
           <line x1="11" y1="11" x2="14.5" y2="14.5" strokeLinecap="round" />
         </svg>
         <input
           ref={inputRef}
-          className="bg-transparent border-none outline-none text-fg text-[12px] flex-1 caret-acc font-mono min-w-0 placeholder:text-fg3/50"
+          className="bg-transparent border-none outline-none text-fg text-[11px] flex-1 caret-acc font-mono min-w-0 placeholder:text-fg3/50 leading-none"
           value={filter}
           onChange={e => { onFilterChange(e.target.value); setDropdownOpen(true) }}
           onFocus={() => filter && setDropdownOpen(true)}
@@ -211,11 +216,11 @@ export default function CommandBar({
         {filter ? (
           <button
             onClick={() => { onFilterChange(''); setDropdownOpen(false); inputRef.current?.focus() }}
-            className="text-fg3 hover:text-fg text-[12px] cursor-pointer shrink-0 leading-none"
+            className="text-fg3 hover:text-fg text-[11px] cursor-pointer shrink-0 leading-none"
             title="clear"
           >×</button>
         ) : (
-          <kbd className="hidden sm:inline-block text-[9px] text-fg3 border border-border px-1 py-[1px] rounded bg-bg2/60 shrink-0 pointer-events-none"
+          <kbd className="hidden sm:inline-block text-[8px] text-fg3 border border-border px-1 py-px bg-bg2/60 shrink-0 pointer-events-none leading-none"
                title="press / to focus search">/</kbd>
         )}
         {dropdownOpen && suggestions.length > 0 && (
@@ -264,16 +269,15 @@ export default function CommandBar({
       </div>
 
       {/* Controls */}
-      <span className="text-border2">|</span>
       <Pill onClick={onOpenSettings}>settings</Pill>
       <Pill onClick={onOpenUsage}>usage</Pill>
       <Pill danger onClick={onClearLog}>clear</Pill>
 
       {/* Right: live status + clock */}
-      <div className="flex items-center gap-1.5 ml-auto shrink-0">
+      <div className="h-5 px-1.5 border border-border/80 bg-bg1/35 flex items-center gap-1.5 ml-auto shrink-0">
         {remaining != null && (
           <span className={clsx(
-            'tabular-nums',
+            'tabular-nums text-[9px]',
             remaining > 0 ? 'text-grn' : 'text-ylw animate-pulse'
           )}>
             {remaining > 0 ? `${remaining}s` : 'now'}
@@ -284,7 +288,7 @@ export default function CommandBar({
         ) : (
           <span className={backendOk ? 'text-ylw' : 'text-red'}>○</span>
         )}
-        <span className="text-fg3 tabular-nums">{time}</span>
+        <span className="text-fg3 tabular-nums text-[9px]">{time}</span>
       </div>
     </div>
   )

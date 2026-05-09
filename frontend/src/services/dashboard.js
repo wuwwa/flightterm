@@ -35,6 +35,11 @@ export async function fetchTrafficHeatmap() {
   return res.data
 }
 
+export async function fetchBusinessJetTracker() {
+  const res = await axios.get('/api/business-jet-tracker', { timeout: 10000 })
+  return res.data
+}
+
 export async function fetchArchiveHealth() {
   const res = await axios.get('/api/health/archive', { timeout: 10000 })
   return res.data

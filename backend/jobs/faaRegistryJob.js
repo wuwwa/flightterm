@@ -43,6 +43,12 @@ const COL = {
   MODE_S_CODE_HEX: 33,
 }
 
+const REF_COL = {
+  CODE: 0, MFR: 1, MODEL: 2, TYPE_ACFT: 3, TYPE_ENG: 4,
+  AC_CAT: 5, BUILD_CERT_IND: 6, NO_ENG: 7, NO_SEATS: 8,
+  AC_WEIGHT: 9, SPEED: 10,
+}
+
 function clean(s) {
   if (s == null) return null
   const t = s.trim()
@@ -72,6 +78,31 @@ function parseMasterLine(line) {
     model_code:        clean(cols[COL.ENG_MFR_MDL]),
     last_action_date:  clean(cols[COL.LAST_ACTION_DATE]),
     status_code:       clean(cols[COL.STATUS_CODE]),
+  }
+}
+
+function num(s) {
+  const n = parseInt(String(s || '').trim(), 10)
+  return Number.isFinite(n) ? n : null
+}
+
+function parseAircraftRefLine(line) {
+  const cols = line.split(',')
+  if (cols.length < 11) return null
+  const code = clean(cols[REF_COL.CODE])
+  if (!code) return null
+  return {
+    code:                  code.toUpperCase(),
+    mfr:                   clean(cols[REF_COL.MFR])?.toUpperCase() || null,
+    model:                 clean(cols[REF_COL.MODEL])?.toUpperCase() || null,
+    type_aircraft:         num(cols[REF_COL.TYPE_ACFT]),
+    type_engine:           num(cols[REF_COL.TYPE_ENG]),
+    aircraft_category:     num(cols[REF_COL.AC_CAT]),
+    builder_certification: num(cols[REF_COL.BUILD_CERT_IND]),
+    number_engines:        num(cols[REF_COL.NO_ENG]),
+    number_seats:          num(cols[REF_COL.NO_SEATS]),
+    aircraft_weight:       clean(cols[REF_COL.AC_WEIGHT]),
+    speed:                 num(cols[REF_COL.SPEED]),
   }
 }
 
@@ -110,6 +141,16 @@ async function extractMasterTxt(zipPath, destPath) {
   try {
     // MASTER.txt is the root-level filename inside the FAA zip
     await zip.extract('MASTER.txt', destPath)
+  } finally {
+    await zip.close()
+  }
+  return fs.statSync(destPath).size
+}
+
+async function extractAircraftRefTxt(zipPath, destPath) {
+  const zip = new StreamZip.async({ file: zipPath })
+  try {
+    await zip.extract('ACFTREF.txt', destPath)
   } finally {
     await zip.close()
   }
@@ -159,6 +200,48 @@ async function ingestMasterFile(filePath, { limit = null, silent = false } = {})
   return { parsed, skipped, changed, unchanged, durationMs, byType }
 }
 
+async function ingestAircraftRefFile(filePath, { limit = null, silent = false } = {}) {
+  const started = Date.now()
+  const rl = readline.createInterface({
+    input: fs.createReadStream(filePath, { encoding: 'utf8' }),
+    crlfDelay: Infinity,
+  })
+
+  let lineNo = 0, parsed = 0, skipped = 0
+  let changed = 0, unchanged = 0
+  let batch = []
+  const byTypeEngine = {}
+
+  const flushBatch = () => {
+    if (!batch.length) return
+    const r = db.upsertFaaAircraftRefBulk(batch)
+    changed   += r.changed
+    unchanged += r.unchanged
+    batch = []
+  }
+
+  for await (const line of rl) {
+    lineNo++
+    if (lineNo === 1) continue
+    const row = parseAircraftRefLine(line)
+    if (!row) { skipped++; continue }
+    parsed++
+    const key = `${row.type_aircraft || '?'}:${row.type_engine || '?'}`
+    byTypeEngine[key] = (byTypeEngine[key] || 0) + 1
+    batch.push(row)
+    if (batch.length >= UPSERT_BATCH) flushBatch()
+    if (limit && parsed >= limit) break
+  }
+  flushBatch()
+
+  const durationMs = Date.now() - started
+  if (!silent) {
+    console.log(`[faa-aircraft-ref] lines=${lineNo} parsed=${parsed} skipped=${skipped} changed=${changed} unchanged=${unchanged} in ${(durationMs/1000).toFixed(1)}s`)
+    console.log(`[faa-aircraft-ref] type/engine histogram:`, byTypeEngine)
+  }
+  return { parsed, skipped, changed, unchanged, durationMs, byTypeEngine }
+}
+
 // SHA-256 of a file, computed in streaming 64KB chunks. Used to skip the
 // 311k-row upsert on weeks when the FAA snapshot is byte-identical to last
 // week's (most weeks).
@@ -184,6 +267,7 @@ async function fetchAndIngest({ limit = null, silent = false, force = false } = 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'faa-registry-'))
   const zipPath = path.join(tmpDir, 'ReleasableAircraft.zip')
   const masterPath = path.join(tmpDir, 'MASTER.txt')
+  const refPath = path.join(tmpDir, 'ACFTREF.txt')
 
   try {
     if (!silent) console.log(`[faa-registry] downloading ${FAA_ZIP_URL}…`)
@@ -193,23 +277,35 @@ async function fetchAndIngest({ limit = null, silent = false, force = false } = 
     // Hash-skip gate — runs BEFORE unzip + ingest for maximum savings.
     const zipHash = await sha256File(zipPath)
     const prevState = db.getIngestState(INGEST_SOURCE)
-    if (!force && prevState && prevState.success && prevState.last_hash === zipHash) {
+    const needsAircraftRef = db.getFaaAircraftRefCount() === 0
+    if (!force && !needsAircraftRef && prevState && prevState.success && prevState.last_hash === zipHash) {
       if (!silent) console.log(`[faa-registry] zip hash unchanged since ${prevState.last_ingest_at} — skipping ingest (0 writes)`)
+      const cohort = db.ensureBusinessJetCohortCurrent()
+      if (!silent && cohort.rebuilt) {
+        console.log(`[business-jets] cohort self-healed (${cohort.reason}) — ${cohort.result.count.toLocaleString()} tracked jets`)
+      }
       // Still bump last_ingest_at so staleness checks don't re-trigger.
       db.setIngestState(INGEST_SOURCE, { last_hash: zipHash, success: 1 })
-      return { skipped: true, reason: 'hash-unchanged', zipHash }
+      return { skipped: true, reason: 'hash-unchanged', zipHash, cohort }
+    }
+    if (needsAircraftRef && !silent) {
+      console.log('[faa-registry] ACFTREF table empty — ingesting despite matching registry zip hash')
     }
 
-    if (!silent) console.log(`[faa-registry] extracting MASTER.txt…`)
+    if (!silent) console.log(`[faa-registry] extracting MASTER.txt + ACFTREF.txt…`)
     const masterBytes = await extractMasterTxt(zipPath, masterPath)
-    if (!silent) console.log(`[faa-registry] extracted ${(masterBytes/1024/1024).toFixed(1)} MB`)
+    const refBytes = await extractAircraftRefTxt(zipPath, refPath)
+    if (!silent) console.log(`[faa-registry] extracted MASTER ${(masterBytes/1024/1024).toFixed(1)} MB, ACFTREF ${(refBytes/1024/1024).toFixed(1)} MB`)
 
+    const refResult = await ingestAircraftRefFile(refPath, { limit, silent })
     const result = await ingestMasterFile(masterPath, { limit, silent })
+    const cohort = db.rebuildBusinessJetCohort()
     if (!silent) console.log(`[faa-registry] faa_registry now holds ${db.getFaaRegistryCount().toLocaleString()} rows`)
+    if (!silent) console.log(`[business-jets] cohort=${cohort.count.toLocaleString()} from ${db.getFaaAircraftRefCount().toLocaleString()} aircraft refs`)
 
     // Record the hash so next week's job can short-circuit.
     db.setIngestState(INGEST_SOURCE, { last_hash: zipHash, success: 1 })
-    return { ...result, skipped: false, zipHash }
+    return { ...result, aircraftRef: refResult, cohort, skipped: false, zipHash }
   } catch (err) {
     // Persist failure so a retry runs even if the hash would have matched.
     try { db.setIngestState(INGEST_SOURCE, { success: 0, metadata: err.message }) } catch (_) {}
@@ -245,6 +341,10 @@ function scheduleStartupIngest({ stalenessMs = STALENESS_MS } = {}) {
       const check = shouldIngest({ stalenessMs })
       if (!check.needed) {
         console.log(`[faa-registry] skip startup ingest — ${check.count.toLocaleString()} rows, age ${(check.ageMs/86400e3).toFixed(1)}d`)
+        const cohort = db.ensureBusinessJetCohortCurrent()
+        if (cohort.rebuilt) {
+          console.log(`[business-jets] cohort self-healed (${cohort.reason}) — ${cohort.result.count.toLocaleString()} tracked jets`)
+        }
         return
       }
       console.log(`[faa-registry] startup ingest triggered (${check.reason})`)
@@ -274,7 +374,10 @@ module.exports = {
   ingestMasterFile,
   downloadZip,
   extractMasterTxt,
+  extractAircraftRefTxt,
   parseMasterLine,
+  parseAircraftRefLine,
+  ingestAircraftRefFile,
   // Staleness / scheduling
   shouldIngest,
   scheduleStartupIngest,

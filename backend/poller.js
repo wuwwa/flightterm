@@ -27,6 +27,8 @@ const ANOMALY_SCORE_DIVISOR = Math.max(1, parseInt(process.env.ANOMALY_SCORE_DIV
 const OS_BASE = 'https://opensky-network.org/api'
 const OS_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
 const APL_BASE = 'https://api.airplanes.live/v2'
+const AIRPLANES_LIVE_BASE = process.env.AIRPLANES_LIVE_BASE || 'https://api.airplanes.live/v2'
+const AIRPLANES_LIVE_PRIMARY = process.env.AIRPLANES_LIVE_PRIMARY === 'true'
 const AWX_BASE = 'https://aviationweather.gov/api/data'
 
 const REGIONS = {
@@ -85,6 +87,29 @@ function nextOpenSkyResetMs(retryAfterSeconds = null) {
   reset.setUTCDate(reset.getUTCDate() + 1)
   reset.setUTCHours(0, 5, 0, 0)
   return reset.getTime()
+}
+
+const AIRPLANES_LIVE_FALLBACK_ENABLED = process.env.AIRPLANES_LIVE_FALLBACK_DISABLED !== 'true'
+const AIRPLANES_LIVE_FALLBACK_POINTS = {
+  usa: [
+    [47.6, -122.3], [37.6, -122.4], [34.0, -118.2], [33.4, -112.0],
+    [39.7, -104.9], [32.8, -97.0], [41.9, -87.6], [44.9, -93.2],
+    [33.7, -84.4], [40.7, -74.0], [25.8, -80.2], [39.1, -77.0],
+  ],
+  europe: [
+    [51.5, -0.1], [48.9, 2.4], [50.1, 8.7], [52.4, 13.4],
+    [45.5, 9.2], [41.4, 2.2], [52.3, 4.9], [47.5, 19.0],
+  ],
+  asia: [
+    [35.7, 139.7], [37.6, 127.0], [31.2, 121.5], [22.3, 114.2],
+    [25.0, 121.5], [13.8, 100.5], [1.3, 103.8], [28.6, 77.2],
+  ],
+  atlantic: [
+    [40.6, -73.8], [32.4, -64.7], [38.7, -27.2], [51.5, -0.1],
+  ],
+  global: [
+    [39.7, -104.9], [40.7, -74.0], [51.5, -0.1], [35.7, 139.7],
+  ],
 }
 
 function pauseOpenSkySlot(slotIndex, reason, retryAfterSeconds = null) {
@@ -249,6 +274,83 @@ async function fetchOpenSky(region = 'usa') {
     mil:      false,
     src:      'opensky',
   }))
+}
+
+function metersFromFeet(ft) {
+  const n = Number(ft)
+  return Number.isFinite(n) ? n / 3.28084 : null
+}
+
+function msFromKnots(kt) {
+  const n = Number(kt)
+  return Number.isFinite(n) ? n * 0.514444 : null
+}
+
+function msRateFromFpm(fpm) {
+  const n = Number(fpm)
+  return Number.isFinite(n) ? n * 0.00508 : null
+}
+
+function normalizeAirplanesLiveAircraft(ac) {
+  const hex = String(ac.hex || ac.icao || '').trim().toLowerCase()
+  if (!/^[0-9a-f]{6}$/.test(hex)) return null
+  const grounded = ac.ground === true || ac.alt_baro === 'ground'
+  const altFt = ac.alt_baro != null && ac.alt_baro !== 'ground'
+    ? ac.alt_baro
+    : (ac.alt_geom != null ? ac.alt_geom : null)
+  return {
+    icao: hex,
+    callsign: String(ac.flight || ac.callsign || '').trim() || null,
+    country: ac.country || 'unknown',
+    lon: ac.lon != null ? Number(Number(ac.lon).toFixed(4)) : null,
+    lat: ac.lat != null ? Number(Number(ac.lat).toFixed(4)) : null,
+    alt: metersFromFeet(altFt),
+    grounded,
+    vel: msFromKnots(ac.gs),
+    hdg: ac.track != null ? Math.round(Number(ac.track)) : null,
+    vertRate: msRateFromFpm(ac.baro_rate),
+    geoAlt: metersFromFeet(ac.alt_geom),
+    squawk: ac.squawk || null,
+    posSrc: 0,
+    ndb: null,
+    mil: false,
+    src: 'airplanes.live',
+    acReg: ac.r || null,
+    acType: ac.t || null,
+    acDesc: ac.desc || null,
+    acOperator: ac.ownOp || null,
+    category: ac.category || null,
+  }
+}
+
+async function fetchAirplanesLivePoint(lat, lon, radiusNm = 250) {
+  const res = await axios.get(`${AIRPLANES_LIVE_BASE}/point/${lat}/${lon}/${radiusNm}`, {
+    timeout: 15000,
+    headers: { 'User-Agent': 'flightterm-poller/1.0' },
+  })
+  return Array.isArray(res.data?.ac) ? res.data.ac : []
+}
+
+async function fetchAirplanesLiveFallback(region = 'usa') {
+  if (!AIRPLANES_LIVE_FALLBACK_ENABLED) return []
+  const points = AIRPLANES_LIVE_FALLBACK_POINTS[region] || AIRPLANES_LIVE_FALLBACK_POINTS.usa
+  const settled = await Promise.allSettled(points.map(([lat, lon]) => fetchAirplanesLivePoint(lat, lon)))
+  const byHex = new Map()
+  let ok = 0
+  for (const result of settled) {
+    if (result.status !== 'fulfilled') continue
+    ok += 1
+    for (const raw of result.value) {
+      const ac = normalizeAirplanesLiveAircraft(raw)
+      if (ac && ac.lat != null && ac.lon != null) byHex.set(ac.icao, ac)
+    }
+  }
+  if (byHex.size > 0) {
+    console.log(`poller: airplanes.live fallback ${byHex.size} flights from ${ok}/${points.length} points`)
+  } else {
+    console.warn(`poller: airplanes.live fallback returned 0 flights (${ok}/${points.length} points)`)
+  }
+  return [...byHex.values()]
 }
 
 // ── APL enrichment for anomaly aircraft ─────────────────────────────────────
@@ -684,14 +786,25 @@ async function pollCycle() {
 
   // 1. Fetch flight data (retry once with next key on 429/401)
   let flights
+  let feedSource = 'opensky'
+  if (AIRPLANES_LIVE_PRIMARY) {
+    try {
+      flights = await fetchAirplanesLiveFallback(region)
+      if (flights?.length) feedSource = 'airplanes.live'
+    } catch (fallbackErr) {
+      console.warn('poller: airplanes.live primary fetch failed:', fallbackErr.message)
+    }
+  }
+
   try {
-    flights = await fetchOpenSky(region)
+    if (!flights?.length) {
+      flights = await fetchOpenSky(region)
+      feedSource = 'opensky'
+    }
   } catch (err) {
     if (err.code === 'OPENSKY_PAUSED') {
       console.warn(`poller: ${err.message}`)
-      return
-    }
-    if ((err.response?.status === 429 || err.response?.status === 401) && OS_KEY_SLOTS.length > 1) {
+    } else if ((err.response?.status === 429 || err.response?.status === 401) && OS_KEY_SLOTS.length > 1) {
       console.log(`poller: retrying immediately with key ${activeKeySlot + 1}`)
       try {
         flights = await fetchOpenSky(region)
@@ -699,10 +812,25 @@ async function pollCycle() {
         if (retryErr.code === 'OPENSKY_PAUSED') {
           console.warn(`poller: ${retryErr.message}`)
         }
+      }
+    }
+    if (!flights?.length) {
+      try {
+        flights = await fetchAirplanesLiveFallback(region)
+        feedSource = 'airplanes.live'
+      } catch (fallbackErr) {
+        console.warn('poller: airplanes.live fallback failed:', fallbackErr.message)
         return
       }
-    } else {
-      return
+    }
+  }
+
+  if (!flights?.length && feedSource === 'opensky') {
+    try {
+      flights = await fetchAirplanesLiveFallback(region)
+      if (flights.length) feedSource = 'airplanes.live'
+    } catch (fallbackErr) {
+      console.warn('poller: airplanes.live fallback failed:', fallbackErr.message)
     }
   }
 
@@ -725,7 +853,7 @@ async function pollCycle() {
   // When enabled, sample the feed across cycles to keep DB writes bounded.
   if (ANOMALY_DETECTION_ENABLED) {
     try {
-      await db.recordSightingsChunked(anomalyFlightsThisCycle, 'opensky', region)
+      await db.recordSightingsChunked(anomalyFlightsThisCycle, feedSource, region)
     } catch (err) {
       console.error('poller: sightings record error:', err.message)
     }
@@ -1042,7 +1170,7 @@ function start() {
   if (running) return
   running = true
 
-  console.log(`poller: starting (interval: ${POLL_INTERVAL / 1000}s, region: ${process.env.POLL_REGION || 'usa'}, keys: ${OS_KEY_SLOTS.length}, anomaly: ${ANOMALY_DETECTION_ENABLED ? 'on' : 'off'})`)
+  console.log(`poller: starting (interval: ${POLL_INTERVAL / 1000}s, region: ${process.env.POLL_REGION || 'usa'}, keys: ${OS_KEY_SLOTS.length}, anomaly: ${ANOMALY_DETECTION_ENABLED ? 'on' : 'off'}, primary: ${AIRPLANES_LIVE_PRIMARY ? 'airplanes.live' : 'opensky'})`)
   for (let i = 0; i < OS_KEY_SLOTS.length; i++) {
     console.log(`poller:   key ${i + 1}: ${OS_KEY_SLOTS[i].id.substring(0, 12)}...`)
   }
@@ -1191,6 +1319,8 @@ module.exports = {
     fetchWeatherContext,
     summarizePireps,
     summarizeSigmets,
+    normalizeAirplanesLiveAircraft,
+    fetchAirplanesLiveFallback,
     trackHistory,
     activeAnomalies,
     anomalyMisses,

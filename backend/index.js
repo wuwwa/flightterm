@@ -24,6 +24,7 @@ const rateLimit = require('express-rate-limit')
 
 const path = require('path')
 const poller = require('./poller')
+const businessJetTracker = require('./businessJetTracker')
 const swim = require('./swim')
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -1495,6 +1496,30 @@ app.post('/api/poller/stop', requireAdmin, (_req, res) => {
   res.json(poller.getStatus())
 })
 
+// ── Business jet early-warning tracker ──────────────────────────────────────
+app.get('/api/business-jet-tracker', (_req, res) => {
+  cachePublic(res, 20)
+  res.json(businessJetTracker.getTrackerState())
+})
+
+app.post('/api/business-jet-tracker/sample', requireAdmin, async (_req, res, next) => {
+  try {
+    const result = await businessJetTracker.sampleOnce()
+    res.json(result)
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.post('/api/business-jet-tracker/cohort/rebuild', requireAdmin, (_req, res) => {
+  const result = rawDb.prepare('SELECT COUNT(*) AS c FROM faa_aircraft_ref').get()
+  if (!result.c) {
+    return res.status(409).json({ error: 'FAA aircraft reference table is empty; run the FAA registry ingest first' })
+  }
+  const r = require('./db').rebuildBusinessJetCohort()
+  res.json(r)
+})
+
 // GET /api/flights — latest flight states from poller (no external API call)
 app.get('/api/flights', (_req, res) => {
   const data = poller.getFlights()
@@ -2765,6 +2790,13 @@ if (!process.env.VITEST) _server = app.listen(PORT, () => {
     console.log('  ℹ  FAA registry self-heal disabled via FAA_REGISTRY_DISABLED')
   }
 
+  if (process.env.BUSINESS_JET_TRACKER_DISABLED !== 'true') {
+    businessJetTracker.start()
+    console.log(`  ℹ  Business jet tracker enabled — ${process.env.BUSINESS_JET_HEATMAP_URL || process.env.ADSB_HEATMAP_URL ? 'tar1090 snapshot source' : 'poller fallback source'}, interval ${businessJetTracker.getTrackerState().intervalMs}ms`)
+  } else {
+    console.log('  ℹ  Business jet tracker disabled via BUSINESS_JET_TRACKER_DISABLED')
+  }
+
   // ── Event loop lag monitor (diagnostic) ──────────────────────────────────
   // Uses perf_hooks.monitorEventLoopDelay for accurate p99/max samples and
   // includes the SWIM ingest queue depth so we can attribute future stalls
@@ -2793,6 +2825,7 @@ function shutdown(signal) {
 
   // Stop accepting new requests
   poller.stop()
+  businessJetTracker.stop()
   swim.stopAll()
 
   // Drain anything still queued from /internal/swim/* before closing the DB,

@@ -18,7 +18,7 @@ export default function NasPanel({ backendOk, region }) {
   const showWake = backendOk && !workerConnected
 
   return (
-    <div className="bg-bg1 border-t-2 border-grn/40">
+    <div className="bg-bg1 border-t-2 border-grn/40" data-testid="faa-swim-panel">
       {/* Header */}
       <div
         className="bg-bg2 border-b border-border py-1 px-3 flex items-center gap-2 cursor-pointer select-none"
@@ -58,7 +58,7 @@ export default function NasPanel({ backendOk, region }) {
       </div>
 
       {!collapsed && (
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1.5fr] md:grid-rows-1 gap-px bg-border md:h-48">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1.5fr] md:grid-rows-1 gap-px bg-border h-[240px] md:h-48 overflow-hidden">
           <NasStatus backendOk={backendOk} />
           <NotamPanel backendOk={backendOk} />
           <LiveFeed backendOk={backendOk} />

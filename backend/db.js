@@ -367,6 +367,144 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_faa_reg_owner  ON faa_registry(owner_name);
 `)
 
+// ── FAA aircraft reference models ───────────────────────────────────────────
+// ACFTREF.txt ships in the same FAA releasable aircraft zip as MASTER.txt.
+// MASTER gives us the aircraft's model code; ACFTREF decodes it into
+// manufacturer/model/engine/category fields so cohort builders can filter by
+// actual aircraft characteristics instead of brittle owner-name guesses.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS faa_aircraft_ref (
+    code                  TEXT PRIMARY KEY,
+    mfr                   TEXT,
+    model                 TEXT,
+    type_aircraft         INTEGER,
+    type_engine           INTEGER,
+    aircraft_category     INTEGER,
+    builder_certification INTEGER,
+    number_engines        INTEGER,
+    number_seats          INTEGER,
+    aircraft_weight       TEXT,
+    speed                 INTEGER,
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_faa_ref_type_engine ON faa_aircraft_ref(type_aircraft, type_engine);
+  CREATE INDEX IF NOT EXISTS idx_faa_ref_mfr_model   ON faa_aircraft_ref(mfr, model);
+`)
+
+// ── Business jet cohort tracker ─────────────────────────────────────────────
+// Watches a fixed set of FAA-registered business jets by ICAO24 hex and asks
+// whether the current airborne count is unusual for this time of week.
+const BUSINESS_JET_COHORT_SOURCE = 'business_jet_cohort'
+const BUSINESS_JET_COHORT_VERSION = 'wealth-v4-strict-private-ultra-2026-05-08'
+const BUSINESS_JET_COHORT_RULE_VERSION = 'strict-private-ultra-v4'
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS business_jet_cohort (
+    icao24_hex      TEXT PRIMARY KEY,
+    n_number        TEXT,
+    owner_name      TEXT,
+    type_registrant INTEGER,
+    aircraft_mfr    TEXT,
+    aircraft_model  TEXT,
+    model_code      TEXT,
+    number_seats    INTEGER,
+    cohort_tier     TEXT,
+    owner_class     TEXT,
+    wealth_weight   REAL NOT NULL DEFAULT 1.0,
+    include_reason  TEXT,
+    source          TEXT NOT NULL DEFAULT 'faa_registry',
+    included_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen_at    TEXT,
+    last_seen_source TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_bj_cohort_n_number ON business_jet_cohort(n_number);
+  CREATE INDEX IF NOT EXISTS idx_bj_cohort_model    ON business_jet_cohort(aircraft_mfr, aircraft_model);
+
+  CREATE TABLE IF NOT EXISTS business_jet_snapshots (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    sampled_at      TEXT NOT NULL,
+    sample_slot     TEXT,
+    cohort_version  TEXT NOT NULL DEFAULT 'legacy',
+    source          TEXT NOT NULL,
+    cohort_size     INTEGER NOT NULL DEFAULT 0,
+    airborne_count  INTEGER NOT NULL DEFAULT 0,
+    matched_count   INTEGER NOT NULL DEFAULT 0,
+    total_feed_count INTEGER NOT NULL DEFAULT 0,
+    unusual_score   REAL,
+    baseline_mean   REAL,
+    baseline_p95    REAL,
+    baseline_p99    REAL,
+    baseline_samples INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_bj_snap_sampled ON business_jet_snapshots(sampled_at);
+
+  CREATE TABLE IF NOT EXISTS business_jet_positions (
+    snapshot_id  INTEGER NOT NULL,
+    icao24_hex   TEXT NOT NULL,
+    callsign     TEXT,
+    n_number     TEXT,
+    owner_name   TEXT,
+    aircraft_mfr TEXT,
+    aircraft_model TEXT,
+    cohort_tier  TEXT,
+    owner_class  TEXT,
+    wealth_weight REAL NOT NULL DEFAULT 1.0,
+    lat          REAL,
+    lon          REAL,
+    altitude_ft  REAL,
+    speed_kt     REAL,
+    heading      REAL,
+    vertical_rate REAL,
+    squawk       TEXT,
+    category     TEXT,
+    airborne     INTEGER NOT NULL DEFAULT 1,
+    raw          TEXT,
+    sampled_at   TEXT NOT NULL,
+    PRIMARY KEY (snapshot_id, icao24_hex)
+  );
+  CREATE INDEX IF NOT EXISTS idx_bj_pos_sampled ON business_jet_positions(sampled_at);
+  CREATE INDEX IF NOT EXISTS idx_bj_pos_icao    ON business_jet_positions(icao24_hex, sampled_at DESC);
+`)
+
+{
+  const cohortCols = db.pragma('table_info(business_jet_cohort)').map(c => c.name)
+  if (!cohortCols.includes('cohort_tier')) {
+    db.exec(`
+      ALTER TABLE business_jet_cohort ADD COLUMN cohort_tier TEXT;
+      ALTER TABLE business_jet_cohort ADD COLUMN owner_class TEXT;
+      ALTER TABLE business_jet_cohort ADD COLUMN wealth_weight REAL NOT NULL DEFAULT 1.0;
+      ALTER TABLE business_jet_cohort ADD COLUMN include_reason TEXT;
+    `)
+  }
+
+  const positionCols = db.pragma('table_info(business_jet_positions)').map(c => c.name)
+  if (!positionCols.includes('cohort_tier')) {
+    db.exec(`
+      ALTER TABLE business_jet_positions ADD COLUMN cohort_tier TEXT;
+      ALTER TABLE business_jet_positions ADD COLUMN owner_class TEXT;
+      ALTER TABLE business_jet_positions ADD COLUMN wealth_weight REAL NOT NULL DEFAULT 1.0;
+    `)
+  }
+
+  const snapshotCols = db.pragma('table_info(business_jet_snapshots)').map(c => c.name)
+  if (!snapshotCols.includes('sample_slot')) {
+    db.exec(`
+      ALTER TABLE business_jet_snapshots ADD COLUMN sample_slot TEXT;
+    `)
+  }
+  if (!snapshotCols.includes('cohort_version')) {
+    db.exec(`
+      ALTER TABLE business_jet_snapshots ADD COLUMN cohort_version TEXT NOT NULL DEFAULT 'legacy';
+    `)
+  }
+  db.exec(`
+    DROP INDEX IF EXISTS idx_bj_snap_slot;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_bj_snap_slot_version
+      ON business_jet_snapshots(sample_slot, cohort_version)
+      WHERE sample_slot IS NOT NULL;
+  `)
+}
+
 // ── Ingest state (v5.7 — skip-if-unchanged tracking) ────────────────────────
 // Keyed by source (e.g. 'faa_registry'). Stores SHA256 of the last successfully
 // ingested artifact so we can bail out early when the upstream file hasn't
@@ -1358,6 +1496,397 @@ const _stmts = {
   faaRegistryCount: db.prepare(`SELECT COUNT(*) AS c FROM faa_registry`),
   faaRegistryMostRecent: db.prepare(`SELECT MAX(updated_at) AS t FROM faa_registry`),
 
+  faaAircraftRefUpsert: db.prepare(`
+    INSERT INTO faa_aircraft_ref (
+      code, mfr, model, type_aircraft, type_engine, aircraft_category,
+      builder_certification, number_engines, number_seats, aircraft_weight,
+      speed, updated_at
+    ) VALUES (
+      @code, @mfr, @model, @type_aircraft, @type_engine, @aircraft_category,
+      @builder_certification, @number_engines, @number_seats, @aircraft_weight,
+      @speed, datetime('now')
+    ) ON CONFLICT(code) DO UPDATE SET
+      mfr                   = excluded.mfr,
+      model                 = excluded.model,
+      type_aircraft         = excluded.type_aircraft,
+      type_engine           = excluded.type_engine,
+      aircraft_category     = excluded.aircraft_category,
+      builder_certification = excluded.builder_certification,
+      number_engines        = excluded.number_engines,
+      number_seats          = excluded.number_seats,
+      aircraft_weight       = excluded.aircraft_weight,
+      speed                 = excluded.speed,
+      updated_at            = datetime('now')
+    WHERE
+      faa_aircraft_ref.mfr                   IS NOT excluded.mfr                   OR
+      faa_aircraft_ref.model                 IS NOT excluded.model                 OR
+      faa_aircraft_ref.type_aircraft         IS NOT excluded.type_aircraft         OR
+      faa_aircraft_ref.type_engine           IS NOT excluded.type_engine           OR
+      faa_aircraft_ref.aircraft_category     IS NOT excluded.aircraft_category     OR
+      faa_aircraft_ref.builder_certification IS NOT excluded.builder_certification OR
+      faa_aircraft_ref.number_engines        IS NOT excluded.number_engines        OR
+      faa_aircraft_ref.number_seats          IS NOT excluded.number_seats          OR
+      faa_aircraft_ref.aircraft_weight       IS NOT excluded.aircraft_weight       OR
+      faa_aircraft_ref.speed                 IS NOT excluded.speed
+  `),
+  faaAircraftRefCount: db.prepare(`SELECT COUNT(*) AS c FROM faa_aircraft_ref`),
+
+  businessJetCohortReplace: db.prepare(`
+    INSERT INTO business_jet_cohort (
+      icao24_hex, n_number, owner_name, type_registrant, aircraft_mfr,
+      aircraft_model, model_code, number_seats, cohort_tier, owner_class,
+      wealth_weight, include_reason, source, included_at
+    )
+    WITH candidate AS (
+      SELECT
+        r.icao24_hex,
+        r.n_number,
+        r.owner_name,
+        r.type_registrant,
+        ref.mfr,
+        ref.model,
+        r.aircraft_mfr_code,
+        ref.number_seats,
+        upper(COALESCE(ref.mfr, '')) AS mfr_upper,
+        upper(COALESCE(ref.model, '')) AS model_upper,
+        upper(COALESCE(r.owner_name, '')) AS owner_upper
+      FROM faa_registry r
+      JOIN faa_aircraft_ref ref ON ref.code = r.aircraft_mfr_code
+      WHERE r.icao24_hex IS NOT NULL
+        AND length(r.icao24_hex) = 6
+        AND r.status_code = 'V'
+        AND ref.type_aircraft = 5
+        AND ref.type_engine = 5
+        AND COALESCE(ref.number_engines, 0) BETWEEN 1 AND 4
+        AND COALESCE(ref.number_seats, 0) BETWEEN 8 AND @maxSeats
+    ),
+    classified AS (
+      SELECT
+        *,
+        CASE
+          WHEN owner_upper = ''
+            THEN 'unknown_owner'
+          WHEN type_registrant = 5
+            OR owner_upper GLOB '*STATE OF*'
+            OR owner_upper GLOB '*CITY OF*'
+            OR owner_upper GLOB '*COUNTY*'
+            OR owner_upper GLOB '*DEPARTMENT OF*'
+            OR owner_upper GLOB '*POLICE*'
+            OR owner_upper GLOB '*GOVERNMENT*'
+            THEN 'government'
+          WHEN owner_upper GLOB '*AIR AMBULANCE*'
+            OR owner_upper GLOB '*MEDEVAC*'
+            OR owner_upper GLOB '*MEDICAL*'
+            OR owner_upper GLOB '*HOSPITAL*'
+            THEN 'medical'
+          WHEN owner_upper GLOB '*NETJETS*'
+            OR owner_upper GLOB '*EXECUTIVE JET*'
+            OR owner_upper GLOB '*FLEXJET*'
+            OR owner_upper GLOB '*FLIGHT OPTIONS*'
+            OR owner_upper GLOB '*WHEELS UP*'
+            OR owner_upper GLOB '*XOJET*'
+            OR owner_upper GLOB '*VISTA*'
+            OR owner_upper GLOB '*AIRSHARE*'
+            OR owner_upper GLOB '*JET LINX*'
+            OR owner_upper GLOB '*SOLAIRUS*'
+            OR owner_upper GLOB '*CLAY LACY*'
+            OR owner_upper GLOB '*CHARTER*'
+            OR owner_upper GLOB '*EXECUTIVE AIRSHARE*'
+            OR owner_upper GLOB '*PRIVATE JET SERVICES*'
+            OR owner_upper GLOB '*JET AVIATION*'
+            OR owner_upper GLOB '*JET EDGE*'
+            OR owner_upper GLOB '*JETSELECT*'
+            OR owner_upper GLOB '*MAGELLAN JETS*'
+            OR owner_upper GLOB '*PLANESENSE*'
+            THEN 'wealth_service'
+          WHEN owner_upper GLOB '*TRUST*'
+            OR owner_upper GLOB '*TRUSTEE*'
+            OR owner_upper GLOB '*BANK OF UTAH*'
+            OR owner_upper GLOB '*WILMINGTON TRUST*'
+            OR owner_upper GLOB '*TVPX*'
+            THEN 'trust'
+          ELSE 'private_corp'
+        END AS owner_class,
+        CASE
+          WHEN model_upper GLOB '*G650*'
+            OR model_upper GLOB '*G700*'
+            OR model_upper GLOB '*G800*'
+            OR model_upper GLOB '*G600*'
+            OR model_upper GLOB '*G550*'
+            OR model_upper GLOB '*GVIII-G700*'
+            OR model_upper GLOB '*GVIII-G800*'
+            OR model_upper GLOB 'BD-700*'
+            OR model_upper GLOB '*GLOBAL*'
+            OR model_upper GLOB '*FALCON 7X*'
+            OR model_upper GLOB '*FALCON 8X*'
+            OR model_upper GLOB '*FALCON 6X*'
+            OR model_upper GLOB '*FALCON 10X*'
+            THEN 'ultra_long_range'
+          ELSE 'large_cabin'
+        END AS cohort_tier,
+        CASE
+          WHEN mfr_upper GLOB '*GULFSTREAM*' OR model_upper GLOB '*GULFSTREAM*' OR model_upper GLOB 'G-*' OR model_upper GLOB 'GV*'
+            THEN 'Gulfstream large-cabin/long-range jet'
+          WHEN mfr_upper GLOB '*DASSAULT*' OR mfr_upper GLOB '*FALCON*' OR model_upper GLOB '*FALCON*' OR model_upper GLOB '*MYSTERE*'
+            THEN 'Dassault Falcon large-cabin jet'
+          WHEN model_upper GLOB 'BD-700*' OR model_upper = 'CL-600-2B16' OR model_upper GLOB '*GLOBAL*'
+            THEN 'Bombardier Global/Challenger 600-series jet'
+          WHEN model_upper = '750'
+            THEN 'Citation X large-cabin jet'
+          ELSE 'business jet candidate'
+        END AS include_reason
+      FROM candidate
+      WHERE (
+        mfr_upper GLOB '*GULFSTREAM*' OR model_upper GLOB '*GULFSTREAM*' OR model_upper GLOB 'G-*' OR model_upper GLOB 'GV*' OR
+        mfr_upper GLOB '*DASSAULT*' OR mfr_upper GLOB '*FALCON*' OR model_upper GLOB '*FALCON*' OR model_upper GLOB '*MYSTERE*' OR
+        model_upper GLOB 'BD-700*' OR model_upper = 'CL-600-2B16' OR model_upper GLOB '*GLOBAL*' OR
+        model_upper = '750'
+      )
+      AND model_upper NOT GLOB 'DHC-*'
+      AND model_upper NOT GLOB 'ERJ-*'
+      AND model_upper NOT GLOB 'EMB-1*'
+      AND model_upper NOT GLOB '*CRJ*'
+      AND model_upper NOT GLOB 'CL-600-2B19*'
+      AND model_upper NOT GLOB 'CL-600-2C10*'
+      AND model_upper NOT GLOB 'CL-600-2D*'
+      AND model_upper NOT GLOB '*AIRLINER*'
+      AND model_upper NOT GLOB '*G400*'
+      AND model_upper NOT GLOB '*G500*'
+      AND owner_upper NOT GLOB '*AIRLINES*'
+      AND owner_upper NOT GLOB '*AIRWAYS*'
+      AND owner_upper NOT GLOB '*CARGO*'
+      AND owner_upper NOT GLOB '*FREIGHT*'
+    )
+    SELECT
+      icao24_hex, n_number, owner_name, type_registrant, mfr, model, aircraft_mfr_code,
+      number_seats, cohort_tier, owner_class,
+      CASE owner_class WHEN 'wealth_service' THEN 0.55 WHEN 'trust' THEN 0.9 ELSE 1.0 END,
+      include_reason, 'faa_registry', datetime('now')
+    FROM classified
+    WHERE owner_class = 'private_corp'
+      AND cohort_tier = 'ultra_long_range'
+      AND TRIM(COALESCE(owner_name, '')) != ''
+    ON CONFLICT(icao24_hex) DO UPDATE SET
+      n_number        = excluded.n_number,
+      owner_name      = excluded.owner_name,
+      type_registrant = excluded.type_registrant,
+      aircraft_mfr    = excluded.aircraft_mfr,
+      aircraft_model  = excluded.aircraft_model,
+      model_code      = excluded.model_code,
+      number_seats    = excluded.number_seats,
+      cohort_tier     = excluded.cohort_tier,
+      owner_class     = excluded.owner_class,
+      wealth_weight   = excluded.wealth_weight,
+      include_reason  = excluded.include_reason,
+      source          = excluded.source
+  `),
+  businessJetCohortPrune: db.prepare(`
+    DELETE FROM business_jet_cohort
+    WHERE icao24_hex NOT IN (
+      WITH candidate AS (
+        SELECT
+          r.icao24_hex,
+          r.type_registrant,
+          upper(COALESCE(ref.mfr, '')) AS mfr_upper,
+          upper(COALESCE(ref.model, '')) AS model_upper,
+          upper(COALESCE(r.owner_name, '')) AS owner_upper
+        FROM faa_registry r
+        JOIN faa_aircraft_ref ref ON ref.code = r.aircraft_mfr_code
+        WHERE r.icao24_hex IS NOT NULL
+          AND length(r.icao24_hex) = 6
+          AND r.status_code = 'V'
+          AND ref.type_aircraft = 5
+          AND ref.type_engine = 5
+          AND COALESCE(ref.number_engines, 0) BETWEEN 1 AND 4
+          AND COALESCE(ref.number_seats, 0) BETWEEN 8 AND @maxSeats
+      ),
+      classified AS (
+        SELECT
+          *,
+          CASE
+            WHEN owner_upper = ''
+              THEN 'unknown_owner'
+            WHEN type_registrant = 5
+              OR owner_upper GLOB '*STATE OF*'
+              OR owner_upper GLOB '*CITY OF*'
+              OR owner_upper GLOB '*COUNTY*'
+              OR owner_upper GLOB '*DEPARTMENT OF*'
+              OR owner_upper GLOB '*POLICE*'
+              OR owner_upper GLOB '*GOVERNMENT*'
+              THEN 'government'
+            WHEN owner_upper GLOB '*AIR AMBULANCE*'
+              OR owner_upper GLOB '*MEDEVAC*'
+              OR owner_upper GLOB '*MEDICAL*'
+              OR owner_upper GLOB '*HOSPITAL*'
+              THEN 'medical'
+            WHEN owner_upper GLOB '*NETJETS*'
+              OR owner_upper GLOB '*EXECUTIVE JET*'
+              OR owner_upper GLOB '*FLEXJET*'
+              OR owner_upper GLOB '*FLIGHT OPTIONS*'
+              OR owner_upper GLOB '*WHEELS UP*'
+              OR owner_upper GLOB '*XOJET*'
+              OR owner_upper GLOB '*VISTA*'
+              OR owner_upper GLOB '*AIRSHARE*'
+              OR owner_upper GLOB '*JET LINX*'
+              OR owner_upper GLOB '*SOLAIRUS*'
+              OR owner_upper GLOB '*CLAY LACY*'
+              OR owner_upper GLOB '*CHARTER*'
+              OR owner_upper GLOB '*EXECUTIVE AIRSHARE*'
+              OR owner_upper GLOB '*PRIVATE JET SERVICES*'
+              OR owner_upper GLOB '*JET AVIATION*'
+              OR owner_upper GLOB '*JET EDGE*'
+              OR owner_upper GLOB '*JETSELECT*'
+              OR owner_upper GLOB '*MAGELLAN JETS*'
+              OR owner_upper GLOB '*PLANESENSE*'
+              THEN 'wealth_service'
+            WHEN owner_upper GLOB '*TRUST*'
+              OR owner_upper GLOB '*TRUSTEE*'
+              OR owner_upper GLOB '*BANK OF UTAH*'
+              OR owner_upper GLOB '*WILMINGTON TRUST*'
+              OR owner_upper GLOB '*TVPX*'
+              THEN 'trust'
+            ELSE 'private_corp'
+          END AS owner_class,
+          CASE
+            WHEN model_upper GLOB '*G650*'
+              OR model_upper GLOB '*G700*'
+              OR model_upper GLOB '*G800*'
+              OR model_upper GLOB '*G600*'
+              OR model_upper GLOB '*G550*'
+              OR model_upper GLOB '*GVIII-G700*'
+              OR model_upper GLOB '*GVIII-G800*'
+              OR model_upper GLOB 'BD-700*'
+              OR model_upper GLOB '*GLOBAL*'
+              OR model_upper GLOB '*FALCON 7X*'
+              OR model_upper GLOB '*FALCON 8X*'
+              OR model_upper GLOB '*FALCON 6X*'
+              OR model_upper GLOB '*FALCON 10X*'
+              THEN 'ultra_long_range'
+            ELSE 'large_cabin'
+          END AS cohort_tier
+        FROM candidate
+        WHERE (
+          mfr_upper GLOB '*GULFSTREAM*' OR model_upper GLOB '*GULFSTREAM*' OR model_upper GLOB 'G-*' OR model_upper GLOB 'GV*' OR
+          mfr_upper GLOB '*DASSAULT*' OR mfr_upper GLOB '*FALCON*' OR model_upper GLOB '*FALCON*' OR model_upper GLOB '*MYSTERE*' OR
+          model_upper GLOB 'BD-700*' OR model_upper = 'CL-600-2B16' OR model_upper GLOB '*GLOBAL*' OR
+          model_upper = '750'
+        )
+        AND model_upper NOT GLOB 'DHC-*'
+        AND model_upper NOT GLOB 'ERJ-*'
+        AND model_upper NOT GLOB 'EMB-1*'
+        AND model_upper NOT GLOB '*CRJ*'
+        AND model_upper NOT GLOB 'CL-600-2B19*'
+        AND model_upper NOT GLOB 'CL-600-2C10*'
+        AND model_upper NOT GLOB 'CL-600-2D*'
+        AND model_upper NOT GLOB '*AIRLINER*'
+        AND model_upper NOT GLOB '*G400*'
+        AND model_upper NOT GLOB '*G500*'
+        AND owner_upper NOT GLOB '*AIRLINES*'
+        AND owner_upper NOT GLOB '*AIRWAYS*'
+        AND owner_upper NOT GLOB '*CARGO*'
+        AND owner_upper NOT GLOB '*FREIGHT*'
+      )
+      SELECT icao24_hex
+      FROM classified
+      WHERE owner_class = 'private_corp'
+        AND cohort_tier = 'ultra_long_range'
+        AND owner_upper != ''
+    )
+  `),
+  businessJetCohortCount: db.prepare(`SELECT COUNT(*) AS c FROM business_jet_cohort`),
+  businessJetCohortHealth: db.prepare(`
+    SELECT
+      COUNT(*) AS count,
+      SUM(CASE WHEN cohort_tier IS NULL OR cohort_tier = '' OR cohort_tier = 'unclassified' THEN 1 ELSE 0 END) AS unclassified,
+      SUM(CASE WHEN include_reason IS NULL OR include_reason = '' THEN 1 ELSE 0 END) AS missing_reason,
+      SUM(CASE WHEN cohort_tier != 'ultra_long_range' THEN 1 ELSE 0 END) AS non_ultra,
+      SUM(CASE WHEN owner_class != 'private_corp' THEN 1 ELSE 0 END) AS non_private,
+      SUM(CASE WHEN owner_name IS NULL OR TRIM(owner_name) = '' THEN 1 ELSE 0 END) AS unknown_owner,
+      SUM(CASE WHEN aircraft_model GLOB '*G400*' OR aircraft_model GLOB '*G500*' THEN 1 ELSE 0 END) AS non_strict_model,
+      COUNT(DISTINCT cohort_tier) AS tier_count
+    FROM business_jet_cohort
+  `),
+  businessJetCohortAll: db.prepare(`SELECT * FROM business_jet_cohort`),
+  businessJetCohortByHex: db.prepare(`SELECT * FROM business_jet_cohort WHERE icao24_hex IN (SELECT value FROM json_each(?))`),
+  businessJetCohortTierBreakdown: db.prepare(`
+    SELECT COALESCE(cohort_tier, 'unclassified') AS cohort_tier, COUNT(*) AS count
+    FROM business_jet_cohort
+    GROUP BY COALESCE(cohort_tier, 'unclassified')
+    ORDER BY count DESC
+  `),
+  businessJetCohortOwnerBreakdown: db.prepare(`
+    SELECT COALESCE(owner_class, 'unclassified') AS owner_class, COUNT(*) AS count
+    FROM business_jet_cohort
+    GROUP BY COALESCE(owner_class, 'unclassified')
+    ORDER BY count DESC
+  `),
+  businessJetCohortModelBreakdown: db.prepare(`
+    SELECT
+      COALESCE(aircraft_mfr, 'unknown') AS manufacturer,
+      COALESCE(aircraft_model, 'unknown') AS model,
+      COUNT(*) AS count
+    FROM business_jet_cohort
+    GROUP BY COALESCE(aircraft_mfr, 'unknown'), COALESCE(aircraft_model, 'unknown')
+    ORDER BY count DESC, model ASC
+    LIMIT 20
+  `),
+  businessJetSnapshotInsert: db.prepare(`
+    INSERT INTO business_jet_snapshots (
+      sampled_at, sample_slot, cohort_version, source, cohort_size, airborne_count, matched_count, total_feed_count,
+      unusual_score, baseline_mean, baseline_p95, baseline_p99, baseline_samples
+    ) VALUES (
+      @sampled_at, @sample_slot, @cohort_version, @source, @cohort_size, @airborne_count, @matched_count, @total_feed_count,
+      @unusual_score, @baseline_mean, @baseline_p95, @baseline_p99, @baseline_samples
+    )
+  `),
+  businessJetPositionInsert: db.prepare(`
+    INSERT OR REPLACE INTO business_jet_positions (
+      snapshot_id, icao24_hex, callsign, n_number, owner_name, aircraft_mfr, aircraft_model,
+      cohort_tier, owner_class, wealth_weight, lat, lon, altitude_ft, speed_kt, heading,
+      vertical_rate, squawk, category, airborne, raw, sampled_at
+    ) VALUES (
+      @snapshot_id, @icao24_hex, @callsign, @n_number, @owner_name, @aircraft_mfr, @aircraft_model,
+      @cohort_tier, @owner_class, @wealth_weight, @lat, @lon, @altitude_ft, @speed_kt, @heading,
+      @vertical_rate, @squawk, @category, @airborne, @raw, @sampled_at
+    )
+  `),
+  businessJetCohortTouchSeen: db.prepare(`
+    UPDATE business_jet_cohort
+    SET last_seen_at = @sampled_at, last_seen_source = @source
+    WHERE icao24_hex = @icao24_hex
+  `),
+  businessJetLatestSnapshot: db.prepare(`
+    SELECT * FROM business_jet_snapshots
+    WHERE cohort_version = ?
+    ORDER BY sampled_at DESC, id DESC LIMIT 1
+  `),
+  businessJetSnapshotBySlot: db.prepare(`
+    SELECT * FROM business_jet_snapshots
+    WHERE sample_slot = ? AND cohort_version = ?
+    LIMIT 1
+  `),
+  businessJetLatestPositions: db.prepare(`
+    SELECT * FROM business_jet_positions
+    WHERE snapshot_id = ?
+    ORDER BY altitude_ft DESC NULLS LAST, icao24_hex
+  `),
+  businessJetSnapshotHistory: db.prepare(`
+    SELECT sampled_at, airborne_count, matched_count, unusual_score, baseline_mean, baseline_p95, baseline_p99
+    FROM business_jet_snapshots
+    WHERE sampled_at > datetime('now', '-' || @hours || ' hours')
+      AND cohort_version = @cohortVersion
+    ORDER BY sampled_at ASC
+  `),
+  businessJetBaselineWindow: db.prepare(`
+    SELECT airborne_count
+    FROM business_jet_snapshots
+    WHERE sampled_at >= @since
+      AND sampled_at < @before
+      AND cohort_version = @cohortVersion
+      AND CAST(strftime('%w', sampled_at) AS INTEGER) = @dow
+      AND ABS(CAST(strftime('%H', sampled_at) AS INTEGER) * 60 + CAST(strftime('%M', sampled_at) AS INTEGER) - @minuteOfDay) <= @windowMinutes
+  `),
+
   // ── Ingest state (v5.7) ───────────────────────────────────────────────────
   ingestStateGet: db.prepare(`SELECT * FROM ingest_state WHERE source = ?`),
   ingestStateSet: db.prepare(`
@@ -2311,6 +2840,432 @@ function getFaaRegistryCount() {
 function getFaaRegistryMostRecent() {
   const r = _stmts.faaRegistryMostRecent.get()
   return r && r.t ? r.t : null
+}
+
+function upsertFaaAircraftRefBulk(rows) {
+  if (!rows || !rows.length) return { total: 0, changed: 0, unchanged: 0 }
+  let changed = 0, unchanged = 0
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      const result = _stmts.faaAircraftRefUpsert.run({
+        code: r.code,
+        mfr: r.mfr || null,
+        model: r.model || null,
+        type_aircraft: r.type_aircraft ?? null,
+        type_engine: r.type_engine ?? null,
+        aircraft_category: r.aircraft_category ?? null,
+        builder_certification: r.builder_certification ?? null,
+        number_engines: r.number_engines ?? null,
+        number_seats: r.number_seats ?? null,
+        aircraft_weight: r.aircraft_weight || null,
+        speed: r.speed ?? null,
+      })
+      if (result.changes > 0) changed++
+      else unchanged++
+    }
+  })
+  tx()
+  return { total: rows.length, changed, unchanged }
+}
+
+function getFaaAircraftRefCount() {
+  return _stmts.faaAircraftRefCount.get().c
+}
+
+function rebuildBusinessJetCohort({ maxSeats = 32 } = {}) {
+  const tx = db.transaction(() => {
+    const inserted = _stmts.businessJetCohortReplace.run({ maxSeats }).changes
+    const pruned = _stmts.businessJetCohortPrune.run({ maxSeats }).changes
+    const count = _stmts.businessJetCohortCount.get().c
+    return { inserted, pruned, count, maxSeats }
+  })
+  const result = tx()
+  setIngestState(BUSINESS_JET_COHORT_SOURCE, {
+    success: 1,
+    metadata: JSON.stringify({
+      version: BUSINESS_JET_COHORT_VERSION,
+      ruleVersion: BUSINESS_JET_COHORT_RULE_VERSION,
+      maxSeats,
+      count: result.count,
+    }),
+  })
+  return { ...result, version: BUSINESS_JET_COHORT_VERSION }
+}
+
+function getBusinessJetCohortHealth() {
+  const row = _stmts.businessJetCohortHealth.get() || {}
+  let stateVersion = null
+  try {
+    const state = getIngestState(BUSINESS_JET_COHORT_SOURCE)
+    stateVersion = state?.metadata ? JSON.parse(state.metadata)?.version || null : null
+  } catch (_) {}
+  return {
+    count: Number(row.count || 0),
+    unclassified: Number(row.unclassified || 0),
+    missingReason: Number(row.missing_reason || 0),
+    nonUltra: Number(row.non_ultra || 0),
+    nonPrivate: Number(row.non_private || 0),
+    unknownOwner: Number(row.unknown_owner || 0),
+    nonStrictModel: Number(row.non_strict_model || 0),
+    tierCount: Number(row.tier_count || 0),
+    version: stateVersion,
+    expectedVersion: BUSINESS_JET_COHORT_VERSION,
+  }
+}
+
+function safeParseJson(value) {
+  if (!value) return null
+  try { return JSON.parse(value) } catch (_) { return null }
+}
+
+function getBusinessJetCohortAudit() {
+  const faaState = getIngestState('faa_registry')
+  const cohortState = getIngestState(BUSINESS_JET_COHORT_SOURCE)
+  const health = getBusinessJetCohortHealth()
+  const integrity = db.prepare(`
+    SELECT
+      COUNT(*) AS count,
+      COUNT(DISTINCT icao24_hex) AS distinct_hex,
+      COUNT(DISTINCT n_number) AS distinct_n_numbers,
+      SUM(CASE WHEN icao24_hex IS NULL OR length(icao24_hex) != 6 OR icao24_hex GLOB '*[^0-9a-f]*' THEN 1 ELSE 0 END) AS invalid_hex,
+      SUM(CASE WHEN owner_name IS NULL OR TRIM(owner_name) = '' THEN 1 ELSE 0 END) AS unknown_owner_included,
+      SUM(CASE WHEN owner_class != 'private_corp' THEN 1 ELSE 0 END) AS non_private_included,
+      SUM(CASE WHEN cohort_tier != 'ultra_long_range' THEN 1 ELSE 0 END) AS non_ultra_included,
+      SUM(CASE WHEN aircraft_model GLOB '*G400*' OR aircraft_model GLOB '*G500*' THEN 1 ELSE 0 END) AS non_strict_model_included
+    FROM business_jet_cohort
+  `).get() || {}
+  const exclusions = db.prepare(`
+    WITH candidate AS (
+      SELECT
+        r.icao24_hex,
+        r.owner_name,
+        r.type_registrant,
+        ref.mfr,
+        ref.model,
+        upper(COALESCE(ref.mfr, '')) AS mfr_upper,
+        upper(COALESCE(ref.model, '')) AS model_upper,
+        upper(COALESCE(r.owner_name, '')) AS owner_upper
+      FROM faa_registry r
+      JOIN faa_aircraft_ref ref ON ref.code = r.aircraft_mfr_code
+      WHERE r.icao24_hex IS NOT NULL
+        AND length(r.icao24_hex) = 6
+        AND r.status_code = 'V'
+        AND ref.type_aircraft = 5
+        AND ref.type_engine = 5
+        AND COALESCE(ref.number_engines, 0) BETWEEN 1 AND 4
+        AND COALESCE(ref.number_seats, 0) BETWEEN 8 AND 32
+        AND (
+          upper(COALESCE(ref.mfr, '')) GLOB '*GULFSTREAM*'
+          OR upper(COALESCE(ref.model, '')) GLOB '*GULFSTREAM*'
+          OR upper(COALESCE(ref.model, '')) GLOB 'G-*'
+          OR upper(COALESCE(ref.model, '')) GLOB 'GV*'
+          OR upper(COALESCE(ref.mfr, '')) GLOB '*DASSAULT*'
+          OR upper(COALESCE(ref.mfr, '')) GLOB '*FALCON*'
+          OR upper(COALESCE(ref.model, '')) GLOB '*FALCON*'
+          OR upper(COALESCE(ref.model, '')) GLOB 'BD-700*'
+          OR upper(COALESCE(ref.model, '')) GLOB '*GLOBAL*'
+        )
+    ),
+    classified AS (
+      SELECT
+        *,
+        CASE
+          WHEN owner_upper = '' THEN 'unknown_owner'
+          WHEN type_registrant = 5
+            OR owner_upper GLOB '*STATE OF*'
+            OR owner_upper GLOB '*CITY OF*'
+            OR owner_upper GLOB '*COUNTY*'
+            OR owner_upper GLOB '*DEPARTMENT OF*'
+            OR owner_upper GLOB '*POLICE*'
+            OR owner_upper GLOB '*GOVERNMENT*'
+            THEN 'government'
+          WHEN owner_upper GLOB '*AIR AMBULANCE*'
+            OR owner_upper GLOB '*MEDEVAC*'
+            OR owner_upper GLOB '*MEDICAL*'
+            OR owner_upper GLOB '*HOSPITAL*'
+            THEN 'medical'
+          WHEN owner_upper GLOB '*NETJETS*'
+            OR owner_upper GLOB '*EXECUTIVE JET*'
+            OR owner_upper GLOB '*FLEXJET*'
+            OR owner_upper GLOB '*FLIGHT OPTIONS*'
+            OR owner_upper GLOB '*WHEELS UP*'
+            OR owner_upper GLOB '*XOJET*'
+            OR owner_upper GLOB '*VISTA*'
+            OR owner_upper GLOB '*AIRSHARE*'
+            OR owner_upper GLOB '*JET LINX*'
+            OR owner_upper GLOB '*SOLAIRUS*'
+            OR owner_upper GLOB '*CLAY LACY*'
+            OR owner_upper GLOB '*CHARTER*'
+            OR owner_upper GLOB '*EXECUTIVE AIRSHARE*'
+            OR owner_upper GLOB '*PRIVATE JET SERVICES*'
+            OR owner_upper GLOB '*JET AVIATION*'
+            OR owner_upper GLOB '*JET EDGE*'
+            OR owner_upper GLOB '*JETSELECT*'
+            OR owner_upper GLOB '*MAGELLAN JETS*'
+            OR owner_upper GLOB '*PLANESENSE*'
+            THEN 'wealth_service'
+          WHEN owner_upper GLOB '*TRUST*'
+            OR owner_upper GLOB '*TRUSTEE*'
+            OR owner_upper GLOB '*BANK OF UTAH*'
+            OR owner_upper GLOB '*WILMINGTON TRUST*'
+            OR owner_upper GLOB '*TVPX*'
+            THEN 'trust'
+          ELSE 'private_corp'
+        END AS owner_class,
+        CASE
+          WHEN model_upper GLOB '*G650*'
+            OR model_upper GLOB '*G700*'
+            OR model_upper GLOB '*G800*'
+            OR model_upper GLOB '*G600*'
+            OR model_upper GLOB '*G550*'
+            OR model_upper GLOB '*GVIII-G700*'
+            OR model_upper GLOB '*GVIII-G800*'
+            OR model_upper GLOB 'BD-700*'
+            OR model_upper GLOB '*GLOBAL*'
+            OR model_upper GLOB '*FALCON 7X*'
+            OR model_upper GLOB '*FALCON 8X*'
+            OR model_upper GLOB '*FALCON 6X*'
+            OR model_upper GLOB '*FALCON 10X*'
+            THEN 1 ELSE 0
+        END AS is_strict_ultra,
+        CASE
+          WHEN model_upper GLOB '*G400*' OR model_upper GLOB '*G500*' THEN 1 ELSE 0
+        END AS is_borderline_model,
+        CASE
+          WHEN owner_upper GLOB '*AIRLINES*'
+            OR owner_upper GLOB '*AIRWAYS*'
+            OR owner_upper GLOB '*CARGO*'
+            OR owner_upper GLOB '*FREIGHT*'
+            THEN 1 ELSE 0
+        END AS is_airline_cargo
+      FROM candidate
+      WHERE model_upper NOT GLOB 'DHC-*'
+        AND model_upper NOT GLOB 'ERJ-*'
+        AND model_upper NOT GLOB 'EMB-1*'
+        AND model_upper NOT GLOB '*CRJ*'
+        AND model_upper NOT GLOB 'CL-600-2B19*'
+        AND model_upper NOT GLOB 'CL-600-2C10*'
+        AND model_upper NOT GLOB 'CL-600-2D*'
+        AND model_upper NOT GLOB '*AIRLINER*'
+    )
+    SELECT
+      COUNT(*) AS candidate_family_count,
+      SUM(CASE WHEN owner_class = 'unknown_owner' THEN 1 ELSE 0 END) AS unknown_owner_excluded,
+      SUM(CASE WHEN owner_class IN ('government', 'medical', 'wealth_service', 'trust') THEN 1 ELSE 0 END) AS owner_class_excluded,
+      SUM(CASE WHEN is_borderline_model = 1 THEN 1 ELSE 0 END) AS borderline_model_excluded,
+      SUM(CASE WHEN is_strict_ultra = 0 THEN 1 ELSE 0 END) AS non_strict_ultra_excluded,
+      SUM(CASE WHEN is_airline_cargo = 1 THEN 1 ELSE 0 END) AS airline_cargo_excluded
+    FROM classified
+  `).get() || {}
+  return {
+    ruleVersion: BUSINESS_JET_COHORT_RULE_VERSION,
+    cohortVersion: BUSINESS_JET_COHORT_VERSION,
+    source: 'faa_registry+faa_aircraft_ref',
+    faaRegistry: {
+      lastHash: faaState?.last_hash || null,
+      lastIngestAt: faaState?.last_ingest_at || null,
+      success: !!faaState?.success,
+    },
+    cohortIngest: {
+      lastIngestAt: cohortState?.last_ingest_at || null,
+      success: !!cohortState?.success,
+      metadata: safeParseJson(cohortState?.metadata),
+    },
+    integrity: {
+      count: Number(integrity.count || 0),
+      distinctHex: Number(integrity.distinct_hex || 0),
+      distinctNNumbers: Number(integrity.distinct_n_numbers || 0),
+      invalidHex: Number(integrity.invalid_hex || 0),
+      unknownOwnerIncluded: Number(integrity.unknown_owner_included || 0),
+      nonPrivateIncluded: Number(integrity.non_private_included || 0),
+      nonUltraIncluded: Number(integrity.non_ultra_included || 0),
+      nonStrictModelIncluded: Number(integrity.non_strict_model_included || 0),
+    },
+    exclusions: {
+      candidateFamilyCount: Number(exclusions.candidate_family_count || 0),
+      unknownOwnerExcluded: Number(exclusions.unknown_owner_excluded || 0),
+      ownerClassExcluded: Number(exclusions.owner_class_excluded || 0),
+      borderlineModelExcluded: Number(exclusions.borderline_model_excluded || 0),
+      nonStrictUltraExcluded: Number(exclusions.non_strict_ultra_excluded || 0),
+      airlineCargoExcluded: Number(exclusions.airline_cargo_excluded || 0),
+    },
+    topModels: _stmts.businessJetCohortModelBreakdown.all(),
+    health,
+  }
+}
+
+function ensureBusinessJetCohortCurrent({ maxSeats = 32 } = {}) {
+  const refs = getFaaAircraftRefCount()
+  if (refs === 0) {
+    return { rebuilt: false, reason: 'faa-aircraft-ref-empty', refs, health: getBusinessJetCohortHealth() }
+  }
+  const health = getBusinessJetCohortHealth()
+  const reasons = []
+  if (health.count === 0) reasons.push('empty')
+  if (health.version !== BUSINESS_JET_COHORT_VERSION) reasons.push('version')
+  if (health.unclassified > 0) reasons.push('unclassified')
+  if (health.missingReason > 0) reasons.push('missing-reason')
+  if (health.nonUltra > 0) reasons.push('non-ultra')
+  if (health.nonPrivate > 0) reasons.push('non-private')
+  if (health.unknownOwner > 0) reasons.push('unknown-owner')
+  if (health.nonStrictModel > 0) reasons.push('non-strict-model')
+  if (health.count > 8000) reasons.push('broad-count')
+  if (!reasons.length) return { rebuilt: false, reason: 'current', refs, health }
+  const result = rebuildBusinessJetCohort({ maxSeats })
+  return { rebuilt: true, reason: reasons.join(','), refs, before: health, result }
+}
+
+function getBusinessJetCohort() {
+  return _stmts.businessJetCohortAll.all()
+}
+
+function getBusinessJetCohortByHex(hexes) {
+  if (!hexes || !hexes.length) return {}
+  const normed = [...new Set(hexes.map(h => String(h).toLowerCase()).filter(Boolean))]
+  if (!normed.length) return {}
+  const rows = _stmts.businessJetCohortByHex.all(JSON.stringify(normed))
+  const map = {}
+  for (const r of rows) map[r.icao24_hex] = r
+  return map
+}
+
+function getBusinessJetBaseline({ sampledAt = new Date(), days = 365, windowMinutes = 45 } = {}) {
+  const dt = sampledAt instanceof Date ? sampledAt : new Date(sampledAt)
+  const dow = dt.getUTCDay()
+  const minuteOfDay = dt.getUTCHours() * 60 + dt.getUTCMinutes()
+  const since = new Date(dt.getTime() - days * 86400_000).toISOString()
+  const before = dt.toISOString()
+  const rows = _stmts.businessJetBaselineWindow.all({
+    since,
+    before,
+    dow,
+    minuteOfDay,
+    windowMinutes,
+    cohortVersion: BUSINESS_JET_COHORT_VERSION,
+  })
+  const values = rows.map(r => r.airborne_count).filter(n => Number.isFinite(n)).sort((a, b) => a - b)
+  if (values.length === 0) {
+    return { samples: 0, mean: null, p95: null, p99: null, max: null, days, windowMinutes }
+  }
+  const pct = (p) => values[Math.min(values.length - 1, Math.max(0, Math.ceil(values.length * p) - 1))]
+  const mean = values.reduce((sum, n) => sum + n, 0) / values.length
+  return {
+    samples: values.length,
+    mean: Math.round(mean * 10) / 10,
+    median: pct(0.5),
+    p90: pct(0.9),
+    p95: pct(0.95),
+    p99: pct(0.99),
+    max: values[values.length - 1],
+    days,
+    windowMinutes,
+  }
+}
+
+function getBusinessJetBaselineCurve({ sampledAt = new Date(), days = 365, windowMinutes = 45, hours = 48, stepMinutes = 30 } = {}) {
+  const end = sampledAt instanceof Date ? sampledAt : new Date(sampledAt)
+  const stepMs = Math.max(5, Number(stepMinutes) || 30) * 60_000
+  const start = new Date(end.getTime() - Math.max(1, Number(hours) || 48) * 3600_000)
+  const points = []
+  for (let t = start.getTime(); t <= end.getTime(); t += stepMs) {
+    const dt = new Date(t)
+    points.push({
+      sampled_at: dt.toISOString(),
+      ...getBusinessJetBaseline({ sampledAt: dt, days, windowMinutes }),
+    })
+  }
+  return points
+}
+
+function getBusinessJetSampleSlot(sampledAt = new Date(), intervalMinutes = 30) {
+  const dt = sampledAt instanceof Date ? sampledAt : new Date(sampledAt)
+  if (!Number.isFinite(dt.getTime())) throw new Error('valid sampledAt is required')
+  const intervalMs = Math.max(1, Number(intervalMinutes) || 30) * 60_000
+  return new Date(Math.floor(dt.getTime() / intervalMs) * intervalMs).toISOString()
+}
+
+function recordBusinessJetSnapshot({ sampledAt = new Date(), source, cohortSize, totalFeedCount, positions, baseline, unusualScore }) {
+  const sampled_at = sampledAt instanceof Date ? sampledAt.toISOString() : sampledAt
+  const sample_slot = getBusinessJetSampleSlot(sampledAt, 30)
+  const rows = Array.isArray(positions) ? positions : []
+  const airborne = rows.filter(r => r.airborne !== false).length
+  const tx = db.transaction(() => {
+    const existing = _stmts.businessJetSnapshotBySlot.get(sample_slot, BUSINESS_JET_COHORT_VERSION)
+    if (existing) {
+      return {
+        snapshotId: existing.id,
+        sampled_at: existing.sampled_at,
+        sample_slot,
+        airborne: existing.airborne_count,
+        matched: existing.matched_count,
+        skipped: true,
+        reason: 'sample slot already recorded',
+      }
+    }
+    const snap = _stmts.businessJetSnapshotInsert.run({
+      sampled_at,
+      sample_slot,
+      cohort_version: BUSINESS_JET_COHORT_VERSION,
+      source: source || 'unknown',
+      cohort_size: cohortSize || 0,
+      airborne_count: airborne,
+      matched_count: rows.length,
+      total_feed_count: totalFeedCount || 0,
+      unusual_score: unusualScore ?? null,
+      baseline_mean: baseline?.mean ?? null,
+      baseline_p95: baseline?.p95 ?? null,
+      baseline_p99: baseline?.p99 ?? null,
+      baseline_samples: baseline?.samples || 0,
+    })
+    const snapshotId = Number(snap.lastInsertRowid)
+    for (const p of rows) {
+      _stmts.businessJetPositionInsert.run({
+        snapshot_id: snapshotId,
+        icao24_hex: p.icao24_hex,
+        callsign: p.callsign || null,
+        n_number: p.n_number || null,
+        owner_name: p.owner_name || null,
+        aircraft_mfr: p.aircraft_mfr || null,
+        aircraft_model: p.aircraft_model || null,
+        cohort_tier: p.cohort_tier || null,
+        owner_class: p.owner_class || null,
+        wealth_weight: p.wealth_weight ?? 1.0,
+        lat: p.lat ?? null,
+        lon: p.lon ?? null,
+        altitude_ft: p.altitude_ft ?? null,
+        speed_kt: p.speed_kt ?? null,
+        heading: p.heading ?? null,
+        vertical_rate: p.vertical_rate ?? null,
+        squawk: p.squawk || null,
+        category: p.category || null,
+        airborne: p.airborne === false ? 0 : 1,
+        raw: p.raw ? JSON.stringify(p.raw).slice(0, 4000) : null,
+        sampled_at,
+      })
+      _stmts.businessJetCohortTouchSeen.run({
+        icao24_hex: p.icao24_hex,
+        sampled_at,
+        source: source || 'unknown',
+      })
+    }
+    return { snapshotId, sampled_at, sample_slot, airborne, matched: rows.length, skipped: false }
+  })
+  return tx()
+}
+
+function getBusinessJetLatest({ historyHours = 48 } = {}) {
+  const snapshot = _stmts.businessJetLatestSnapshot.get(BUSINESS_JET_COHORT_VERSION) || null
+  const positions = snapshot ? _stmts.businessJetLatestPositions.all(snapshot.id) : []
+  const history = _stmts.businessJetSnapshotHistory.all({
+    hours: historyHours,
+    cohortVersion: BUSINESS_JET_COHORT_VERSION,
+  })
+  const cohortSize = _stmts.businessJetCohortCount.get().c
+  const cohortBreakdown = {
+    tiers: _stmts.businessJetCohortTierBreakdown.all(),
+    owners: _stmts.businessJetCohortOwnerBreakdown.all(),
+  }
+  return { snapshot, positions, history, cohortSize, cohortBreakdown }
 }
 
 // ── Ingest state (v5.7) ─────────────────────────────────────────────────────
@@ -4068,6 +5023,20 @@ module.exports = {
   upsertFaaRegistryBulk,
   getFaaRegistryCount,
   getFaaRegistryMostRecent,
+  upsertFaaAircraftRefBulk,
+  getFaaAircraftRefCount,
+  rebuildBusinessJetCohort,
+  getBusinessJetCohortHealth,
+  getBusinessJetCohortAudit,
+  ensureBusinessJetCohortCurrent,
+  BUSINESS_JET_COHORT_VERSION,
+  getBusinessJetCohort,
+  getBusinessJetCohortByHex,
+  getBusinessJetBaseline,
+  getBusinessJetBaselineCurve,
+  getBusinessJetSampleSlot,
+  recordBusinessJetSnapshot,
+  getBusinessJetLatest,
   // v5.7 — generic per-source ingest bookkeeping (hash-skip etc.)
   getIngestState,
   setIngestState,
