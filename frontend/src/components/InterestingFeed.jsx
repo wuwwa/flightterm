@@ -104,7 +104,7 @@ export default function InterestingFeed({ selectedIcao, onSelect, flights, backe
     <div className="border-b border-border bg-bg1 shrink-0">
       {/* Header strip */}
       <div className="flex items-center gap-2 px-2.5 py-1 bg-bg2/60 border-b border-border">
-        <span className="text-acc text-[10px] uppercase tracking-wide">Now Showing</span>
+        <span className="ft-chip ft-chip--accent">now showing</span>
         <span className="text-fg3 text-[9px] tabular-nums">
           {data ? `${data.ranked} ranked · ${data.candidatePool} candidates · ${data.totalFlights} total` : 'loading…'}
         </span>

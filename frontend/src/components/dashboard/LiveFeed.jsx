@@ -90,7 +90,7 @@ export default function LiveFeed({ backendOk }) {
     <div className="bg-bg1 h-full min-h-0 flex flex-col border-l-2 border-l-acc/40">
       {/* Header */}
       <div className="py-0.5 px-2 text-[9px] bg-bg2 border-b border-border flex justify-between items-center shrink-0">
-        <span className="text-acc font-bold text-[10px]">live feed</span>
+        <span className="ft-chip ft-chip--accent">live feed</span>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setPaused(p => !p)}

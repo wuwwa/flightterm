@@ -22,7 +22,7 @@ export default function TfmsPanel({ backendOk }) {
       {/* Header */}
       <div className="bg-bg2 border-b border-border py-1 px-3 flex items-center gap-2">
         <div className="flex items-center gap-2 cursor-pointer select-none" onClick={() => setCollapsed(c => !c)}>
-          <span className="text-cyn text-[9px] tracking-wider uppercase font-bold">airport ops</span>
+          <span className="ft-chip ft-chip--cyan">airport ops</span>
           <span className="text-fg3 text-[9px]">{collapsed ? '▸' : '▾'}</span>
         </div>
 
@@ -51,7 +51,7 @@ export default function TfmsPanel({ backendOk }) {
       </div>
 
       {!collapsed && (
-        <div className="bg-bg1 h-[360px] overflow-hidden">
+        <div className="bg-bg1 h-[420px] sm:h-[360px] overflow-y-auto sm:overflow-hidden">
           <AirportBoard backendOk={backendOk} airport={selectedAirport} onAirportChange={setSelectedAirport} />
         </div>
       )}

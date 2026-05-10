@@ -50,7 +50,7 @@ export default function ItwsPanel({ backendOk }) {
   return (
     <div className="bg-bg1 h-full min-h-0 flex flex-col">
       <div className="py-0.5 px-2 text-[9px] text-fg3 bg-bg2 border-b border-border flex justify-between shrink-0">
-        <span className="text-fg2 font-bold text-[10px]">terminal weather</span>
+        <span className="ft-chip ft-chip--yellow">terminal weather</span>
         <span>{stats?.sites || 0} sites · {activeGroups.length} hazard{activeGroups.length === 1 ? '' : 's'}</span>
       </div>
 

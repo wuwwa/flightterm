@@ -77,7 +77,7 @@ export default function LogPanel({ entries }) {
         onClick={() => setCollapsed(false)}
         title="click to expand log"
       >
-        <span className="text-fg3/60 text-[8px] uppercase tracking-wide shrink-0">log</span>
+        <span className="ft-chip ft-chip--muted">log</span>
         {errCount > 0 && (
           <span className="bg-red/15 text-red text-[8px] font-bold uppercase px-1 py-px rounded border border-red/30 shrink-0">
             {errCount} err
@@ -110,7 +110,7 @@ export default function LogPanel({ entries }) {
         className="bg-bg border-b border-border py-0.5 px-2.5 flex items-center gap-2 text-[10px] cursor-pointer hover:bg-bg1 transition-colors"
         onClick={() => setCollapsed(true)}
       >
-        <span className="text-fg3">log</span>
+        <span className="ft-chip ft-chip--muted">log</span>
         <span className="text-fg3">{entries.length} messages</span>
         {errCount > 0 && <span className="text-red">{errCount} err</span>}
         {warnCount > 0 && <span className="text-ylw">{warnCount} warn</span>}

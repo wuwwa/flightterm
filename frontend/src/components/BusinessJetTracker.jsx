@@ -17,16 +17,16 @@ function fmtAge(iso) {
 }
 
 const LEVELS = [
-  { n: 1, label: 'Routine', tone: 'text-grn', border: 'border-grn/50', bg: 'bg-grn/12', bar: '#b5bd68' },
+  { n: 1, label: 'Quiet', tone: 'text-grn', border: 'border-grn/50', bg: 'bg-grn/12', bar: '#b5bd68' },
   { n: 2, label: 'Watch', tone: 'text-cyn', border: 'border-cyn/50', bg: 'bg-cyn/12', bar: '#8abeb7' },
   { n: 3, label: 'Elevated', tone: 'text-ylw', border: 'border-ylw/55', bg: 'bg-ylw/12', bar: '#f0c674' },
   { n: 4, label: 'High', tone: 'text-[#de935f]', border: 'border-[#de935f]/60', bg: 'bg-[#de935f]/12', bar: '#de935f' },
-  { n: 5, label: 'Extreme', tone: 'text-red', border: 'border-red/70', bg: 'bg-red/15', bar: '#cc6666' },
+  { n: 5, label: 'Redline', tone: 'text-red', border: 'border-red/70', bg: 'bg-red/15', bar: '#cc6666' },
 ]
 
 function levelFromScore(score, baselineSamples) {
   if (score == null || baselineSamples < 30) {
-    return { ...LEVELS[0], calibrated: false, marker: 0.08, reason: 'calibration warming up' }
+    return { ...LEVELS[0], calibrated: false, marker: 0.08, reason: 'quiet / not enough history yet' }
   }
   if (score >= 1) return { ...LEVELS[4], calibrated: true, marker: 1, reason: 'record breach' }
   if (score >= 0.75) return { ...LEVELS[3], calibrated: true, marker: score, reason: 'above p95/p99 band' }
@@ -41,19 +41,15 @@ function confidence(samples = 0) {
   return { label: 'low', tone: 'text-fg3' }
 }
 
-function prettyKey(value) {
-  return String(value || 'unknown').replaceAll('_', ' ')
-}
-
 function AutoFit({ points }) {
   const map = useMap()
   useEffect(() => {
     if (!points.length) return
     if (points.length === 1) {
-      map.setView([points[0].lat, points[0].lon], 5)
+      map.setView([points[0].lat, points[0].lon], 3)
       return
     }
-    map.fitBounds(points.map(p => [p.lat, p.lon]), { padding: [28, 28], maxZoom: 6 })
+    map.fitBounds(points.map(p => [p.lat, p.lon]), { padding: [28, 28], maxZoom: 4 })
   }, [map, points])
   return null
 }
@@ -160,7 +156,7 @@ function TrendChart({ history, baselineCurve, current, mean, p99, height = 96 })
   return (
     <div className="bg-bg/60 border border-border p-1.5 min-w-0">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[8px] text-fg3 uppercase">same-time history</span>
+        <span className="text-[8px] text-fg3 uppercase">history at this hour</span>
         <span className="text-[8px] text-fg3 tabular-nums">
           {historicalSamples >= 10 ? `${historicalSamples} samples` : 'warming up'}
         </span>
@@ -235,6 +231,8 @@ export default function BusinessJetTracker({ backendOk }) {
   const windowMinutes = Number(baseline.windowMinutes) || 45
   const comparisonWindow = `${windowMinutes * 2}-minute`
   const comparisonPhrase = `same weekday, +/-${windowMinutes} min`
+  const sampleWindowMinutes = 30
+  const signalQuestion = `How many private jets were airborne in the latest ${sampleWindowMinutes}-minute sample?`
 
   useEffect(() => {
     if (!positions.length || !snapshot?.sampledAt) return
@@ -259,7 +257,7 @@ export default function BusinessJetTracker({ backendOk }) {
   }, [positions, snapshot?.sampledAt])
 
   return (
-    <section className={clsx('bg-bg1 border-y-2', level.border)}>
+    <section className={clsx('bg-bg1 border-y', level.border)}>
       <div
         className="px-2.5 py-1 bg-bg2 border-b border-border flex flex-wrap lg:flex-nowrap items-center gap-x-2 gap-y-1 cursor-pointer hover:bg-bg2/80"
         role="button"
@@ -271,18 +269,18 @@ export default function BusinessJetTracker({ backendOk }) {
             setDetailsOpen(v => !v)
           }
         }}
-        title={detailsOpen ? 'collapse early warning details' : 'expand early warning details'}
+        title={detailsOpen ? 'collapse doomsday signal details' : 'expand doomsday signal details'}
       >
         <div className="flex items-baseline gap-2 min-w-0 mr-1">
-          <span className="text-red text-[11px] uppercase tracking-wide">Early Warning</span>
-          <span className="hidden sm:inline text-fg2 text-[10px]">strict private ultra jets</span>
+          <span className="ft-chip ft-chip--red">doomsday signal</span>
+          <span className="hidden md:inline text-fg2 text-[10px] truncate">{signalQuestion}</span>
           {error && <span className="text-red text-[9px] truncate max-w-[240px]">{error}</span>}
           {data?.lastError && <span className="text-ylw text-[9px] truncate max-w-[260px]">{data.lastError}</span>}
         </div>
 
-        <div className={clsx('flex items-center gap-1.5 px-1.5 py-0.5 border rounded-sm shrink-0', level.border, level.bg)}>
-          <span className={clsx('text-[9px] uppercase tracking-wide', level.tone)}>L{level.n}</span>
-          <span className={clsx('text-[12px] leading-none uppercase', level.tone)}>{level.calibrated ? level.label : 'Provisional'}</span>
+        <div className={clsx('flex items-baseline gap-1.5 px-1.5 py-0.5 border shrink-0', level.border, level.bg)}>
+          <span className={clsx('text-[9px] tracking-wide', level.tone)}>level {level.n}</span>
+          <span className={clsx('text-[12px] leading-none font-semibold', level.tone)}>{level.label}</span>
         </div>
 
         <div className="flex items-baseline gap-1 text-[10px] shrink-0">
@@ -290,6 +288,7 @@ export default function BusinessJetTracker({ backendOk }) {
           <span className="text-fg3">airborne</span>
           <span className="text-fg3">/</span>
           <span className="text-fg3 tabular-nums">{cohortSize ? cohortSize.toLocaleString() : '...'}</span>
+          <span className="text-fg3 hidden sm:inline">watched</span>
         </div>
 
         <div className="flex-1" />
@@ -298,6 +297,9 @@ export default function BusinessJetTracker({ backendOk }) {
         </span>
         <span className="hidden lg:inline text-[9px] text-fg3">
           {calibration.label || 'calibration'} <span className={conf.tone}>{conf.label}</span>
+        </span>
+        <span className="md:hidden basis-full text-[9px] text-fg2 leading-snug">
+          {signalQuestion}
         </span>
         <span className="text-[9px] text-fg3 tabular-nums">
           {snapshot ? `sample ${fmtAge(snapshot.sampledAt)}` : 'no sample yet'}
@@ -308,21 +310,46 @@ export default function BusinessJetTracker({ backendOk }) {
       </div>
 
       {detailsOpen && (
-        <div className="early-warning-details grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)_270px] lg:h-[260px] gap-px bg-border">
+        <div className="early-warning-details grid grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)] lg:h-[300px] gap-px bg-border">
           <div className="bg-bg1 p-2 flex flex-col gap-2 min-h-0 overflow-y-auto">
-            <div className="flex items-end gap-2">
-              <div>
-                <div className="text-[8px] text-fg3 uppercase mb-0.5">level basis</div>
-                <span className={clsx('text-[34px] leading-none tabular-nums', level.tone)}>{level.n}</span>
+            <div className="border border-border bg-bg/50 px-2 py-1.5">
+              <div className="ft-chip ft-chip--accent">doomsday signal</div>
+              <div className="text-[10px] text-fg2 leading-snug mt-1">
+                This tracker asks one question: how many private jets were airborne in the latest 30-minute sample, and is that unusual for this time?
               </div>
-              <span className="text-[9px] text-fg3 mb-1">of 5 · {level.calibrated ? level.label : 'provisional'}</span>
+              <div className="text-[8px] text-fg3 leading-snug mt-1">
+                If private movement starts breaking its usual rhythm before the public picture changes, this is where it should show up.
+              </div>
             </div>
 
-            <div>
+            <TrendChart
+              history={data?.history || []}
+              baselineCurve={data?.baselineCurve || []}
+              current={airborne}
+              mean={baseline.mean}
+              p99={baseline.p99}
+              height={104}
+            />
+
+            <div className="border border-border bg-bg/50 p-2">
+              <div className="flex items-end gap-2 mb-1.5">
+                <div>
+                  <div className="text-[8px] text-fg3 uppercase mb-0.5">level basis</div>
+                  <span className={clsx('text-[34px] leading-none tabular-nums', level.tone)}>{level.n}</span>
+                </div>
+                <div className="mb-1 min-w-0">
+                  <div className={clsx('text-[10px] uppercase leading-none', level.tone)}>{level.label}</div>
+                  <div className="text-[8px] text-fg3 mt-0.5 leading-snug">
+                    {level.n === 1
+                      ? 'Level 1 means private-jet movement is quiet: nothing in this sample is pushing above its usual band.'
+                      : level.reason}
+                  </div>
+                </div>
+              </div>
               <div className="flex justify-between text-[9px] mb-1">
-                <span className="text-grn">level 1</span>
+                <span className="text-grn">1 quiet</span>
                 <span className={level.tone}>{level.reason}</span>
-                <span className="text-red">level 5</span>
+                <span className="text-red">5 redline</span>
               </div>
               <div className="relative h-3 bg-bg border border-border">
                 <div className="absolute inset-y-0 left-0 bg-grn/25" style={{ width: '35%' }} />
@@ -334,30 +361,33 @@ export default function BusinessJetTracker({ backendOk }) {
                   style={{ left: `${Math.max(0, Math.min(1, level.marker)) * 100}%` }}
                 />
               </div>
+              <div className="grid grid-cols-5 gap-px mt-1 text-[7px] text-center uppercase">
+                {LEVELS.map(l => (
+                  <span key={l.n} className={clsx('border border-border bg-bg/50 py-0.5 normal-case', l.n === level.n ? `${l.tone} border-current` : 'text-fg3')}>
+                    {l.n} {l.label}
+                  </span>
+                ))}
+              </div>
               <div className="mt-1 text-[8px] text-fg3 leading-snug">
-                <span className="text-red">Level 5</span> is the disaster-imminent redline: the current 30-minute snapshot has broken the historical airborne record for this cohort and comparison window: <span className="text-red tabular-nums">{max}</span>.
+                <span className="text-red">Level 5</span> is the redline: the latest 30-minute sample has more private jets airborne than this tracker has seen in the same-time comparison window: <span className="text-red tabular-nums">{max}</span>.
                 {baseline.samples ? ` ${baseline.samples} comparable samples.` : ' History depth is not established yet.'}
               </div>
               <div className="mt-1 border border-red/30 bg-red/5 px-2 py-1 text-[8px] text-fg2 leading-snug">
-                For this tracker, "at a given time" means the same UTC weekday inside a {comparisonWindow} band ({comparisonPhrase}) across the trailing {lookbackDays} days. If this cohort breaks that record, the app treats it as the highest alarm state.
+                Here, "same time" means the same UTC weekday inside a {comparisonWindow} band ({comparisonPhrase}) across the trailing {lookbackDays} days. If today breaks that record, the app treats it as the highest alarm state.
               </div>
+              {!level.calibrated && (
+                <div className="mt-1 border border-ylw/25 bg-ylw/5 px-2 py-1 text-[8px] text-ylw/90 leading-snug">
+                  The tracker still needs more same-time samples before the score is mature. Until then, it stays at Level 1 unless the live count clearly breaks out.
+                </div>
+              )}
               <div className="mt-1 border border-border bg-bg/50 px-2 py-1 text-[8px] text-fg3 leading-snug">
-                Built from FAA registrations. Blank owners, borderline models, and managed/fractional-looking callsigns are filtered out.
+                Built from FAA registrations and live aircraft positions. Obvious managed, fractional, airline, cargo, government, medical, and blank-owner records are filtered out.
               </div>
             </div>
 
-            <TrendChart
-              history={data?.history || []}
-              baselineCurve={data?.baselineCurve || []}
-              current={airborne}
-              mean={baseline.mean}
-              p99={baseline.p99}
-              height={92}
-            />
-
             <div className="grid grid-cols-2 gap-1.5 text-[8px]">
               <div className="border border-border bg-bg/50 p-1.5">
-                <div className="text-fg3 uppercase mb-1">tracked set</div>
+                <div className="text-fg3 uppercase mb-1">watchlist</div>
                 <div className="flex justify-between gap-2">
                   <span className="text-fg3">aircraft</span>
                   <span className="text-fg tabular-nums">{cohortSize ? cohortSize.toLocaleString() : '...'}</span>
@@ -389,7 +419,7 @@ export default function BusinessJetTracker({ backendOk }) {
             </div>
             <div className="border border-border bg-bg/50 p-1.5 text-[8px]">
               <div className="flex justify-between gap-2 mb-1">
-                <span className="text-fg3 uppercase">top models</span>
+                <span className="text-fg3 uppercase">aircraft types</span>
                 <span className="text-fg3 tabular-nums">{audit.ruleVersion || 'strict-v4'}</span>
               </div>
               <div className="grid gap-1">
@@ -404,88 +434,56 @@ export default function BusinessJetTracker({ backendOk }) {
             </div>
           </div>
 
-          <div className="bg-bg1 min-h-[240px] lg:min-h-0 relative">
-            <div className="absolute right-2 top-2 z-[500] max-w-[330px] bg-bg1/90 border border-border px-2 py-1.5 pointer-events-none">
-              <div className="text-[9px] text-acc uppercase">private jet early-warning signal</div>
-              <div className="text-[9px] text-fg2 leading-snug mt-1">
-                This tracker asks one question: how many strict private ultra-long-range jets are airborne right now, and is that unusual for this moment?
-              </div>
-              <div className="text-[8px] text-fg3 leading-snug mt-1">
-                If people with private warning start moving before the news does, this is where we would expect to see it first.
-              </div>
+          <div className="bg-bg1 min-h-[260px] lg:min-h-0 flex flex-col">
+            <div className="px-2 py-1 text-[9px] text-fg3 bg-bg2/60 border-b border-border flex justify-between shrink-0">
+              <span>latest private-jet positions</span>
+              <span className="tabular-nums">{positions.length}</span>
             </div>
-            <MapContainer
-              center={[39, -96]}
-              zoom={4}
-              scrollWheelZoom={false}
-              zoomControl={true}
-              attributionControl={false}
-              style={{ height: '100%', width: '100%', minHeight: 240, background: '#0d0d0d' }}
-            >
-              <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" opacity={0.58} />
-              <AutoFit points={positions} />
-              {positions.map(p => {
-                const trail = trailForPlane(p, trailByIcao)
-                return trail.length > 1 ? (
-                  <Polyline
-                    key={`${p.icao}-trail`}
-                    positions={trail}
-                    pathOptions={{ color: pointColor(p), opacity: 0.42, weight: 2.2, dashArray: '1 7' }}
-                  />
-                ) : null
-              })}
-              {positions.map(p => (
-                <Marker
-                  key={p.icao}
-                  position={[p.lat, p.lon]}
-                  icon={planeIcon(p)}
-                >
-                  <Tooltip direction="top">
-                    <span style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                      <b>{p.callsign || p.registration || p.icao}</b> {p.model || ''}<br />
-                      {p.registration || p.icao} · {prettyKey(p.tier)} · {prettyKey(p.ownerClass)}<br />
-                      {p.owner || 'FAA cohort'}<br />
-                      {p.altitudeFt != null ? `${Math.round(p.altitudeFt).toLocaleString()}ft ` : ''}
-                      {p.speedKt != null ? `${Math.round(p.speedKt)}kt ` : ''}
-                      {p.heading != null ? `HDG ${Math.round(p.heading)}` : ''}
-                    </span>
-                  </Tooltip>
-                </Marker>
-              ))}
-            </MapContainer>
-            {positions.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <span className="bg-bg1/85 border border-border px-3 py-2 text-[10px] text-fg3">
-                  waiting for matched airborne cohort positions
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-bg1 min-h-0">
-            <div className="px-2 py-1 text-[9px] text-fg3 bg-bg2/60 border-b border-border flex justify-between">
-              <span>latest matched aircraft</span>
-              <span>{positions.length}</span>
-            </div>
-            <div className="max-h-[260px] overflow-y-auto">
-              {positions.slice(0, 28).map(p => (
-                <div key={p.icao} className="px-2 py-1.5 border-b border-border text-[10px]">
-                  <div className="flex items-center gap-2">
-                    <span className="text-ylw w-20 truncate">{p.callsign || p.registration || p.icao}</span>
-                    <span className="text-cyn tabular-nums w-16 text-right">{p.altitudeFt != null ? Math.round(p.altitudeFt / 100) : '--'}FL</span>
-                    <span className="text-fg3 tabular-nums w-12 text-right">{p.speedKt != null ? Math.round(p.speedKt) : '--'}kt</span>
-                  </div>
-                  <div className="text-[9px] text-fg2 truncate mt-0.5" title={p.owner || ''}>
-                    {p.owner || 'owner not shown'}
-                  </div>
-                  <div className="text-[8px] text-fg3 truncate mt-0.5">
-                    {p.registration || p.icao} · {p.model || 'unknown model'}
-                  </div>
-                </div>
-              ))}
+            <div className="relative flex-1 min-h-[230px]">
+              <MapContainer
+                center={[39, -96]}
+                zoom={2}
+                scrollWheelZoom={false}
+                zoomControl={true}
+                attributionControl={false}
+                style={{ height: '100%', width: '100%', minHeight: 230, background: '#0d0d0d' }}
+              >
+                <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" opacity={0.58} />
+                <AutoFit points={positions} />
+                {positions.map(p => {
+                  const trail = trailForPlane(p, trailByIcao)
+                  return trail.length > 1 ? (
+                    <Polyline
+                      key={`${p.icao}-trail`}
+                      positions={trail}
+                      pathOptions={{ color: pointColor(p), opacity: 0.42, weight: 2.2, dashArray: '1 7' }}
+                    />
+                  ) : null
+                })}
+                {positions.map(p => (
+                  <Marker
+                    key={p.icao}
+                    position={[p.lat, p.lon]}
+                    icon={planeIcon(p)}
+                  >
+                    <Tooltip direction="top">
+                      <span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                        <b>{p.callsign || p.registration || p.icao}</b> {p.model || ''}<br />
+                        {p.registration || p.icao}<br />
+                        {p.owner || 'FAA watchlist'}<br />
+                        {p.altitudeFt != null ? `${Math.round(p.altitudeFt).toLocaleString()}ft ` : ''}
+                        {p.speedKt != null ? `${Math.round(p.speedKt)}kt ` : ''}
+                        {p.heading != null ? `HDG ${Math.round(p.heading)}` : ''}
+                      </span>
+                    </Tooltip>
+                  </Marker>
+                ))}
+              </MapContainer>
               {positions.length === 0 && (
-                <div className="p-4 text-[10px] text-fg3 text-center">
-                  {backendOk ? 'No cohort aircraft in the latest sample.' : 'Backend offline.'}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="bg-bg1/85 border border-border px-3 py-2 text-[10px] text-fg3">
+                    waiting for matched private-jet positions
+                  </span>
                 </div>
               )}
             </div>

@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { squawkLabel, squawkColor } from '../utils/squawk'
 import { detectPhase, PHASE } from '../utils/anomaly'
 import FilterBar, { emptyFilters, isFiltersActive, applyFilters, computeFilterCounts } from './FilterBar'
+import AircraftSearchBox from './AircraftSearchBox'
 
 // Column layout (desktop): 8 essential columns. Older "operator", "country",
 // "eta", "squawk", "hdg", "src" are folded into other cells or shown via tooltips
@@ -82,7 +83,7 @@ function srcIndicator(f, enrichCache) {
   return parts.join('') || '—'
 }
 
-export default function FlightTable({ flights, filter, selectedIcao, enrichCache, anomalies = {}, trackHistory = {}, openskyUsage, aeroSpend, trackedIcaos, onToggleTrack, onSelect, onArrived, onDeparted }) {
+export default function FlightTable({ flights, filter, onFilterChange, selectedIcao, enrichCache, anomalies = {}, trackHistory = {}, openskyUsage, aeroSpend, trackedIcaos, onToggleTrack, onSelect, onArrived, onDeparted, onSync, isSyncing }) {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 580
   const PAGE_SIZE = isMobile ? 25 : 50
   const [sortKey, setSortKey] = useState('takeoff')
@@ -255,8 +256,25 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
       <div className="flex flex-col bg-bg flex-1 min-h-0">
         <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 shrink-0">
           <span className="flex items-center gap-1.5">
+            <span className="ft-chip ft-chip--muted">flight records</span>
             <span className="text-fg2">0</span> records
           </span>
+          <AircraftSearchBox
+            filter={filter}
+            onFilterChange={onFilterChange}
+            className="ml-2 flex-1 max-w-xl"
+          />
+          <button
+            className={clsx(
+              'h-5 px-1.5 border text-[9px] uppercase transition-colors',
+              isSyncing ? 'border-ylw/45 text-ylw cursor-wait' : 'border-border text-fg3 hover:text-fg2 hover:border-border2'
+            )}
+            onClick={onSync}
+            disabled={isSyncing}
+            title="refresh flight records now"
+          >
+            {isSyncing ? 'syncing' : 'sync'}
+          </button>
         </div>
         <div className="p-8 text-center text-fg3">
           no data — press fetch
@@ -278,8 +296,9 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
 
       <div className="shrink-0 bg-bg2 border-b border-border text-[10px] sm:text-[11px] text-fg3">
         {/* Row 1: records, pagination, sort */}
-        <div className="flex flex-wrap justify-between items-center py-0.5 px-1.5 sm:px-2.5 gap-y-0.5">
+        <div className="flex flex-wrap items-center py-0.5 px-1.5 sm:px-2.5 gap-1.5">
           <span className="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink-0">
+            <span className="ft-chip ft-chip--muted">flight records</span>
             <span className="flex items-baseline gap-1">
               <span className="text-fg tabular-nums text-[13px]">{filtered.length.toLocaleString()}</span>
               <span className="text-fg3 text-[9px] uppercase tracking-wide">records</span>
@@ -316,7 +335,25 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
             )}
             {newIcaos.size > 0 && <span className="bg-grn/15 text-grn text-[8px] uppercase px-1 py-px rounded border border-grn/30 ml-1">+{newIcaos.size} new</span>}
           </span>
-          <div className="flex gap-1 items-center w-full sm:w-auto">
+          <AircraftSearchBox
+            filter={filter}
+            onFilterChange={onFilterChange}
+            className="order-last sm:order-none w-full sm:flex-1 sm:min-w-72"
+          />
+          <div className="flex gap-1 items-center w-full sm:w-auto ml-auto">
+            <button
+              className={clsx(
+                'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 border flex-1 sm:flex-none text-center uppercase',
+                isSyncing
+                  ? 'bg-ylw/10 border-ylw/35 text-ylw cursor-wait'
+                  : 'bg-transparent border-border text-fg3 hover:text-fg2 hover:border-fg3'
+              )}
+              onClick={onSync}
+              disabled={isSyncing}
+              title="Refresh flight records now"
+            >
+              {isSyncing ? 'syncing' : 'sync'}
+            </button>
             <button
               className={clsx(
                 'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 rounded border flex-1 sm:flex-none text-center',

@@ -14,8 +14,6 @@ import NasPanel from './components/NasPanel'
 import TfmsPanel from './components/tfms/TfmsPanel'
 import BusinessJetTracker from './components/BusinessJetTracker'
 import FlightInspectorModal from './components/FlightInspectorModal'
-import MobileFlightsHome from './components/mobile/MobileFlightsHome'
-import MobileHeader from './components/mobile/MobileHeader'
 import { SwimProvider } from './contexts/SwimContext'
 
 import axios from 'axios'
@@ -70,7 +68,6 @@ export default function App() {
   const [filter, setFilter] = useState('')
   const [fetching, setFetching] = useState(false)
   const [backendOk, setBackendOk] = useState(false)
-  const [statusText, setStatusText] = useState('idle')
   const [lastFetchAt, setLastFetchAt] = useState(null)
   const [openskyUsage, setOpenskyUsage] = useState(null)
   const [aeroSpend, setAeroSpend] = useState(null)
@@ -79,16 +76,6 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showUsage, setShowUsage] = useState(false)
   const [showNotams, setShowNotams] = useState(false)
-
-  // ── mobile tab navigation ────────────────────────────────────────────────────
-  const [mobileTab, setMobileTab] = useState('live')
-  const [mobileTime, setMobileTime] = useState('')
-  useEffect(() => {
-    const tick = () => setMobileTime(new Date().toISOString().substring(11, 19) + 'z')
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [])
 
   // ── detail / enrichment state ───────────────────────────────────────────────
   const [selectedFlight, setSelectedFlight] = useState(null)
@@ -308,7 +295,10 @@ export default function App() {
         setBootProgress(78)
         setBootMsg('fetching flights…')
         console.log('[boot] initial fetch')
-        await fetchFlightsRef.current?.()
+        await Promise.race([
+          fetchFlightsRef.current?.() || Promise.resolve(),
+          new Promise(resolve => setTimeout(resolve, 10000)),
+        ])
         if (cancelled) return
         const intervalSec = pollInterval ? Math.round(pollInterval / 1000) : '?'
         log(`live sync enabled (${intervalSec}s)`, 'ok')
@@ -325,6 +315,13 @@ export default function App() {
     boot()
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    if (!booting || !backendOk || flights.length === 0) return
+    setBootProgress(100)
+    setBootMsg('')
+    setBooting(false)
+  }, [booting, backendOk, flights.length])
 
   // ── fetch flights ─────────────────────────────────────────────────────────────
   // Primary path: read from backend poller cache (GET /api/flights).
@@ -386,7 +383,6 @@ export default function App() {
       lastServerFetchRef.current = serverFetchedAt
 
       if (isNewCycle) {
-        setStatusText('fetching')
         const ms = Math.round(performance.now() - t0)
         const age = serverFetchedAt ? Math.round((Date.now() - serverFetchedAt) / 1000) : '?'
         log(`flights: ${result.length} aircraft from poller (${ms}ms, ${age}s old)`, 'ok')
@@ -440,7 +436,6 @@ export default function App() {
 
     fetchingRef.current = false
     setFetching(false)
-    setStatusText('idle')
   }, [settings, region, log, pollInterval])
 
   useEffect(() => {
@@ -629,8 +624,6 @@ export default function App() {
       : null,
   }
 
-  const botSrc = 'opensky-network.org + api.adsbdb.com'
-
   // ── render ────────────────────────────────────────────────────────────────────
   return (
     <SwimProvider backendOk={backendOk}>
@@ -641,7 +634,7 @@ export default function App() {
           <div className="w-full max-w-xl border border-acc/50 bg-bg1 shadow-[0_0_40px_rgba(129,162,190,0.12)]">
             <div className="px-4 py-3 border-b border-border bg-bg2 flex items-center justify-between gap-3">
               <div>
-                <div className="text-acc text-[13px] uppercase tracking-wide">flightterm starting</div>
+                <div className="ft-chip ft-chip--accent">flightterm starting</div>
                 <div className="text-fg3 text-[10px] mt-0.5">waking services, poller cache, and live aircraft feed</div>
               </div>
               <div className="text-right shrink-0">
@@ -695,8 +688,6 @@ export default function App() {
             backendOk={backendOk}
             lastFetchAt={lastFetchAt}
             pollInterval={pollInterval}
-            filter={filter}
-            onFilterChange={setFilter}
             onClearLog={clearLog}
             onOpenSettings={() => setShowSettings(true)}
             onOpenUsage={() => setShowUsage(true)}
@@ -727,6 +718,7 @@ export default function App() {
             <FlightTable
               flights={flights}
               filter={filter}
+              onFilterChange={setFilter}
               selectedIcao={selectedFlight?.icao}
               enrichCache={enrichCache}
               anomalies={anomalies}
@@ -738,6 +730,8 @@ export default function App() {
               onSelect={handleSelectFlight}
               onArrived={handleArrived}
               onDeparted={handleDeparted}
+              onSync={fetchFlights}
+              isSyncing={fetching}
             />
           </div>
           {/* Desktop: inline sidebar. Mobile: slide-up overlay (below). */}
@@ -804,15 +798,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-      {/* Status bar */}
-      <div className="status-bar z-40 bg-acc px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg">
-        <div className="truncate">
-          <span className="bg-bg text-acc py-0 px-2 mr-1.5">NORMAL</span>
-          <span className="hidden sm:inline">{botSrc}</span>
-        </div>
-        <div className="shrink-0">{statusText}</div>
-      </div>
 
       {/* Shared modal overlays */}
       {showSettings && (

@@ -150,7 +150,7 @@ export default function NotamPanel({ backendOk }) {
     <div className="bg-bg1 h-full min-h-0 flex flex-col">
       {/* Header */}
       <div className="py-0.5 px-2 text-[9px] bg-bg2 border-b border-border flex justify-between items-center shrink-0">
-        <span className="text-fg2 font-bold text-[10px]">NOTAMs & TFRs</span>
+        <span className="ft-chip ft-chip--red">notams + tfrs</span>
         <span className="flex items-center gap-1.5">
           {totalNotams > 0 && <span className="text-fg3">{totalNotams} notices</span>}
           {fns ? (

@@ -118,9 +118,9 @@ function AirportPickerModal({ value, recents, onSelect, onClose }) {
         </div>
 
         {/* Map + side panel */}
-        <div className="flex-1 min-h-0 grid grid-cols-[1fr_200px] gap-px bg-border">
+        <div className="flex-1 min-h-0 grid grid-cols-1 sm:grid-cols-[1fr_200px] gap-px bg-border">
           {/* Map */}
-          <div className="bg-bg1 relative" style={{ minHeight: 360 }}>
+          <div className="bg-bg1 relative" style={{ minHeight: 300 }}>
             <MapContainer
               center={[39, -96]}
               zoom={4}
@@ -165,7 +165,7 @@ function AirportPickerModal({ value, recents, onSelect, onClose }) {
           </div>
 
           {/* Side panel — recents + match list */}
-          <div className="bg-bg1 overflow-y-auto py-1">
+          <div className="bg-bg1 overflow-y-auto py-1 max-h-44 sm:max-h-none">
             {!query && recents.length > 0 && (
               <div>
                 <div className="text-[8px] text-fg3/50 uppercase tracking-wide px-2 py-1">Recent</div>
@@ -520,7 +520,7 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
           )}
 
           {/* Tabs */}
-          <div className="flex gap-0 border-b border-border shrink-0 bg-bg2/50 px-1">
+          <div className="flex gap-0 border-b border-border shrink-0 bg-bg2/50 px-1 overflow-x-auto no-scrollbar">
             {TABS.map(t => (
               <button
                 key={t.id}
@@ -629,8 +629,10 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
   return (
     <div
       className={clsx(
-        'flex-1 min-h-0 grid gap-px bg-border',
-        selectedFlight ? 'grid-cols-[1fr_1fr_240px]' : 'grid-cols-[1fr_1fr]'
+        'flex-1 min-h-0 grid gap-px bg-border auto-rows-[minmax(170px,1fr)] sm:auto-rows-auto overflow-y-auto sm:overflow-hidden',
+        selectedFlight
+          ? 'grid-cols-1 sm:grid-cols-[1fr_1fr_240px]'
+          : 'grid-cols-1 sm:grid-cols-[1fr_1fr]'
       )}
     >
       {/* Arrivals */}
@@ -1133,7 +1135,7 @@ function MetricsRow({ ops, arrivals, departures, recentArrivals, cap, delays, ta
 
   return (
     <>
-      <div className="grid grid-cols-4 gap-px bg-border shrink-0">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border shrink-0">
         {/* Tile 1 — Traffic */}
         <Tile label="Traffic">
           <div className="flex gap-2 text-[14px] tabular-nums leading-none">

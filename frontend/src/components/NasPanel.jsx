@@ -24,7 +24,7 @@ export default function NasPanel({ backendOk, region }) {
         className="bg-bg2 border-b border-border py-1 px-3 flex items-center gap-2 cursor-pointer select-none"
         onClick={() => setCollapsed(c => !c)}
       >
-        <span className="text-grn text-[9px] tracking-wider uppercase font-bold">FAA SWIM</span>
+        <span className="ft-chip ft-chip--green">faa swim</span>
 
         {totalFeeds > 0 && (
           <span className={clsx(
@@ -58,7 +58,7 @@ export default function NasPanel({ backendOk, region }) {
       </div>
 
       {!collapsed && (
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1.5fr] md:grid-rows-1 gap-px bg-border h-[240px] md:h-48 overflow-hidden">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1.5fr] md:grid-rows-1 auto-rows-[210px] md:auto-rows-auto gap-px bg-border h-[340px] md:h-48 overflow-y-auto md:overflow-hidden">
           <NasStatus backendOk={backendOk} />
           <NotamPanel backendOk={backendOk} />
           <LiveFeed backendOk={backendOk} />
