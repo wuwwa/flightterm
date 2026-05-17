@@ -10,7 +10,7 @@ export default function AircraftSearchBox({ filter, onFilterChange, className })
   const dropdownRef = useRef(null)
   const debounceTimerRef = useRef(null)
 
-  const openDossier = (icao, callsign) => {
+  const openAircraftDetails = (icao, callsign) => {
     const suffix = callsign ? `&cs=${encodeURIComponent(callsign)}` : ''
     window.location.hash = `flight=${icao}${suffix}`
     setDropdownOpen(false)
@@ -58,12 +58,12 @@ export default function AircraftSearchBox({ filter, onFilterChange, className })
     if (e.key === 'Enter') {
       e.preventDefault()
       const s = suggestions[highlighted]
-      if (s) { openDossier(s.icao, s.callsign); return }
+      if (s) { openAircraftDetails(s.icao, s.callsign); return }
       const q = (filter || '').trim().toLowerCase()
-      if (/^[0-9a-f]{6}$/.test(q)) { openDossier(q); return }
+      if (/^[0-9a-f]{6}$/.test(q)) { openAircraftDetails(q); return }
       searchAircraft(filter, { limit: 1 }).then(d => {
         const top = d.results?.[0]
-        if (top) openDossier(top.icao, top.callsign)
+        if (top) openAircraftDetails(top.icao, top.callsign)
       })
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -119,7 +119,7 @@ export default function AircraftSearchBox({ filter, onFilterChange, className })
               <button
                 key={s.icao}
                 onMouseEnter={() => setHighlighted(i)}
-                onClick={() => openDossier(s.icao, s.callsign)}
+                onClick={() => openAircraftDetails(s.icao, s.callsign)}
                 className={clsx(
                   'w-full text-left px-2 py-1 border-b border-white/3 last:border-b-0 cursor-pointer flex items-center gap-2 text-[11px]',
                   active ? 'bg-acc/15' : 'hover:bg-bg2/60'
@@ -140,7 +140,7 @@ export default function AircraftSearchBox({ filter, onFilterChange, className })
             )
           })}
           <div className="text-fg3/40 text-[9px] px-2 py-0.5 border-t border-border bg-bg2/30">
-            up/down navigate · enter opens dossier · esc closes
+            up/down navigate · enter opens aircraft · esc closes
           </div>
         </div>
       )}

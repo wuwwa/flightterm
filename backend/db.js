@@ -1886,6 +1886,13 @@ const _stmts = {
       AND CAST(strftime('%w', sampled_at) AS INTEGER) = @dow
       AND ABS(CAST(strftime('%H', sampled_at) AS INTEGER) * 60 + CAST(strftime('%M', sampled_at) AS INTEGER) - @minuteOfDay) <= @windowMinutes
   `),
+  businessJetBaselineTrailingWindow: db.prepare(`
+    SELECT sampled_at, airborne_count
+    FROM business_jet_snapshots
+    WHERE sampled_at >= @since
+      AND sampled_at < @before
+      AND cohort_version = @cohortVersion
+  `),
 
   // ── Ingest state (v5.7) ───────────────────────────────────────────────────
   ingestStateGet: db.prepare(`SELECT * FROM ingest_state WHERE source = ?`),
@@ -3129,23 +3136,31 @@ function getBusinessJetCohortByHex(hexes) {
   return map
 }
 
-function getBusinessJetBaseline({ sampledAt = new Date(), days = 365, windowMinutes = 45 } = {}) {
+function getBusinessJetBaseline({ sampledAt = new Date(), days = 365, windowMinutes = 180 } = {}) {
   const dt = sampledAt instanceof Date ? sampledAt : new Date(sampledAt)
-  const dow = dt.getUTCDay()
-  const minuteOfDay = dt.getUTCHours() * 60 + dt.getUTCMinutes()
   const since = new Date(dt.getTime() - days * 86400_000).toISOString()
   const before = dt.toISOString()
-  const rows = _stmts.businessJetBaselineWindow.all({
+  const rows = _stmts.businessJetBaselineTrailingWindow.all({
     since,
     before,
-    dow,
-    minuteOfDay,
-    windowMinutes,
     cohortVersion: BUSINESS_JET_COHORT_VERSION,
   })
-  const values = rows.map(r => r.airborne_count).filter(n => Number.isFinite(n)).sort((a, b) => a - b)
+  const window = Math.max(30, Number(windowMinutes) || 180)
+  const weekMinutes = 7 * 24 * 60
+  const targetMinuteOfWeek = dt.getUTCDay() * 1440 + dt.getUTCHours() * 60 + dt.getUTCMinutes()
+  const values = rows
+    .filter(r => {
+      const rdt = new Date(r.sampled_at)
+      if (!Number.isFinite(rdt.getTime())) return false
+      const rowMinuteOfWeek = rdt.getUTCDay() * 1440 + rdt.getUTCHours() * 60 + rdt.getUTCMinutes()
+      const minutesAgoInWeek = (targetMinuteOfWeek - rowMinuteOfWeek + weekMinutes) % weekMinutes
+      return minutesAgoInWeek <= window
+    })
+    .map(r => r.airborne_count)
+    .filter(n => Number.isFinite(n))
+    .sort((a, b) => a - b)
   if (values.length === 0) {
-    return { samples: 0, mean: null, p95: null, p99: null, max: null, days, windowMinutes }
+    return { samples: 0, mean: null, p95: null, p99: null, max: null, days, windowMinutes: window, windowMode: 'trailing' }
   }
   const pct = (p) => values[Math.min(values.length - 1, Math.max(0, Math.ceil(values.length * p) - 1))]
   const mean = values.reduce((sum, n) => sum + n, 0) / values.length
@@ -3158,11 +3173,12 @@ function getBusinessJetBaseline({ sampledAt = new Date(), days = 365, windowMinu
     p99: pct(0.99),
     max: values[values.length - 1],
     days,
-    windowMinutes,
+    windowMinutes: window,
+    windowMode: 'trailing',
   }
 }
 
-function getBusinessJetBaselineCurve({ sampledAt = new Date(), days = 365, windowMinutes = 45, hours = 48, stepMinutes = 30 } = {}) {
+function getBusinessJetBaselineCurve({ sampledAt = new Date(), days = 365, windowMinutes = 180, hours = 48, stepMinutes = 30 } = {}) {
   const end = sampledAt instanceof Date ? sampledAt : new Date(sampledAt)
   const stepMs = Math.max(5, Number(stepMinutes) || 30) * 60_000
   const start = new Date(end.getTime() - Math.max(1, Number(hours) || 48) * 3600_000)

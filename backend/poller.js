@@ -226,8 +226,8 @@ async function fetchOpenSky(region = 'usa') {
 
   // Check remaining credits from response header and auto-switch if needed
   const remaining = res.headers?.['x-rate-limit-remaining']
-  if (remaining != null) {
-    const rem = Number(remaining)
+  const rem = remaining != null ? Number(remaining) : null
+  if (Number.isFinite(rem)) {
     if (rem <= 0) {
       pauseOpenSkySlot(slotUsed, 'credits exhausted')
     }
@@ -246,15 +246,17 @@ async function fetchOpenSky(region = 'usa') {
       console.log(`poller: credits reset detected (${rem} remaining), switching back to key 1`)
     }
 
-    // Record the call for usage tracking
-    const credits = db.calcOpenSkyCredits(params)
-    db.recordApiCall({
-      service: 'opensky', endpoint: '/states/all',
-      region: region, credits,
-      status: 200, aircraftCount: states.length,
-      rateRemaining: rem,
-    })
   }
+
+  // Record every successful call. OpenSky's OAuth2 rate-limit headers can be
+  // absent or stale, so DB-based usage must not depend on the header existing.
+  const credits = db.calcOpenSkyCredits(params)
+  db.recordApiCall({
+    service: 'opensky', endpoint: '/states/all',
+    region: region, credits,
+    status: 200, aircraftCount: states.length,
+    rateRemaining: Number.isFinite(rem) ? rem : null,
+  })
 
   return states.map(s => ({
     icao:     (s[0] || '').trim(),

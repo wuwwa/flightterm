@@ -111,6 +111,16 @@ function MiniBars({ history }) {
   )
 }
 
+function fmtTrendTick(iso, spanMs) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return ''
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  if (spanMs >= 24 * 3600_000) return `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`
+  return `${hh}:${mm}`
+}
+
 function TrendChart({ history, baselineCurve, current, mean, p99, height = 96 }) {
   const rows = (history || []).slice(-96)
   const values = rows.map(r => Number(r.airborne_count) || 0)
@@ -152,11 +162,21 @@ function TrendChart({ history, baselineCurve, current, mean, p99, height = 96 })
   const currentY = y(current || values[values.length - 1] || 0)
 
   const historicalSamples = Math.max(0, ...curve.map(r => Number(r.samples) || 0), Number.isFinite(Number(baselineCurve?.[baselineCurve.length - 1]?.samples)) ? Number(baselineCurve[baselineCurve.length - 1].samples) : 0)
+  const tickRows = rows.length ? rows : curve
+  const firstAt = tickRows[0]?.sampled_at ? new Date(tickRows[0].sampled_at).getTime() : null
+  const lastAt = tickRows[tickRows.length - 1]?.sampled_at ? new Date(tickRows[tickRows.length - 1].sampled_at).getTime() : null
+  const spanMs = Number.isFinite(firstAt) && Number.isFinite(lastAt) ? Math.max(0, lastAt - firstAt) : 0
+  const tickIndexes = tickRows.length <= 1
+    ? [0]
+    : Array.from(new Set([0, Math.floor((tickRows.length - 1) / 2), tickRows.length - 1]))
+  const ticks = tickIndexes
+    .map(i => ({ i, label: fmtTrendTick(tickRows[i]?.sampled_at, spanMs) }))
+    .filter(t => t.label)
 
   return (
     <div className="bg-bg/60 border border-border p-1.5 min-w-0">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[8px] text-fg3 uppercase">history at this hour</span>
+        <span className="text-[8px] text-fg3 uppercase">3-hour historical band</span>
         <span className="text-[8px] text-fg3 tabular-nums">
           {historicalSamples >= 10 ? `${historicalSamples} samples` : 'warming up'}
         </span>
@@ -178,16 +198,23 @@ function TrendChart({ history, baselineCurve, current, mean, p99, height = 96 })
         {path && <path d={path} fill="none" stroke="#81a2be" strokeWidth="2.2" />}
         {rows.length > 0 && <circle cx={currentX} cy={currentY} r="3.5" fill="#f0c674" stroke="#0d0d0d" strokeWidth="1" />}
       </svg>
+      {ticks.length > 0 && (
+        <div className="grid text-[7px] text-fg3 tabular-nums mt-0.5" style={{ gridTemplateColumns: `repeat(${ticks.length}, minmax(0, 1fr))` }}>
+          {ticks.map((t, idx) => (
+            <span
+              key={`${t.i}-${t.label}`}
+              className={idx === 0 ? 'text-left' : idx === ticks.length - 1 ? 'text-right' : 'text-center'}
+            >
+              {t.label}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-2 text-[8px] mt-1 leading-tight">
         <span className="text-fg3">now <span className="text-fg tabular-nums">{current ?? 0}</span></span>
         <span className="text-fg3">avg <span className="text-cyn tabular-nums">{Number.isFinite(meanLine) ? meanLine : '...'}</span></span>
         <span className="text-fg3">p99 <span className="text-red tabular-nums">{Number.isFinite(p99Line) ? p99Line : '...'}</span></span>
       </div>
-      {historicalSamples < 10 && (
-        <div className="mt-0.5 text-[8px] text-ylw/80">
-          Needs same-version half-hour samples before it can score the hour honestly.
-        </div>
-      )}
     </div>
   )
 }
@@ -224,15 +251,9 @@ export default function BusinessJetTracker({ backendOk }) {
   const p99 = baseline.p99 ?? '...'
   const max = baseline.max ?? '...'
   const mean = baseline.mean ?? '...'
-  const audit = data?.audit || {}
   const calibration = data?.calibrationStatus || {}
-  const topModels = audit.topModels || []
-  const lookbackDays = Number(baseline.days) || 365
-  const windowMinutes = Number(baseline.windowMinutes) || 45
-  const comparisonWindow = `${windowMinutes * 2}-minute`
-  const comparisonPhrase = `same weekday, +/-${windowMinutes} min`
-  const sampleWindowMinutes = 30
-  const signalQuestion = `How many private jets were airborne in the latest ${sampleWindowMinutes}-minute sample?`
+  const checkpointMinutes = 30
+  const signalQuestion = `At each ${checkpointMinutes}-minute checkpoint, how many private jets are in the sky compared with history?`
 
   useEffect(() => {
     if (!positions.length || !snapshot?.sampledAt) return
@@ -302,7 +323,7 @@ export default function BusinessJetTracker({ backendOk }) {
           {signalQuestion}
         </span>
         <span className="text-[9px] text-fg3 tabular-nums">
-          {snapshot ? `sample ${fmtAge(snapshot.sampledAt)}` : 'no sample yet'}
+          {snapshot ? `checkpoint ${fmtAge(snapshot.sampledAt)}` : 'no checkpoint yet'}
         </span>
         <span className="text-fg3 hover:text-fg text-[10px]">
           {detailsOpen ? '▾ less' : '▸ details'}
@@ -312,13 +333,18 @@ export default function BusinessJetTracker({ backendOk }) {
       {detailsOpen && (
         <div className="early-warning-details grid grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)] lg:h-[300px] gap-px bg-border">
           <div className="bg-bg1 p-2 flex flex-col gap-2 min-h-0 overflow-y-auto">
-            <div className="border border-border bg-bg/50 px-2 py-1.5">
-              <div className="ft-chip ft-chip--accent">doomsday signal</div>
-              <div className="text-[10px] text-fg2 leading-snug mt-1">
-                This tracker asks one question: how many private jets were airborne in the latest 30-minute sample, and is that unusual for this time?
+            <div className="px-1 py-0.5">
+              <div className="text-[11px] text-fg leading-snug">
+                This indicator asks one simple question: at each 30-minute checkpoint, how many private jets are in the sky compared with what history says should be normal?
               </div>
               <div className="text-[8px] text-fg3 leading-snug mt-1">
-                If private movement starts breaking its usual rhythm before the public picture changes, this is where it should show up.
+                If the people most able to leave start moving before the rest of us know why, this is the tripwire.
+              </div>
+              <div className="text-[8px] text-fg3 leading-snug mt-1">
+                It is a point-in-time airborne count sampled every 30 minutes, not a total of every flight that moved during the whole interval.
+              </div>
+              <div className="text-[8px] text-fg3 leading-snug mt-1">
+                Built from FAA registrations matched to live aircraft positions. Managed, fractional, airline, cargo, government, medical, and blank-owner records are filtered out.
               </div>
             </div>
 
@@ -369,67 +395,8 @@ export default function BusinessJetTracker({ backendOk }) {
                 ))}
               </div>
               <div className="mt-1 text-[8px] text-fg3 leading-snug">
-                <span className="text-red">Level 5</span> is the redline: the latest 30-minute sample has more private jets airborne than this tracker has seen in the same-time comparison window: <span className="text-red tabular-nums">{max}</span>.
-                {baseline.samples ? ` ${baseline.samples} comparable samples.` : ' History depth is not established yet.'}
-              </div>
-              <div className="mt-1 border border-red/30 bg-red/5 px-2 py-1 text-[8px] text-fg2 leading-snug">
-                Here, "same time" means the same UTC weekday inside a {comparisonWindow} band ({comparisonPhrase}) across the trailing {lookbackDays} days. If today breaks that record, the app treats it as the highest alarm state.
-              </div>
-              {!level.calibrated && (
-                <div className="mt-1 border border-ylw/25 bg-ylw/5 px-2 py-1 text-[8px] text-ylw/90 leading-snug">
-                  The tracker still needs more same-time samples before the score is mature. Until then, it stays at Level 1 unless the live count clearly breaks out.
-                </div>
-              )}
-              <div className="mt-1 border border-border bg-bg/50 px-2 py-1 text-[8px] text-fg3 leading-snug">
-                Built from FAA registrations and live aircraft positions. Obvious managed, fractional, airline, cargo, government, medical, and blank-owner records are filtered out.
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-1.5 text-[8px]">
-              <div className="border border-border bg-bg/50 p-1.5">
-                <div className="text-fg3 uppercase mb-1">watchlist</div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-fg3">aircraft</span>
-                  <span className="text-fg tabular-nums">{cohortSize ? cohortSize.toLocaleString() : '...'}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-fg3">invalid hex</span>
-                  <span className="text-fg tabular-nums">{audit.integrity?.invalidHex ?? 0}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-fg3">blank owners kept</span>
-                  <span className="text-fg tabular-nums">{audit.integrity?.unknownOwnerIncluded ?? 0}</span>
-                </div>
-              </div>
-              <div className="border border-border bg-bg/50 p-1.5">
-                <div className="text-fg3 uppercase mb-1">filtered out</div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-fg3">blank owners</span>
-                  <span className="text-fg tabular-nums">{audit.exclusions?.unknownOwnerExcluded ?? '...'}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-fg3">borderline models</span>
-                  <span className="text-fg tabular-nums">{audit.exclusions?.borderlineModelExcluded ?? '...'}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-fg3">managed now</span>
-                  <span className="text-fg tabular-nums">{audit.runtime?.managedOperatorExcluded ?? 0}</span>
-                </div>
-              </div>
-            </div>
-            <div className="border border-border bg-bg/50 p-1.5 text-[8px]">
-              <div className="flex justify-between gap-2 mb-1">
-                <span className="text-fg3 uppercase">aircraft types</span>
-                <span className="text-fg3 tabular-nums">{audit.ruleVersion || 'strict-v4'}</span>
-              </div>
-              <div className="grid gap-1">
-                {topModels.slice(0, 4).map(row => (
-                  <div key={`${row.manufacturer}-${row.model}`} className="flex justify-between gap-2">
-                    <span className="text-fg3 truncate">{row.model}</span>
-                    <span className="text-fg tabular-nums">{row.count}</span>
-                  </div>
-                ))}
-                {topModels.length === 0 && <span className="text-fg3">waiting for audit data</span>}
+                <span className="text-red">Level 5</span> is the redline: the latest checkpoint has more private jets airborne than this tracker has seen in the 3-hour historical comparison window: <span className="text-red tabular-nums">{max}</span>.
+                {baseline.samples ? ` ${baseline.samples} comparable checkpoints.` : ' History depth is not established yet.'}
               </div>
             </div>
           </div>
@@ -470,7 +437,7 @@ export default function BusinessJetTracker({ backendOk }) {
                       <span style={{ fontFamily: 'monospace', fontSize: 11 }}>
                         <b>{p.callsign || p.registration || p.icao}</b> {p.model || ''}<br />
                         {p.registration || p.icao}<br />
-                        {p.owner || 'FAA watchlist'}<br />
+                        {p.owner || 'FAA cohort'}<br />
                         {p.altitudeFt != null ? `${Math.round(p.altitudeFt).toLocaleString()}ft ` : ''}
                         {p.speedKt != null ? `${Math.round(p.speedKt)}kt ` : ''}
                         {p.heading != null ? `HDG ${Math.round(p.heading)}` : ''}

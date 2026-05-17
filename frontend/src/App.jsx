@@ -386,6 +386,7 @@ export default function App() {
         const ms = Math.round(performance.now() - t0)
         const age = serverFetchedAt ? Math.round((Date.now() - serverFetchedAt) / 1000) : '?'
         log(`flights: ${result.length} aircraft from poller (${ms}ms, ${age}s old)`, 'ok')
+        refreshOpenskyUsage()
 
         // ── track history snapshots per aircraft ──────────────────────────
         const MAX_SNAPSHOTS = 30
@@ -436,7 +437,7 @@ export default function App() {
 
     fetchingRef.current = false
     setFetching(false)
-  }, [settings, region, log, pollInterval])
+  }, [settings, region, log, pollInterval, refreshOpenskyUsage])
 
   useEffect(() => {
     fetchFlightsRef.current = fetchFlights
@@ -623,6 +624,11 @@ export default function App() {
       ? new Date().toISOString().substring(11, 19) + ' utc'
       : null,
   }
+  const bootPipeline = [
+    { label: 'backend', state: backendOk ? 'online' : 'waking', ready: backendOk, active: bootProgress < 62 },
+    { label: 'usage', state: bootProgress >= 62 ? 'checked' : 'queued', ready: bootProgress >= 72, active: bootProgress >= 62 && bootProgress < 78 },
+    { label: 'feed', state: flights.length ? 'live' : 'warming', ready: flights.length > 0, active: bootProgress >= 78 },
+  ]
 
   // ── render ────────────────────────────────────────────────────────────────────
   return (
@@ -630,45 +636,45 @@ export default function App() {
     <>
       {/* Boot loading bar — shared across both layouts */}
       {booting && (
-        <div className="fixed inset-0 z-[100] bg-bg/96 backdrop-blur-sm flex items-center justify-center px-4">
-          <div className="w-full max-w-xl border border-acc/50 bg-bg1 shadow-[0_0_40px_rgba(129,162,190,0.12)]">
-            <div className="px-4 py-3 border-b border-border bg-bg2 flex items-center justify-between gap-3">
+        <div className="fixed inset-0 z-[100] bg-bg/84 backdrop-blur-[2px] flex items-center justify-center px-4">
+          <div className="w-full max-w-lg border border-border2/80 bg-bg1/90 shadow-[0_14px_60px_rgba(0,0,0,0.32)]">
+            <div className="px-4 py-3 border-b border-border/80 bg-bg1/70 flex items-center justify-between gap-3">
               <div>
-                <div className="ft-chip ft-chip--accent">flightterm starting</div>
-                <div className="text-fg3 text-[10px] mt-0.5">waking services, poller cache, and live aircraft feed</div>
+                <div className="text-fg text-[13px] font-semibold leading-none">flightterm</div>
+                <div className="text-fg3 text-[10px] mt-1">bringing the live feed online</div>
               </div>
-              <div className="text-right shrink-0">
-                <div className="text-fg text-[18px] tabular-nums leading-none">{Math.round(bootProgress)}%</div>
-                <div className="text-fg3 text-[9px]">attempt {bootAttempt}</div>
+              <div className="text-right shrink-0 tabular-nums">
+                <div className="text-fg2 text-[11px] leading-none">{Math.round(bootProgress)}%</div>
+                <div className="text-fg3 text-[9px] mt-1">try {bootAttempt}</div>
               </div>
             </div>
             <div className="p-4">
-              <div className="flex items-baseline justify-between gap-3 mb-2">
-                <span className="text-ylw text-[12px] uppercase">{bootStage}</span>
-                <span className="text-fg3 text-[10px] tabular-nums">{bootMsg}</span>
+              <div className="flex items-baseline justify-between gap-3 mb-3">
+                <span className="text-fg text-[11px]">{bootStage}</span>
+                <span className="text-fg3 text-[10px] tabular-nums truncate">{bootMsg}</span>
               </div>
-              <div className="h-2 bg-bg border border-border overflow-hidden">
+              <div className="boot-pipeline-track" aria-hidden="true">
                 <div
-                  className="h-full bg-acc animate-pulse transition-all duration-500"
+                  className="boot-pipeline-fill"
                   style={{ width: `${Math.max(6, Math.min(100, bootProgress))}%` }}
                 />
+                <div
+                  className="boot-pipeline-packet"
+                  style={{ left: `${Math.max(6, Math.min(96, bootProgress))}%` }}
+                />
               </div>
-              <div className="grid grid-cols-3 gap-2 mt-4 text-[10px]">
-                <div className="border border-border bg-bg/60 p-2">
-                  <div className="text-fg3 uppercase text-[8px]">backend</div>
-                  <div className={backendOk ? 'text-grn' : 'text-ylw'}>{backendOk ? 'online' : 'waking'}</div>
-                </div>
-                <div className="border border-border bg-bg/60 p-2">
-                  <div className="text-fg3 uppercase text-[8px]">poller</div>
-                  <div className={flights.length ? 'text-grn' : 'text-ylw'}>{flights.length ? 'loaded' : 'warming'}</div>
-                </div>
-                <div className="border border-border bg-bg/60 p-2">
-                  <div className="text-fg3 uppercase text-[8px]">aircraft</div>
-                  <div className="text-cyn tabular-nums">{flights.length ? flights.length.toLocaleString() : 'pending'}</div>
-                </div>
+              <div className="grid grid-cols-3 gap-3 mt-3 text-[10px]">
+                {bootPipeline.map((step) => (
+                  <div key={step.label} className="boot-pipeline-step">
+                    <span className={`boot-pipeline-dot ${step.ready ? 'is-ready' : step.active ? 'is-active' : ''}`} />
+                    <span className="text-fg3">{step.label}</span>
+                    <span className={step.ready ? 'text-grn' : step.active ? 'text-ylw' : 'text-fg3'}>{step.state}</span>
+                  </div>
+                ))}
               </div>
-              <div className="mt-3 text-[10px] text-fg3 leading-relaxed">
-                If this is a production cold start, Fly may need a few seconds before the first live cache appears.
+              <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-fg3 leading-relaxed">
+                <span>Cold starts can take a moment before the cache is warm.</span>
+                <span className="text-cyn tabular-nums shrink-0">{flights.length ? flights.length.toLocaleString() : 'no'} aircraft</span>
               </div>
             </div>
           </div>

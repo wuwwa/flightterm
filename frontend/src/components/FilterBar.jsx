@@ -491,7 +491,7 @@ function FilterPill({ label, count, active, color, onClick, onAuxClick, title })
 
 // Groups are discoverable via shift-click; a chip id like "airline:ual" is
 // already a valid /api/groups/:groupId, so we just drop it into the URL hash.
-function openGroupDossier(groupId) {
+function openGroupDetails(groupId) {
   if (!groupId || !groupId.includes(':')) return
   window.location.hash = 'group=' + encodeURIComponent(groupId)
 }
@@ -571,7 +571,7 @@ export default function FilterBar({ filters, onChange, counts, totalFiltered, to
                 {def.options.map(opt => {
                   const isGroup = GROUP_DIMS.has(dim)
                   const baseTitle = opt.desc || opt.label
-                  const title = isGroup ? `${baseTitle} — shift-click for group dossier` : baseTitle
+                  const title = isGroup ? `${baseTitle} — shift-click for group details` : baseTitle
                   return (
                     <FilterPill
                       key={opt.id}
@@ -580,7 +580,7 @@ export default function FilterBar({ filters, onChange, counts, totalFiltered, to
                       active={(filters[dim] || []).includes(opt.id)}
                       color={opt.color}
                       onClick={() => toggleDim(dim, opt.id)}
-                      onAuxClick={isGroup ? () => openGroupDossier(opt.id) : undefined}
+                      onAuxClick={isGroup ? () => openGroupDetails(opt.id) : undefined}
                       title={title}
                     />
                   )

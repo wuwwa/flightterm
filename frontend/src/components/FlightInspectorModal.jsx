@@ -61,7 +61,7 @@ export default function FlightInspectorModal({
   const [aeroError, setAeroError] = useState(null)
   const [lazyAircraft, setLazyAircraft] = useState(null)
   const [lazyLoading, setLazyLoading] = useState(false)
-  // v5.6.2 — satellite lazy-load (same pattern as the dossier).
+  // v5.6.2 — satellite lazy-load (same pattern as the aircraft detail page).
   const [satLoaded, setSatLoaded] = useState(false)
   useEffect(() => { setSatLoaded(false) }, [flight?.icao])
 
@@ -153,14 +153,6 @@ export default function FlightInspectorModal({
         )}
         <span className="text-fg3/40 text-[9px] tracking-wide hidden sm:inline">{flight.icao}</span>
         <span className="flex-1" />
-        {/* v5.3.0 — open full dossier page */}
-        <a
-          href={`#flight=${flight.icao}${flight.callsign && flight.callsign !== '—' ? '&cs=' + encodeURIComponent(flight.callsign) : ''}`}
-          className="text-acc hover:text-ylw text-[10px] border border-acc/50 hover:border-ylw px-1.5 py-[1px] rounded cursor-pointer"
-          title="Open full dossier"
-        >
-          dossier →
-        </a>
         <span className={clsx('text-[9px]', srcTag.color)}>{srcTag.label}</span>
       </div>
 

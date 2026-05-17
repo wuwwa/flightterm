@@ -8,7 +8,7 @@ const MIN_SAMPLE_INTERVAL_MS = Math.max(DEFAULT_INTERVAL_MS, SNAPSHOT_INTERVAL_M
 const SNAPSHOT_URL = process.env.BUSINESS_JET_HEATMAP_URL || process.env.ADSB_HEATMAP_URL || ''
 const HISTORY_URL_TEMPLATE = process.env.BUSINESS_JET_HISTORY_URL_TEMPLATE || process.env.ADSB_HISTORY_URL_TEMPLATE || ''
 const BASELINE_DAYS = Number(process.env.BUSINESS_JET_BASELINE_DAYS) || 365
-const BASELINE_WINDOW_MINUTES = Number(process.env.BUSINESS_JET_BASELINE_WINDOW_MINUTES) || 45
+const BASELINE_WINDOW_MINUTES = Number(process.env.BUSINESS_JET_BASELINE_WINDOW_MINUTES) || 180
 const COHORT_MAX_SEATS = Number(process.env.BUSINESS_JET_COHORT_MAX_SEATS) || 32
 const MIN_CALIBRATION_SAMPLES = 30
 const MANAGED_OPERATOR_CALLSIGN_PREFIXES = ['EJA', 'EJM', 'LXJ', 'TWY', 'LJY', 'EDG']
@@ -170,7 +170,7 @@ function calibrationStatus(baseline, historyTemplateConfigured = !!HISTORY_URL_T
       label: 'calibrated',
       samples,
       minSamples: MIN_CALIBRATION_SAMPLES,
-      level5Meaning: `disaster-imminent redline: current 30-minute snapshot exceeds every same-version snapshot from the trailing ${BASELINE_DAYS} days for the same UTC weekday within +/-${BASELINE_WINDOW_MINUTES} minutes`,
+      level5Meaning: `redline: current 30-minute snapshot exceeds every same-version snapshot from the trailing ${BASELINE_DAYS} days for the same UTC weekday over the prior ${Math.round(BASELINE_WINDOW_MINUTES / 60)} hours`,
     }
   }
   return {
@@ -179,7 +179,7 @@ function calibrationStatus(baseline, historyTemplateConfigured = !!HISTORY_URL_T
     samples,
     minSamples: MIN_CALIBRATION_SAMPLES,
     historyTemplateConfigured,
-    level5Meaning: `unavailable until at least ${MIN_CALIBRATION_SAMPLES} same-version snapshots exist for the same UTC weekday within +/-${BASELINE_WINDOW_MINUTES} minutes`,
+    level5Meaning: `unavailable until at least ${MIN_CALIBRATION_SAMPLES} same-version snapshots exist for the same UTC weekday over the prior ${Math.round(BASELINE_WINDOW_MINUTES / 60)} hours`,
   }
 }
 
@@ -342,6 +342,7 @@ function getTrackerState() {
     samples: computedBaseline?.samples ?? snap.baseline_samples,
     days: BASELINE_DAYS,
     windowMinutes: BASELINE_WINDOW_MINUTES,
+    windowMode: computedBaseline?.windowMode || 'trailing',
   } : null
   const status = calibrationStatus(baseline)
   const cohortAudit = db.getBusinessJetCohortAudit()

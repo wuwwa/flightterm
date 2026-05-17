@@ -190,6 +190,83 @@
   }
 }
 
+@keyframes boot-packet {
+  0% {
+    opacity: 0.35;
+    transform: translateX(-6px) scaleX(0.75);
+  }
+  50% {
+    opacity: 0.85;
+    transform: translateX(0) scaleX(1);
+  }
+  100% {
+    opacity: 0.35;
+    transform: translateX(6px) scaleX(0.75);
+  }
+}
+
+.boot-pipeline-track {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(68, 68, 68, 0.75);
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(129, 162, 190, 0.10) 0,
+      rgba(129, 162, 190, 0.10) 1px,
+      transparent 1px,
+      transparent 28px
+    ),
+    rgba(26, 26, 26, 0.78);
+}
+
+.boot-pipeline-fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(138, 190, 183, 0.34), rgba(129, 162, 190, 0.56));
+  box-shadow: 0 0 14px rgba(129, 162, 190, 0.18);
+  transition: width 520ms ease;
+}
+
+.boot-pipeline-packet {
+  position: absolute;
+  top: -2px;
+  width: 24px;
+  height: 10px;
+  margin-left: -12px;
+  background: linear-gradient(90deg, transparent, rgba(240, 198, 116, 0.42), transparent);
+  animation: boot-packet 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.boot-pipeline-step {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr);
+  column-gap: 6px;
+  row-gap: 1px;
+  align-items: center;
+}
+
+.boot-pipeline-dot {
+  grid-row: 1 / span 2;
+  width: 5px;
+  height: 5px;
+  border: 1px solid rgba(85, 85, 85, 0.9);
+  background: rgba(34, 34, 34, 0.9);
+}
+
+.boot-pipeline-dot.is-active {
+  border-color: rgba(240, 198, 116, 0.82);
+  background: rgba(240, 198, 116, 0.32);
+  box-shadow: 0 0 10px rgba(240, 198, 116, 0.16);
+}
+
+.boot-pipeline-dot.is-ready {
+  border-color: rgba(181, 189, 104, 0.82);
+  background: rgba(181, 189, 104, 0.48);
+}
+
 
 /* ── custom utilities ────────────────────────────────────────────────────── */
 @utility animate-log-flash {

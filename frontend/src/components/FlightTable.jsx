@@ -377,10 +377,13 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
             {openskyUsage && (
               <span>
                 <span className="text-acc">opensky</span>{' '}
-                <span className={openskyUsage.remaining < 400 ? 'text-red' : openskyUsage.remaining < 1000 ? 'text-ylw' : 'text-grn'}>
-                  {openskyUsage.remaining}
+                <span
+                  className={openskyUsage.remaining < 400 ? 'text-red' : openskyUsage.remaining < 1000 ? 'text-ylw' : 'text-grn'}
+                  title={`estimated remaining (${openskyUsage.remaining_source || 'db_estimate'}): db ${Math.round(openskyUsage.db_remaining ?? openskyUsage.remaining)}, header ${openskyUsage.header_remaining ?? 'n/a'}`}
+                >
+                  {Math.round(openskyUsage.remaining).toLocaleString()}
                 </span>
-                <span className="text-fg2">/{openskyUsage.daily_limit}</span>
+                <span className="text-fg2">/{openskyUsage.daily_limit.toLocaleString()}</span>
               </span>
             )}
             {aeroSpend && aeroSpend.source !== 'unconfigured' && (

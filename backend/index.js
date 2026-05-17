@@ -2284,23 +2284,19 @@ app.get('/api/usage/today', (req, res) => {
     // get the most recent rate_remaining header value from our log
     const lastCall = getRecentCalls('opensky', 1)
     const headerRemaining = lastCall[0]?.rate_remaining ?? null
-    const keyCount = poller.getActiveKeyCount() // 1 or 2 keys configured
-    const daily_limit = 4000 * keyCount
+    const keyCount = poller.getActiveKeyCount() // configured OpenSky OAuth keys
+    const daily_limit = keyCount > 0 ? 4000 * keyCount : 400
     const db_remaining = daily_limit - db.credits_used
 
-    // prefer the more conservative (lower) value when header is available
-    // header reflects a single key's remaining credits — combine with DB for total
-    let remaining = db_remaining
-    if (headerRemaining != null) {
-      // header is for the currently active key only
-      // estimate total: header remaining + unused keys' full allotment
-      // but DB tracks all calls regardless of key, so use DB as primary
-      const drift = Math.abs(headerRemaining - (4000 - db.credits_used)) / 4000
-      if (drift < 0.05 || headerRemaining < (4000 - db.credits_used)) {
-        // single-key: use header. dual-key: header + second key's full 4000
-        remaining = headerRemaining + (keyCount > 1 && headerRemaining < 100 ? 0 : (keyCount - 1) * 4000)
-      }
-    }
+    // OpenSky's OAuth2 X-Rate-Limit-Remaining header is per active key and is
+    // not always present/reliable. Do not add "unused keys" to it; that can
+    // overstate remaining credits. Report the conservative lower value.
+    const headerEstimate = headerRemaining != null && keyCount <= 1
+      ? headerRemaining
+      : null
+    let remaining = headerEstimate != null
+      ? Math.min(db_remaining, headerEstimate)
+      : db_remaining
 
     // clamp to [0, daily_limit]
     remaining = Math.max(0, Math.min(daily_limit, remaining))
@@ -2311,7 +2307,9 @@ app.get('/api/usage/today', (req, res) => {
       key_count: keyCount,
       db_remaining,
       header_remaining: headerRemaining,
+      header_estimate: headerEstimate,
       remaining,
+      remaining_source: headerEstimate != null ? 'conservative_min_db_header' : 'db_estimate_multi_key_safe',
     })
   } else {
     res.json(db)
