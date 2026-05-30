@@ -33,7 +33,7 @@ async function fetchFires({ lat, lon, radiusKm = 50, days = 2, source = 'VIIRS_S
   if (hit && Date.now() - hit.t < TTL_MS) return hit.v
 
   const url = `${BASE}/${KEY}/${source}/${w.toFixed(4)},${s.toFixed(4)},${e.toFixed(4)},${n.toFixed(4)}/${days}`
-  const res = await axios.get(url, { timeout: 15000, responseType: 'text' })
+  const res = await axios.get(url, { timeout: 4000, responseType: 'text' })
   const rows = parseCsv(res.data)
   const fires = rows.map(r => ({
     lat: parseFloat(r.latitude),

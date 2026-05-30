@@ -16,7 +16,7 @@ async function fetchCurrent({ lat, lon, units = 'metric' } = {}) {
   if (hit && Date.now() - hit.t < TTL_MS) return hit.v
 
   const res = await axios.get(BASE, {
-    params: { lat, lon, appid: KEY, units }, timeout: 10000,
+    params: { lat, lon, appid: KEY, units }, timeout: 4000,
   })
   const d = res.data || {}
   const out = {

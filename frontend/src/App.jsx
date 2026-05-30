@@ -70,8 +70,17 @@ export default function App() {
   const [filter, setFilter] = useState('')
   const [fetching, setFetching] = useState(false)
   const [backendOk, setBackendOk] = useState(false)
+  // statusText surfaces the real state of the /api/flights pipeline:
+  //   'idle'        — not currently fetching, data is fresh or we've never fetched
+  //   'fetching'    — a request is in flight right now
+  //   'rate-limited'— last fetch got HTTP 429
+  //   'error: <msg>'— last fetch failed (network, 5xx, timeout)
+  //   'stale'       — last successful fetch is >2× pollInterval old
+  // Previously this was just 'idle'|'fetching' which left "fetching flights…"
+  // as the only visible indicator even during repeated 429s or upstream stalls.
   const [statusText, setStatusText] = useState('idle')
   const [lastFetchAt, setLastFetchAt] = useState(null)
+  const [lastFetchError, setLastFetchError] = useState(null) // cleared on next successful fetch
   const [openskyUsage, setOpenskyUsage] = useState(null)
   const [aeroSpend, setAeroSpend] = useState(null)
 
@@ -274,10 +283,22 @@ export default function App() {
 
       if (health) {
         log('fetching initial flight data…', 'info')
-        setBootMsg('fetching flights…')
+        setBootMsg('loading flights…')
         console.log('[boot] initial fetch')
-        await fetchFlightsRef.current?.()
+        // fetchFlights returns its error kind (or null on success) so we can
+        // put a specific message in the boot banner instead of leaving the
+        // generic 'loading flights…' on screen during a failure.
+        const errKind = await fetchFlightsRef.current?.()
         if (cancelled) return
+        if (errKind) {
+          setBootMsg(
+            errKind === 'rate-limited'
+              ? 'rate-limited — retrying momentarily'
+              : `can\u2019t load flights (${errKind}) — retrying`
+          )
+          // Don't block boot on a failed first fetch; interval timer below
+          // will keep trying and statusText will reflect recovery.
+        }
         const intervalSec = pollInterval ? Math.round(pollInterval / 1000) : '?'
         log(`live sync enabled (${intervalSec}s)`, 'ok')
         console.log('[boot] live sync enabled')
@@ -306,10 +327,12 @@ export default function App() {
 
     fetchingRef.current = true
     setFetching(true)
+    setStatusText('fetching')
     const t0 = performance.now()
 
     let result = null
     let serverFetchedAt = null
+    let errorKind = null // 'rate-limited' | 'timeout' | 'network' | 'server' | null
 
     try {
       const resp = await axios.get('/api/flights')
@@ -337,7 +360,19 @@ export default function App() {
       } else {
         result = []
       }
+      setLastFetchError(null)
     } catch (err) {
+      // Classify the failure so the UI can render a specific message instead
+      // of the generic "fetching flights…". 429 from our own rate limiter
+      // (client hitting /api/* too fast) needs a different treatment from a
+      // genuine upstream outage.
+      const status = err.response?.status
+      if (status === 429) errorKind = 'rate-limited'
+      else if (err.code === 'ECONNABORTED' || /timeout/i.test(err.message)) errorKind = 'timeout'
+      else if (status >= 500) errorKind = 'server'
+      else errorKind = 'network'
+
+      setLastFetchError({ kind: errorKind, message: err.message, at: Date.now() })
       console.error('[fetch] backend error:', err.message)
       log(`flights: backend error (${err.message})`, 'err')
       result = []
@@ -407,7 +442,21 @@ export default function App() {
 
     fetchingRef.current = false
     setFetching(false)
-    setStatusText('idle')
+    // Resolve final status: error wins, then staleness check, else idle.
+    if (errorKind) {
+      setStatusText(errorKind === 'rate-limited' ? 'rate-limited' : `error: ${errorKind}`)
+    } else {
+      const fetchedAt = serverFetchedAt || lastServerFetchRef.current
+      const staleMs = (pollInterval || 45000) * 2
+      if (fetchedAt && Date.now() - fetchedAt > staleMs) {
+        setStatusText('stale')
+      } else {
+        setStatusText('idle')
+      }
+    }
+    // Return the error kind (or null) so boot() can render a specific banner
+    // without pulling stale state via closure.
+    return errorKind
   }, [settings, region, log, pollInterval])
 
   useEffect(() => {
@@ -699,10 +748,18 @@ export default function App() {
         </div>
       </div>
 
-      {/* Dashboard */}
-      <div id="dashboard">
-        <DashboardPanel backendOk={backendOk} flights={flights} trackedIcaos={trackedIcaos} trackHistory={trackHistory} />
-      </div>
+      {/* Dashboard — unmount the whole map grid while the dossier overlay is
+          open. Without this, 5 Leaflet instances (mobile fallback + 4
+          quadrants) keep running their fetch intervals, tile loads, and
+          ResizeObservers behind the overlay — wastes CPU/network and causes
+          the dossier's own scroll + map interactions to fight the ghost
+          instances for mouse/wheel events. Remounting when dossier closes
+          costs a fresh tile fetch but the quadrant views re-warm in ~2s. */}
+      {!dossier && (
+        <div id="dashboard">
+          <DashboardPanel backendOk={backendOk} flights={flights} trackedIcaos={trackedIcaos} trackHistory={trackHistory} />
+        </div>
+      )}
 
       {/* Mobile flight inspector — bottom sheet with backdrop */}
       {selectedFlight && (
@@ -736,13 +793,19 @@ export default function App() {
         </div>
       )}
 
-      {/* Status bar */}
+      {/* Status bar — statusText distinguishes idle/fetching/stale/
+          rate-limited/error so users see why "fetching flights…" persists
+          (or doesn't). Color flips when something is actually wrong. The
+          age counter lives in CommandBar's LiveBadge; don't duplicate it
+          here or the bottom-right starts to look number-heavy. */}
       <div className="sticky bottom-0 z-40 bg-acc py-0.5 px-1.5 sm:px-2.5 flex justify-between text-[10px] sm:text-[11px] text-bg">
         <div className="truncate">
           <span className="bg-bg text-acc py-0 px-2 mr-1.5">NORMAL</span>
           <span className="hidden sm:inline">{botSrc}</span>
         </div>
-        <div className="shrink-0">{statusText}</div>
+        <div className={`shrink-0 ${statusText === 'rate-limited' || statusText.startsWith('error:') || statusText === 'stale' ? 'bg-red text-bg px-1' : ''}`}>
+          {statusText}
+        </div>
       </div>
 
       {/* Shared modal overlays */}

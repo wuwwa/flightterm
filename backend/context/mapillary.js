@@ -26,7 +26,7 @@ async function fetchNearest({ lat, lon, radiusKm = 0.2, limit = 3 } = {}) {
         bbox: bbox.map(v => v.toFixed(6)).join(','),
         limit,
       },
-      timeout: 10000,
+      timeout: 4000,
     })
     const images = (res.data?.data || []).map(img => ({
       id: img.id,

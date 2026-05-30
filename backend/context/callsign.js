@@ -21,8 +21,21 @@ const PREFIXES = [
     tag: 'military', confidence: 0.85 },
   // Executive / VIP
   { re: /^(AF1|AIRFORCE ONE|EXEC\d|VENUS|VM\d)/i,          tag: 'vip_exec',       confidence: 0.90 },
-  // News / media helicopters (chain prefixes common in US major metros)
-  { re: /^(N\d+(TV|NC|CBS|ABC|NBC|FOX))/i,                 tag: 'news_media',     confidence: 0.70 },
+  // News / media helicopters. Two paths:
+  //   1. N-number suffix on a registration that ends in a network's letters.
+  //      Anchored with $ so we don't catch N5NCK, N1234ABCD, etc. Dropped
+  //      "NC" — too generic (it's not a real network suffix; it just looks
+  //      like one and produced false positives like N48NC, N123NC).
+  //   2. Spoken on-air callsigns most US metro stations actually use.
+  //      Most media helos register under LLC owners, so the registration
+  //      itself rarely names the network — the on-air callsign does.
+  { re: /^N\d{1,4}(TV|CBS|ABC|NBC|FOX|CNN)$/i,             tag: 'news_media',     confidence: 0.85 },
+  { re: /^(CHOPPER|SKY|EYEWITNESS|AIRBUS|NEWSCOPTER|TRAFFIC)\s*\d+/i,
+                                                            tag: 'news_media',     confidence: 0.80 },
+  // No `\b` — station call letters often run straight into digits (KCAL9,
+  // FOX5HD, etc.) and `\b` doesn't fire between a letter and a digit.
+  { re: /^(KCAL|KTLA|KABC|KCBS|KNBC|WABC|WCBS|WNBC|WPIX|WNYW|WJLA|WTSP|WTVF|WSVN|WPLG|WGN|WHDH|WMAQ|WLFL|WFAA|WFTV|WXIA|FOX5|FOX11|FOX29|FOX31)/i,
+                                                            tag: 'news_media',     confidence: 0.95 },
   // Survey / mapping
   { re: /^(SURVEY|MAPPER|GEO\d)/i,                         tag: 'survey',         confidence: 0.75 },
 ]

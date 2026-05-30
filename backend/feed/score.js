@@ -21,6 +21,7 @@
 //     genuine anomaly + kinematic confirmation can still outrank them.
 
 const { classifyCallsign, classifySquawk } = require('../context/callsign')
+const { classifyAircraft } = require('../context/aircraft')
 const { detectOrbit } = require('../context/orbit')
 
 // ── Weights ─────────────────────────────────────────────────────────────────
@@ -64,15 +65,30 @@ function scoreFlight({ flight, track = null, anomaly = null } = {}) {
     setPrimary(`squawk ${flight.squawk} — ${squawkTag.tag.replace(/_/g, ' ')}`)
   }
 
-  // ── 2. Callsign priors ─────────────────────────────────────────────────
-  const csTags = classifyCallsign(flight.callsign)
-  for (const t of csTags) {
+  // ── 2. Aircraft classifier (callsign + type + operator + curated hex) ───
+  // v5.7.7 — replaces the bare callsign classifier with the multi-signal
+  // classifyAircraft(), which dedups across all four sources and returns
+  // refined helicopter-use tags (helicopter_news, helicopter_ems, etc.).
+  // The category (wide_body / narrow_body / business_jet / etc.) feeds the
+  // size/use chip in the dossier and feed UI.
+  const acClass = classifyAircraft({
+    icao:     flight.icao,
+    acType:   flight.acType,
+    operator: flight.acOperator,
+    callsign: flight.callsign,
+  })
+  for (const t of acClass.tags) {
     const w = Math.round(t.confidence * CALLSIGN_BASE)
     score += w
-    tags.push({ label: t.tag, weight: w, source: 'callsign' })
+    tags.push({ label: t.tag, weight: w, source: t.source })
   }
-  if (csTags[0]) {
-    setPrimary(csTags[0].tag.replace(/_/g, ' '))
+  if (acClass.tags[0]) {
+    setPrimary(acClass.tags[0].tag.replace(/_/g, ' '))
+  }
+  if (acClass.category) {
+    // Category is informational, doesn't add score — but surface it so the
+    // UI can render a category chip ("wide_body", "business_jet", etc.).
+    tags.push({ label: acClass.category, weight: 0, source: 'category' })
   }
 
   // ── 3. Active anomaly ──────────────────────────────────────────────────
@@ -139,6 +155,14 @@ function isCandidate(flight) {
   if (classifyCallsign(flight.callsign).length > 0) return true
   if ((flight.routeDeviation || 0) > 50) return true
   if (flight.mil) return true
+  // v5.7.7 — also gate on hex-list match (e.g. AF1) and on news/EMS/police
+  // operator hits. classifyAircraft() does the work; we only check the
+  // tags array length to avoid recomputing in scoreFlight().
+  const ac = classifyAircraft({
+    icao: flight.icao, acType: flight.acType,
+    operator: flight.acOperator, callsign: flight.callsign,
+  })
+  if (ac.tags.length > 0) return true
   // Potential orbit: slow + low + airborne. We won't *know* until we run
   // orbit detection, but that needs the DB; this gate keeps the candidate
   // pool to a tractable size.

@@ -100,6 +100,50 @@ function MapInvalidator() {
   return null
 }
 
+// Sync this map's pan/zoom with a shared viewState. When viewState changes
+// from outside (another panel moved), apply via setView. When the user
+// pans/zooms this panel, broadcast via onViewChange. The applyingExternalRef
+// flag prevents the external apply from triggering its own broadcast (which
+// would create an infinite ping-pong between panels).
+function ViewSync({ viewState, onViewChange }) {
+  const map = useMap()
+  const applyingExternalRef = useRef(false)
+
+  // Apply external viewState changes to the map.
+  useEffect(() => {
+    if (!viewState) return
+    const c = map.getCenter()
+    const z = map.getZoom()
+    const dLat = Math.abs(c.lat - viewState.center[0])
+    const dLng = Math.abs(c.lng - viewState.center[1])
+    if (dLat < 0.001 && dLng < 0.001 && z === viewState.zoom) return  // no-op
+    applyingExternalRef.current = true
+    map.setView(viewState.center, viewState.zoom, { animate: false })
+  }, [viewState, map])
+
+  // Broadcast user-driven moves.
+  useEffect(() => {
+    if (!onViewChange) return
+    const handler = () => {
+      if (applyingExternalRef.current) {
+        applyingExternalRef.current = false
+        return
+      }
+      const c = map.getCenter()
+      const z = map.getZoom()
+      onViewChange({ center: [c.lat, c.lng], zoom: z })
+    }
+    map.on('moveend', handler)
+    map.on('zoomend', handler)
+    return () => {
+      map.off('moveend', handler)
+      map.off('zoomend', handler)
+    }
+  }, [map, onViewChange])
+
+  return null
+}
+
 function pirepIcon(intensity) {
   const colors = { SEV: '#ff3333', EXTRM: '#ff3333', 'MOD-SEV': '#ff6600', MOD: '#ffcc00', 'LGT-MOD': '#888', LGT: '#666' }
   const c = colors[intensity] || '#888'
@@ -215,23 +259,78 @@ function LayerBtn({ active, onClick, color, children, count }) {
 
 // ── Main component ───────────��───────────────────────────────────��──────────
 
-export default function NasMap({ backendOk, onSelectAirport, compact = false, flights: propFlights, trackedIcaos, trackHistory }) {
+export default function NasMap({
+  backendOk, onSelectAirport, compact = false,
+  flights: propFlights, trackedIcaos, trackHistory,
+  // ── v5.7 quadrant-mode props ───────────────────────────────────────────
+  // categoryFilter: array of layer keys ['flights', 'sigmets', ...]. When
+  //   provided, the toggle UI is hidden and only the listed layers render.
+  //   Used by MapQuadrants to scope each panel to one category.
+  // viewState / onViewChange: optional shared center+zoom for cross-panel
+  //   pan/zoom sync. When set, this map's viewport tracks viewState and
+  //   broadcasts user pans/zooms back via onViewChange.
+  // hideControls: explicit override to hide the controls bar even without
+  //   a categoryFilter (e.g. embedding NasMap inside another chrome).
+  categoryFilter, viewState, onViewChange, hideControls,
+  // staticView: disables pan + scroll-zoom + zoom buttons. Used for
+  // thumbnail maps where the user isn't meant to interact — the whole
+  // tile is click-to-promote instead. Tooltips still work (layer data
+  // is still rendered, just with no navigation).
+  staticView,
+  // onSummaryChange({ counts, headlines }) — fires whenever the visible
+  // data changes. counts: object of layer-key → count. headlines: array
+  // of up-to-3 named items (the "what's worth looking at" rows shown in
+  // the panel header strip). Lets MapQuadrants render a summary line
+  // per panel without duplicating fetches.
+  onSummaryChange,
+  // mapData — when provided, NasMap uses this lifted dataset instead of
+  // running its own fetch effects. Required when several NasMap instances
+  // are on the same page (MapQuadrants); otherwise each one would fire
+  // ~10 endpoints every 30 s and choke the backend event loop.
+  mapData,
+}) {
   const { nasSummary, flights: swimFlights, flowEvents, notamAirports } = useSwim()
   const flights = propFlights || swimFlights
 
+  // categoryFilter mode: layers come from the prop, toggle UI is hidden.
+  // We still maintain the show* state so all downstream useMemo/useEffect
+  // dependencies keep working — it just gets driven by the filter prop
+  // instead of by user clicks.
+  const filterMode = Array.isArray(categoryFilter)
+  const inFilter = (k) => filterMode && categoryFilter.includes(k)
+
   // Layer toggles — default OFF for busy layers, ON for key operational layers
-  const [showIfrPositions, setShowIfrPositions] = useState(false)
-  const [showFlights, setShowFlights] = useState(false)
-  const [showCascades, setShowCascades] = useState(true)
-  const [showSigmets, setShowSigmets] = useState(true)
-  const [showPireps, setShowPireps] = useState(false)
-  const [showTfrs, setShowTfrs] = useState(true)
-  const [showAnomalies, setShowAnomalies] = useState(true)
-  const [showWxCells, setShowWxCells] = useState(true)
-  const [showNotams, setShowNotams] = useState(true)
-  const [showFlowPrograms, setShowFlowPrograms] = useState(true)
-  const [showTracon, setShowTracon] = useState(false)
-  const [showRouteDevs, setShowRouteDevs] = useState(true)
+  const [showIfrPositions, setShowIfrPositions] = useState(filterMode ? inFilter('ifr') : false)
+  const [showFlights, setShowFlights] = useState(filterMode ? inFilter('flights') : false)
+  const [showCascades, setShowCascades] = useState(filterMode ? inFilter('cascades') : true)
+  const [showSigmets, setShowSigmets] = useState(filterMode ? inFilter('sigmets') : true)
+  const [showPireps, setShowPireps] = useState(filterMode ? inFilter('pireps') : false)
+  const [showTfrs, setShowTfrs] = useState(filterMode ? inFilter('tfrs') : true)
+  const [showAnomalies, setShowAnomalies] = useState(filterMode ? inFilter('anomalies') : true)
+  const [showWxCells, setShowWxCells] = useState(filterMode ? inFilter('wxCells') : true)
+  const [showNotams, setShowNotams] = useState(filterMode ? inFilter('notams') : true)
+  const [showFlowPrograms, setShowFlowPrograms] = useState(filterMode ? inFilter('flowPrograms') : true)
+  const [showTracon, setShowTracon] = useState(filterMode ? inFilter('tracon') : false)
+  const [showRouteDevs, setShowRouteDevs] = useState(filterMode ? inFilter('routeDevs') : true)
+
+  // Sync show* state when categoryFilter changes (parent re-renders with a
+  // new array). No-op when filter mode is off — user retains manual control.
+  useEffect(() => {
+    if (!filterMode) return
+    setShowIfrPositions(inFilter('ifr'))
+    setShowFlights(inFilter('flights'))
+    setShowCascades(inFilter('cascades'))
+    setShowSigmets(inFilter('sigmets'))
+    setShowPireps(inFilter('pireps'))
+    setShowTfrs(inFilter('tfrs'))
+    setShowAnomalies(inFilter('anomalies'))
+    setShowWxCells(inFilter('wxCells'))
+    setShowNotams(inFilter('notams'))
+    setShowFlowPrograms(inFilter('flowPrograms'))
+    setShowTracon(inFilter('tracon'))
+    setShowRouteDevs(inFilter('routeDevs'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryFilter && categoryFilter.join('|')])
 
   // Correlation-layer toggles (v5.1.0) — persisted in localStorage.
   const readToggle = (name, def) => {
@@ -247,11 +346,22 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
     }
     return [v, wrapped]
   }
-  const [showFires,     setShowFires]     = useLsToggle('fires', false)
-  const [showEvents,    setShowEvents]    = useLsToggle('events', false)
-  const [showQuakes,    setShowQuakes]    = useLsToggle('quakes', false)
-  const [showVolcanoes, setShowVolcanoes] = useLsToggle('volcanoes', false)
-  const [showWebcams,   setShowWebcams]   = useLsToggle('webcams', false)
+  const [showFires,     setShowFires]     = useLsToggle('fires',     filterMode ? inFilter('fires')     : false)
+  const [showEvents,    setShowEvents]    = useLsToggle('events',    filterMode ? inFilter('events')    : false)
+  const [showQuakes,    setShowQuakes]    = useLsToggle('quakes',    filterMode ? inFilter('quakes')    : false)
+  const [showVolcanoes, setShowVolcanoes] = useLsToggle('volcanoes', filterMode ? inFilter('volcanoes') : false)
+  const [showWebcams,   setShowWebcams]   = useLsToggle('webcams',   filterMode ? inFilter('webcams')   : false)
+
+  // Sync correlation-layer toggles when the categoryFilter changes too.
+  useEffect(() => {
+    if (!filterMode) return
+    setShowFires(inFilter('fires'))
+    setShowEvents(inFilter('events'))
+    setShowQuakes(inFilter('quakes'))
+    setShowVolcanoes(inFilter('volcanoes'))
+    setShowWebcams(inFilter('webcams'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryFilter && categoryFilter.join('|')])
 
   // Fetched data (map-specific, not from SwimContext)
   const [sigmets, setSigmets] = useState([])
@@ -274,9 +384,34 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
   const [webcams, setWebcams]     = useState([])
   const [ctxError, setCtxError]   = useState(null)
 
-  // Fetch all map layer data (staggered refresh)
+  // Sync local state from lifted mapData when provided. This bypasses the
+  // internal fetch effects entirely so multiple NasMap instances under
+  // the same parent share one set of upstream calls.
   useEffect(() => {
-    if (!backendOk) return
+    if (!mapData) return
+    setSigmets(mapData.sigmets || [])
+    setPireps(mapData.pireps || [])
+    setTfrs(mapData.tfrs || [])
+    setAnomalies(mapData.anomalies || [])
+    setHotspots(mapData.hotspots || [])
+    setTerminalWx(mapData.terminalWx || [])
+    setRouteDeviations(mapData.routeDeviations || [])
+    setIfrPositions(mapData.ifrPositions || [])
+    setSurfacePositions(mapData.surfacePositions || [])
+    setWeatherDelays(mapData.weatherDelays || null)
+    setSectorData(mapData.sectorData || [])
+    setFires(mapData.fires || [])
+    setEonetEvents(mapData.eonetEvents || [])
+    setQuakes(mapData.quakes || [])
+    setVolcanoes(mapData.volcanoes || [])
+    setWebcams(mapData.webcams || [])
+    if (mapData.ctxError !== undefined) setCtxError(mapData.ctxError)
+  }, [mapData])
+
+  // Fetch all map layer data (staggered refresh) — skipped when mapData
+  // is supplied externally (the MapQuadrants path).
+  useEffect(() => {
+    if (!backendOk || mapData) return
     let cancelled = false
     const refresh = () => {
       Promise.allSettled([
@@ -310,11 +445,12 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
     refresh()
     const id = setInterval(refresh, 30_000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [backendOk])
+  }, [backendOk, mapData])
 
   // ── Correlation-layer fetch (v5.1.0) — only fires when any toggle is on ──
+  // Skipped when mapData is supplied externally (parent owns the geo fetch).
   useEffect(() => {
-    if (!backendOk) return
+    if (!backendOk || mapData) return
     const active = []
     if (showFires)     active.push('fires')
     if (showEvents)    active.push('events')
@@ -342,7 +478,7 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
     // Refresh cadence matches FIRMS cache TTL (10 min) to avoid burning quota.
     const id = setInterval(refresh, 5 * 60_000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [backendOk, showFires, showEvents, showQuakes, showVolcanoes, showWebcams])
+  }, [backendOk, mapData, showFires, showEvents, showQuakes, showVolcanoes, showWebcams])
 
   const airports = nasSummary?.airports || []
 
@@ -535,10 +671,143 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
   const gsCount = airports.filter(a => a.hasGS).length
   const gdpCount = airports.filter(a => a.hasGDP).length
 
+  // ── Summary report-up to MapQuadrants headlines strip ─────────────────
+  // Fires when any of the visible-data arrays change. We compute the top-3
+  // "what matters" items per category here because the data is already in
+  // memory and ranked. MapQuadrants then renders this as plain-language
+  // headlines under each panel header — the user shouldn't have to decode
+  // icons to know "KOW186 is squawking 7500."
+  useEffect(() => {
+    if (!onSummaryChange) return
+    const counts = {
+      flights:      Array.isArray(flights) ? flights.length : 0,
+      anomalies:    anomalyPoints.length,
+      routeDevs:    devLines.length,
+      ifr:          ifrPositions.length,
+      tracon:       surfacePositions.length,
+      sigmets:      sigmetPolys.length,
+      pireps:       pirepPoints.length,
+      wxCells:      wxPoints.length,
+      tfrs:         tfrPolys.length,
+      notams:       notamMarkers.length,
+      flowPrograms: flowProgramMarkers.length,
+      flowGs:       gsCount,
+      flowGdp:      gdpCount,
+      fires:        fires.length,
+      events:       eonetEvents.length,
+      quakes:       quakes.length,
+      volcanoes:    volcanoes.length,
+      webcams:      webcams.length,
+    }
+
+    // Compute top-3 headlines per category. Each entry: { kind, label, detail }
+    // kind drives the chip color in MapHeadlines. Sorted by severity within
+    // each picker. We always pick 3 across all categories — MapQuadrants
+    // will filter to the ones that match its categoryFilter.
+    const headlines = []
+
+    // Anomalies — highest score first.
+    const sortedAnoms = [...anomalyPoints].sort((a, b) => (b.score || 0) - (a.score || 0))
+    for (const a of sortedAnoms.slice(0, 3)) {
+      headlines.push({
+        cat: 'traffic',
+        kind: a.severity === 'CRITICAL' ? 'critical' : a.severity === 'HIGH' ? 'high' : 'medium',
+        label: a.callsign || a.icao,
+        detail: a.category || a.reasons?.[0] || 'anomaly',
+      })
+    }
+    // Off-route diversions (only if no critical anomalies above)
+    if (sortedAnoms.filter(a => a.severity === 'CRITICAL').length < 2) {
+      const sortedDevs = [...devLines].sort((a, b) => (b.deviation_km || 0) - (a.deviation_km || 0))
+      for (const d of sortedDevs.slice(0, 2)) {
+        headlines.push({
+          cat: 'traffic', kind: 'off-route',
+          label: d.callsign || '—',
+          detail: `${Math.round(d.deviation_km || 0)}km off route`,
+        })
+      }
+    }
+
+    // Severe SIGMETs first.
+    const sortedSigmets = [...sigmetPolys].sort((a, b) => {
+      const rank = { CONVECTIVE: 3, ICE: 2, TURB: 1 }
+      return (rank[b.hazard] || 0) - (rank[a.hazard] || 0)
+    })
+    for (const s of sortedSigmets.slice(0, 3)) {
+      headlines.push({
+        cat: 'weather', kind: s.hazard?.toLowerCase() || 'sigmet',
+        label: s.hazard || 'SIGMET', detail: (s.raw || '').slice(0, 40),
+      })
+    }
+    // Severe PIREPs (top 2 most severe)
+    const sortedPireps = [...pirepPoints].filter(p => /SEV|MOD/.test(p.turb || '')).slice(0, 2)
+    for (const p of sortedPireps) {
+      headlines.push({
+        cat: 'weather', kind: p.turb?.includes('SEV') ? 'critical' : 'medium',
+        label: 'PIREP', detail: `${p.turb || ''} turb @ FL${p.fl || '?'}`,
+      })
+    }
+
+    // Flow events: GS first, then GDP, then TFRs.
+    const gsAirports = airports.filter(a => a.hasGS).slice(0, 3)
+    for (const ap of gsAirports) {
+      headlines.push({
+        cat: 'constraints', kind: 'critical',
+        label: ap.airport.replace(/^K/, ''), detail: 'ground stop',
+      })
+    }
+    const gdpAirports = airports.filter(a => a.hasGDP && !a.hasGS).slice(0, 3)
+    for (const ap of gdpAirports) {
+      headlines.push({
+        cat: 'constraints', kind: 'high',
+        label: ap.airport.replace(/^K/, ''), detail: 'GDP active',
+      })
+    }
+    for (const t of tfrPolys.slice(0, 2)) {
+      headlines.push({
+        cat: 'constraints', kind: 'high',
+        label: 'TFR', detail: t.location || (t.text || '').slice(0, 40) || 'restriction',
+      })
+    }
+
+    // Geo: largest quakes first, active volcanoes, then biggest fires.
+    const sortedQuakes = [...quakes].sort((a, b) => (b.mag || 0) - (a.mag || 0))
+    for (const q of sortedQuakes.slice(0, 2)) {
+      headlines.push({
+        cat: 'geo', kind: (q.mag || 0) >= 5 ? 'critical' : 'medium',
+        label: `M${(q.mag || 0).toFixed(1)}`,
+        detail: q.place || 'earthquake',
+      })
+    }
+    for (const v of volcanoes.slice(0, 2)) {
+      headlines.push({
+        cat: 'geo', kind: v.alert_level === 'WARNING' ? 'critical' : 'high',
+        label: v.volcano_name || 'volcano', detail: v.alert_level || 'alert',
+      })
+    }
+    if (fires.length > 0) {
+      headlines.push({
+        cat: 'geo', kind: 'medium',
+        label: `${fires.length} fires`, detail: 'FIRMS active hotspots',
+      })
+    }
+
+    onSummaryChange({ counts, headlines })
+  }, [
+    onSummaryChange, flights, anomalyPoints, devLines, ifrPositions, surfacePositions,
+    sigmetPolys, pirepPoints, wxPoints, tfrPolys, notamMarkers, flowProgramMarkers,
+    fires, eonetEvents, quakes, volcanoes, webcams, airports, gsCount, gdpCount,
+  ])
+
+  // Hide controls when (a) compact embedding, (b) caller asked, or
+  // (c) we're filter-locked into one category (toggles would be misleading
+  // since the categoryFilter overrides them).
+  const showControls = !compact && !hideControls && !filterMode
+
   return (
     <div className={clsx('bg-bg1', compact && 'h-full flex flex-col min-h-0')}>
       {/* Controls — hidden in compact mode to save vertical space */}
-      {!compact && (
+      {showControls && (
       <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border flex flex-wrap gap-1 justify-between items-center">
         <span className="flex items-center gap-1.5">
           <span>US airspace</span>
@@ -588,8 +857,20 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
         className={compact ? 'flex-1 min-h-0' : undefined}
         style={compact ? undefined : { height: 'min(78vh, 760px)', minHeight: 520 }}
       >
-        <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={true} scrollWheelZoom={false} attributionControl={false}>
+        <MapContainer
+          center={[39, -96]} zoom={4}
+          className="h-full w-full" style={{ background: '#1a1a1a' }}
+          zoomControl={!staticView}
+          scrollWheelZoom={false}
+          dragging={!staticView}
+          doubleClickZoom={!staticView}
+          touchZoom={!staticView}
+          boxZoom={!staticView}
+          keyboard={!staticView}
+          attributionControl={false}>
+
           <MapInvalidator />
+          {(viewState || onViewChange) && <ViewSync viewState={viewState} onViewChange={onViewChange} />}
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
 
           {/* ── SIGMET polygons (weather hazards) ─────────────────────────── */}

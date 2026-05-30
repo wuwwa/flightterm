@@ -4,7 +4,7 @@
 
 const axios = require('axios')
 const { EventEmitter } = require('events')
-const { scoreAnomaly, ANOMALY_THRESHOLD } = require('./anomaly')
+const { scoreAnomaly, ANOMALY_THRESHOLD, AIRPORTS } = require('./anomaly')
 const { parseRoute, polylineCrossTrackDistKm } = require('./route-parser')
 const db = require('./db')
 
@@ -55,6 +55,17 @@ let baselineCache = new Map()      // "KJFK→KLAX" → baseline object
 let pollTimer = null
 let baselineTimer = null
 let running = false
+
+// ── Flight lifecycle state ─────────────────────────────────────────────────
+// Drives the "cleanup on landing" path in cleanupLandedFlights().
+const groundedStreak = new Map()   // icao → consecutive cycles seen with grounded=1
+const purgedCallsigns = new Map()  // callsign → expiry ms (don't re-purge within TTL)
+let lastLifecycleCheckIso = new Date(0).toISOString() // watermark for TFMS/STDDS lookups
+
+const GROUNDED_STREAK_THRESHOLD = 3            // cycles of grounded=1 before we'll call it landed
+const NEAR_DEST_NM = 5                         // "arrived at destination" radius (nautical miles)
+const LOST_AFTER_MS = 5 * 60 * 1000            // 5 min without a sighting → lost/landed
+const PURGED_TTL_MS = 30 * 60 * 1000           // once purged, ignore same callsign for 30 min
 
 // ── OpenSky dual-key auth ───────────────────────────────────────────────────
 // Supports two sets of credentials. Each key gets 4000 credits/day.
@@ -416,6 +427,7 @@ function updateTrackHistory(flights) {
       ts: now, lat: f.lat, lon: f.lon, alt: f.alt, vel: f.vel,
       hdg: f.hdg, grounded: f.grounded, vertRate: f.vertRate,
       geoAlt: f.geoAlt, posSrc: f.posSrc, ndb: f.ndb,
+      callsign: f.callsign || null,
     })
 
     if (arr.length > MAX_SNAPSHOTS) arr.shift()
@@ -469,7 +481,6 @@ function buildEnrichment(f) {
           arrLon = enrich.flightroute.destination?.longitude
         }
         if ((!depLat || !arrLat) && plan.dep_arpt && plan.arr_arpt) {
-          const { AIRPORTS } = require('./anomaly')
           if (!depLat) { const a = AIRPORTS.find(a => a.icao === plan.dep_arpt); if (a) { depLat = a.lat; depLon = a.lon } }
           if (!arrLat) { const a = AIRPORTS.find(a => a.icao === plan.arr_arpt); if (a) { arrLat = a.lat; arrLon = a.lon } }
         }
@@ -621,6 +632,199 @@ async function fetchWeatherContext(anomalyFlights) {
   return null
 }
 
+// ── Flight lifecycle cleanup ────────────────────────────────────────────────
+// End-to-end flight tracking: when a flight lands, drop its rows immediately
+// instead of waiting for the 2h time-based retention. Signals used (any one
+// fires the cleanup):
+//
+//   1. TFMS flight_plan.ata is set (authoritative, 1–5 min after touchdown)
+//   2. STDDS surface_events ON event matches the callsign (~40 majors only)
+//   3. grounded=1 for GROUNDED_STREAK_THRESHOLD cycles AND within
+//      NEAR_DEST_NM of the TFMS destination airport
+//   4. No sighting in LOST_AFTER_MS (5 min) — treat as landed/lost
+//
+// On detection: cascade-delete sightings, anomalies, flight_positions, and
+// flight_plans for the flight, plus clear in-memory poller state for the icao.
+// A per-callsign TTL (purgedCallsigns) prevents re-purging the same flight
+// within 30 min if a stale ata signal retriggers.
+
+function distNm(lat1, lon1, lat2, lon2) {
+  // Haversine great-circle distance in nautical miles.
+  if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return Infinity
+  const R = 3440.065 // Earth radius, nm
+  const toRad = (d) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(a))
+}
+
+function clearPollerStateForIcao(icao) {
+  trackHistory.delete(icao)
+  activeAnomalies.delete(icao)
+  anomalyMisses.delete(icao)
+  pendingAnomalies.delete(icao)
+  enrichCache.delete(icao)
+  groundedStreak.delete(icao)
+}
+
+async function cleanupLandedFlights(flights) {
+  const now = Date.now()
+  const nowIso = new Date(now).toISOString()
+  const landedCallsigns = new Set()
+  const stats = { tfms: 0, stdds: 0, nearDest: 0, lost: 0 }
+
+  // Signal 1: TFMS ata set since last check.
+  try {
+    const tfmsLanded = db.getLandedFlightPlans(lastLifecycleCheckIso)
+    stats.tfms = tfmsLanded.length
+    for (const acid of tfmsLanded) if (acid) landedCallsigns.add(acid)
+  } catch (err) {
+    console.warn('lifecycle: tfms landed lookup failed:', err.message)
+  }
+
+  // Signal 2: STDDS ON events since last check.
+  try {
+    const stddsLanded = db.getLandingSurfaceEvents(lastLifecycleCheckIso)
+    stats.stdds = stddsLanded.length
+    for (const cs of stddsLanded) if (cs) landedCallsigns.add(cs)
+  } catch (err) {
+    console.warn('lifecycle: stdds landed lookup failed:', err.message)
+  }
+
+  lastLifecycleCheckIso = nowIso
+
+  // Signal 3: grounded streak near destination airport.
+  const seenIcaos = new Set()
+  for (const f of flights) {
+    seenIcaos.add(f.icao)
+    if (f.grounded) {
+      const streak = (groundedStreak.get(f.icao) || 0) + 1
+      groundedStreak.set(f.icao, streak)
+      if (streak >= GROUNDED_STREAK_THRESHOLD && f.callsign) {
+        const enrich = enrichCache.get(f.icao)
+        const destLat = enrich?.tfms?.arr_lat ?? enrich?.flightroute?.destination?.latitude
+        const destLon = enrich?.tfms?.arr_lon ?? enrich?.flightroute?.destination?.longitude
+        if (destLat != null && destLon != null) {
+          if (distNm(f.lat, f.lon, destLat, destLon) < NEAR_DEST_NM) {
+            landedCallsigns.add(f.callsign)
+            stats.nearDest++
+          }
+        }
+      }
+    } else {
+      groundedStreak.delete(f.icao)
+    }
+  }
+
+  // Signal 4: aircraft in trackHistory that we haven't seen this cycle and
+  // whose last sample is older than LOST_AFTER_MS. Treat as landed/lost.
+  const lostIcaos = []
+  for (const [icao, snapshots] of trackHistory.entries()) {
+    if (seenIcaos.has(icao)) continue
+    const lastSnap = snapshots[snapshots.length - 1]
+    if (!lastSnap?.ts) continue
+    if (now - lastSnap.ts > LOST_AFTER_MS) {
+      lostIcaos.push(icao)
+    }
+  }
+  stats.lost = lostIcaos.length
+
+  // Map callsigns to icaos using the current poll's flight list so cascade
+  // delete hits both identifier columns.
+  const csToIcao = new Map()
+  for (const f of flights) {
+    if (f.callsign && landedCallsigns.has(f.callsign)) {
+      csToIcao.set(f.callsign, f.icao)
+    }
+  }
+
+  // Skip callsigns already purged within the TTL window (dedup the signals).
+  const fresh = []
+  for (const cs of landedCallsigns) {
+    const exp = purgedCallsigns.get(cs)
+    if (!exp || exp <= now) fresh.push(cs)
+  }
+
+  let totalRowsDeleted = 0
+
+  // Cap per-cycle work at MAX_CLEANUP_PER_CYCLE flights. Anything over the
+  // cap is deferred to subsequent cycles (the lost icaos stay in
+  // trackHistory and re-trigger next time, which is the same end state).
+  // Without this cap, a single recovery from a wedge could blast 1000+
+  // cascade-deletes into the loop in one shot — observed: 1007 flights
+  // × ~20 rows each = 20k DB ops in rapid succession, which then wedges
+  // the loop again. The cap turns a recovery cliff into a recovery slope.
+  const MAX_CLEANUP_PER_CYCLE = 100
+  const overCap = (fresh.length + lostIcaos.length) > MAX_CLEANUP_PER_CYCLE
+  if (overCap) {
+    console.warn(
+      `lifecycle: ${fresh.length + lostIcaos.length} flights to clean ` +
+      `(over ${MAX_CLEANUP_PER_CYCLE} cap); deferring rest to next cycle`
+    )
+  }
+  // Slice to the cap. fresh first (signal-driven), then lost (filler).
+  const freshSlice = fresh.slice(0, MAX_CLEANUP_PER_CYCLE)
+  const lostBudget = Math.max(0, MAX_CLEANUP_PER_CYCLE - freshSlice.length)
+  const lostSlice = lostIcaos.slice(0, lostBudget)
+
+  // Cascade delete for each landed callsign. Unknown icao is OK — the delete
+  // just skips the icao-keyed tables. Yield every CLEANUP_CHUNK deletes so a
+  // big batch doesn't block the event loop for 5+ seconds.
+  const CLEANUP_CHUNK = 20
+  let chunkCounter = 0
+  for (const cs of freshSlice) {
+    const icao = csToIcao.get(cs) || null
+    try {
+      totalRowsDeleted += db.deleteFlightArtifacts({ icao, callsign: cs })
+    } catch (err) {
+      console.warn('lifecycle: cascade delete failed for', cs, err.message)
+    }
+    if (icao) clearPollerStateForIcao(icao)
+    purgedCallsigns.set(cs, now + PURGED_TTL_MS)
+    if (++chunkCounter % CLEANUP_CHUNK === 0) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+  }
+
+  // Lost-from-feed aircraft: we have the icao but may not know the callsign.
+  // Last-known callsign from the trackHistory snapshot lets us also drop the
+  // flight_plans + flight_positions rows. Capped via lostSlice above.
+  for (const icao of lostSlice) {
+    const snapshots = trackHistory.get(icao)
+    const lastCall = snapshots?.[snapshots.length - 1]?.callsign || null
+    try {
+      totalRowsDeleted += db.deleteFlightArtifacts({ icao, callsign: lastCall })
+    } catch (err) {
+      console.warn('lifecycle: cascade delete failed for lost icao', icao, err.message)
+    }
+    clearPollerStateForIcao(icao)
+    if (lastCall) purgedCallsigns.set(lastCall, now + PURGED_TTL_MS)
+    if (++chunkCounter % CLEANUP_CHUNK === 0) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+  }
+
+  // GC expired purgedCallsigns entries so the Map doesn't leak.
+  for (const [cs, exp] of purgedCallsigns) {
+    if (exp < now) purgedCallsigns.delete(cs)
+  }
+
+  const purgedNow = freshSlice.length + lostSlice.length
+  const deferred = (fresh.length + lostIcaos.length) - purgedNow
+  if (purgedNow > 0) {
+    console.log(
+      `lifecycle: purged ${purgedNow} landed/lost flights ` +
+      `(tfms=${stats.tfms}, stdds=${stats.stdds}, nearDest=${stats.nearDest}, ` +
+      `lost=${stats.lost}, rows=${totalRowsDeleted}` +
+      (deferred > 0 ? `, deferred=${deferred}` : '') +
+      `)`
+    )
+  }
+}
+
 // ── Core polling cycle ───────────────────────────────────────────────────────
 
 async function pollCycle() {
@@ -674,85 +878,120 @@ async function pollCycle() {
 
   // When anomaly detection is off, the dashboard has everything it needs
   // (latestFlights + enrichCache + the kicked-off background HTTP enrichment).
-  // Skip scoring, persistence gating, history tracking, weather context,
-  // anomaly resolution, and recordAnomalies — all anomaly-only work.
+  // Skip scoring, persistence gating, weather context, anomaly resolution,
+  // and recordAnomalies — all anomaly-only work. But we still maintain
+  // trackHistory (for the lost-from-feed lifecycle signal) and run the
+  // landed-flight cleanup.
   if (!ANOMALY_DETECTION_ENABLED) {
-    // Background enrichment still runs — it's async + non-blocking and feeds
-    // the dashboard's flight detail panels with adsbdb metadata.
     enrichAircraftBackground(flights).catch((err) =>
       console.warn('poller: background enrichment error:', err.message)
     )
+    updateTrackHistory(flights)
+    await cleanupLandedFlights(flights)
     return
   }
 
   // 2b. Score each aircraft BEFORE updating history.
   //    scoreAnomaly compares current flight against the last snapshot (prev).
   //    If we update history first, prev === current and all deltas are 0.
+  //
+  //    IMPORTANT: this loop must yield the event loop every SCORE_CHUNK flights.
+  //    scoreAnomaly is CPU-heavy JS (branching + math) and we also do two DB
+  //    reads per flight with a TFMS destination. With 6000–7000 flights/cycle,
+  //    the unchunked version blocked the event loop for 20–40s, which tripped
+  //    Fly health checks and caused the SWIM worker's HTTP POSTs to time out.
+  //
+  //    Destination-airport lookups (flow events, terminal weather) are memoized
+  //    for the duration of this cycle — many flights share the same arr_arpt,
+  //    so without memoization we'd hit the DB ~2000x per cycle for ~300 unique
+  //    destinations.
   const newAnomalies = {}
   const anomalyFlights = []
   let enrichStats = { scored: 0, withRoute: 0, withApl: 0, withAdsbfi: 0, withAny: 0 }
 
-  for (const f of flights) {
-    const hist = trackHistory.get(f.icao)
-    if (!hist || hist.length < 2) continue
+  const flowEventsByArpt = new Map()
+  const terminalWxByArpt = new Map()
+  const getFlowEventsCached = (arpt) => {
+    if (flowEventsByArpt.has(arpt)) return flowEventsByArpt.get(arpt)
+    const v = db.getFlowEventsByAirport(arpt, 5)
+    flowEventsByArpt.set(arpt, v)
+    return v
+  }
+  const getTerminalWxCached = (arpt) => {
+    if (terminalWxByArpt.has(arpt)) return terminalWxByArpt.get(arpt)
+    const v = db.getTerminalWeatherByAirport ? db.getTerminalWeatherByAirport(arpt, 5) : []
+    terminalWxByArpt.set(arpt, v)
+    return v
+  }
 
-    const enrich = buildEnrichment(f)
-    enrichStats.scored++
-    if (enrich?.flightroute) enrichStats.withRoute++
-    if (enrich?.apl) enrichStats.withApl++
-    if (enrich?.adsbfi) enrichStats.withAdsbfi++
-    if (enrich) enrichStats.withAny++
+  const SCORE_CHUNK = 500
+  for (let ci = 0; ci < flights.length; ci += SCORE_CHUNK) {
+    const slice = flights.slice(ci, ci + SCORE_CHUNK)
+    for (const f of slice) {
+      const hist = trackHistory.get(f.icao)
+      if (!hist || hist.length < 2) continue
 
-    // Inject destination flow events + weather for TFMS-aware scoring (steps 17-18)
-    if (enrich?.tfms?.arr_arpt) {
-      try {
-        const destArpt = enrich.tfms.arr_arpt
-        const flowEvts = db.getFlowEventsByAirport(destArpt, 5)
-        if (flowEvts.length > 0) {
-          enrich._destFlowEvents = {
-            hasGS: flowEvts.some(e => e.event_type === 'GS'),
-            hasGDP: flowEvts.some(e => e.event_type === 'GDP'),
+      const enrich = buildEnrichment(f)
+      enrichStats.scored++
+      if (enrich?.flightroute) enrichStats.withRoute++
+      if (enrich?.apl) enrichStats.withApl++
+      if (enrich?.adsbfi) enrichStats.withAdsbfi++
+      if (enrich) enrichStats.withAny++
+
+      // Inject destination flow events + weather for TFMS-aware scoring (steps 17-18)
+      if (enrich?.tfms?.arr_arpt) {
+        try {
+          const destArpt = enrich.tfms.arr_arpt
+          const flowEvts = getFlowEventsCached(destArpt)
+          if (flowEvts.length > 0) {
+            enrich._destFlowEvents = {
+              hasGS: flowEvts.some(e => e.event_type === 'GS'),
+              hasGDP: flowEvts.some(e => e.event_type === 'GDP'),
+            }
           }
-        }
-        const wxEvts = db.getTerminalWeatherByAirport ? db.getTerminalWeatherByAirport(destArpt, 5) : []
-        if (wxEvts.length > 0) {
-          enrich._destWeather = wxEvts
-        }
-      } catch {}
-    }
+          const wxEvts = getTerminalWxCached(destArpt)
+          if (wxEvts.length > 0) {
+            enrich._destWeather = wxEvts
+          }
+        } catch {}
+      }
 
-    // Look up per-route baseline if route is known
-    let baseline = null
-    if (enrich?.flightroute) {
-      const orig = enrich.flightroute.origin?.icao_code
-      const dest = enrich.flightroute.destination?.icao_code
-      if (orig && dest) {
-        const key = `${orig}→${dest}`
-        baseline = baselineCache.get(key) || null
+      // Look up per-route baseline if route is known
+      let baseline = null
+      if (enrich?.flightroute) {
+        const orig = enrich.flightroute.origin?.icao_code
+        const dest = enrich.flightroute.destination?.icao_code
+        if (orig && dest) {
+          const key = `${orig}→${dest}`
+          baseline = baselineCache.get(key) || null
+        }
+      }
+
+      const result = scoreAnomaly(hist, f, enrich, weatherContext, flights, baseline)
+
+      if (result.score >= ANOMALY_THRESHOLD) {
+        newAnomalies[f.icao] = {
+          icao: f.icao,
+          callsign: f.callsign,
+          score: result.score,
+          phase: result.phase,
+          reasons: result.reasons,
+          confirmed: result.confirmed,
+          category: result.category,
+          severity: result.severity,
+          categories: result.categories,
+          lat: f.lat,
+          lon: f.lon,
+          alt: f.alt,
+          vel: f.vel,
+          hdg: f.hdg,
+          squawk: f.squawk,
+        }
+        anomalyFlights.push(f)
       }
     }
-
-    const result = scoreAnomaly(hist, f, enrich, weatherContext, flights, baseline)
-
-    if (result.score >= ANOMALY_THRESHOLD) {
-      newAnomalies[f.icao] = {
-        icao: f.icao,
-        callsign: f.callsign,
-        score: result.score,
-        phase: result.phase,
-        reasons: result.reasons,
-        confirmed: result.confirmed,
-        category: result.category,
-        severity: result.severity,
-        categories: result.categories,
-        lat: f.lat,
-        lon: f.lon,
-        alt: f.alt,
-        vel: f.vel,
-        hdg: f.hdg,
-        squawk: f.squawk,
-      }
-      anomalyFlights.push(f)
+    if (ci + SCORE_CHUNK < flights.length) {
+      await new Promise((resolve) => setImmediate(resolve))
     }
   }
 
@@ -764,48 +1003,58 @@ async function pollCycle() {
       const aplData = await enrichAnomaliesWithApl(anomalyFlights)
       if (aplData.size > 0) {
         console.log(`poller: enriched ${aplData.size}/${anomalyFlights.length} anomalies via APL`)
-        for (const f of anomalyFlights) {
-          const apl = aplData.get(f.icao)
-          if (!apl) continue
+        // Chunked with setImmediate yields — anomalyFlights can run 200–300
+        // entries and each iteration calls scoreAnomaly again, so without
+        // yielding this block alone can freeze the loop for 1–2s.
+        const RESCORE_CHUNK = 100
+        for (let ai = 0; ai < anomalyFlights.length; ai += RESCORE_CHUNK) {
+          const slice = anomalyFlights.slice(ai, ai + RESCORE_CHUNK)
+          for (const f of slice) {
+            const apl = aplData.get(f.icao)
+            if (!apl) continue
 
-          // Store in enrichment cache for future cycles
-          const existing = enrichCache.get(f.icao) || {}
-          existing.apl = apl
-          existing._ts = Date.now()
-          enrichCache.set(f.icao, existing)
+            // Store in enrichment cache for future cycles
+            const existing = enrichCache.get(f.icao) || {}
+            existing.apl = apl
+            existing._ts = Date.now()
+            enrichCache.set(f.icao, existing)
 
-          // Evict oldest entries if cache exceeds cap
-          if (enrichCache.size > MAX_ENRICH_CACHE) {
-            const first = enrichCache.keys().next().value
-            enrichCache.delete(first)
+            // Evict oldest entries if cache exceeds cap
+            if (enrichCache.size > MAX_ENRICH_CACHE) {
+              const first = enrichCache.keys().next().value
+              enrichCache.delete(first)
+            }
+
+            // Re-score with enrichment
+            const hist = trackHistory.get(f.icao)
+            if (!hist || hist.length < 2) continue
+            const enrich = buildEnrichment(f)
+            // Look up route baseline for re-scoring
+            let reBaseline = null
+            if (enrich?.flightroute) {
+              const orig = enrich.flightroute.origin?.icao_code
+              const dest = enrich.flightroute.destination?.icao_code
+              if (orig && dest) reBaseline = baselineCache.get(`${orig}→${dest}`) || null
+            }
+            const result = scoreAnomaly(hist, f, enrich, weatherContext, flights, reBaseline)
+
+            if (result.score >= ANOMALY_THRESHOLD) {
+              // Update anomaly with enriched score
+              const anomaly = newAnomalies[f.icao]
+              anomaly.score = result.score
+              anomaly.phase = result.phase
+              anomaly.reasons = result.reasons
+              anomaly.confirmed = result.confirmed
+              anomaly.category = result.category
+              anomaly.severity = result.severity
+              anomaly.categories = result.categories
+            } else {
+              // Enrichment dropped score below threshold (e.g. military suppression)
+              delete newAnomalies[f.icao]
+            }
           }
-
-          // Re-score with enrichment
-          const hist = trackHistory.get(f.icao)
-          if (!hist || hist.length < 2) continue
-          const enrich = buildEnrichment(f)
-          // Look up route baseline for re-scoring
-          let reBaseline = null
-          if (enrich?.flightroute) {
-            const orig = enrich.flightroute.origin?.icao_code
-            const dest = enrich.flightroute.destination?.icao_code
-            if (orig && dest) reBaseline = baselineCache.get(`${orig}→${dest}`) || null
-          }
-          const result = scoreAnomaly(hist, f, enrich, weatherContext, flights, reBaseline)
-
-          if (result.score >= ANOMALY_THRESHOLD) {
-            // Update anomaly with enriched score
-            const anomaly = newAnomalies[f.icao]
-            anomaly.score = result.score
-            anomaly.phase = result.phase
-            anomaly.reasons = result.reasons
-            anomaly.confirmed = result.confirmed
-            anomaly.category = result.category
-            anomaly.severity = result.severity
-            anomaly.categories = result.categories
-          } else {
-            // Enrichment dropped score below threshold (e.g. military suppression)
-            delete newAnomalies[f.icao]
+          if (ai + RESCORE_CHUNK < anomalyFlights.length) {
+            await new Promise((resolve) => setImmediate(resolve))
           }
         }
       }
@@ -946,6 +1195,15 @@ async function pollCycle() {
   enrichAircraftBackground(flights).catch(err =>
     console.warn('poller: background enrichment error:', err.message)
   )
+
+  // 10. Flight lifecycle cleanup — drop rows for flights that just landed
+  //     (TFMS ata, STDDS ON, grounded+near-dest, or lost from feed).
+  //     Cheap: ~50–100ms, bounded by number of landings since last cycle.
+  try {
+    await cleanupLandedFlights(flights)
+  } catch (err) {
+    console.warn('poller: lifecycle cleanup error:', err.message)
+  }
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────

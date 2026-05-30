@@ -27,7 +27,7 @@ async function getToken() {
   })
   const res = await axios.post(TOKEN_URL, params.toString(), {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    timeout: 10000,
+    timeout: 4000,
   })
   const expiresIn = res.data?.expires_in ?? 1800
   _cached = {

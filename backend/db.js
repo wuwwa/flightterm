@@ -900,8 +900,11 @@ const _stmts = {
     FROM notams
   `),
 
+  // Retention capped at 2h across all tables. NOTAMs that are still active
+  // get re-ingested by SWIM on each publish cycle, so dropping rows older
+  // than 3h just means we churn the table instead of accumulating.
   purgeExpiredNotams: db.prepare(`
-    DELETE FROM notams WHERE expiration IS NOT NULL AND expiration < datetime('now', '-7 days')
+    DELETE FROM notams WHERE received_at < datetime('now', '-2 hours')
   `),
 
   // Airports with active NOTAMs — grouped, with keyword counts.
@@ -1049,7 +1052,7 @@ const _stmts = {
   `),
 
   purgeOldTerminalWeather: db.prepare(`
-    DELETE FROM terminal_weather WHERE received_at < datetime('now', '-24 hours')
+    DELETE FROM terminal_weather WHERE received_at < datetime('now', '-2 hours')
   `),
 
   // Surface events (STDDS)
@@ -1084,7 +1087,7 @@ const _stmts = {
   `),
 
   purgeOldSurfaceEvents: db.prepare(`
-    DELETE FROM surface_events WHERE received_at < datetime('now', '-6 hours')
+    DELETE FROM surface_events WHERE received_at < datetime('now', '-2 hours')
   `),
 
   getFlightPlan: db.prepare(`SELECT * FROM flight_plans WHERE acid = ?`),
@@ -1290,9 +1293,11 @@ const _stmts = {
     GROUP BY cell_lat, cell_lon
   `),
 
-  // Purge old zone_daily rows (keep 90 days)
+  // Retention capped at 2h — wipe all zone_daily rows. Table kept for
+  // schema compatibility with any stale consumer; rollupYesterday is no
+  // longer called so it stays empty.
   zoneDailyPurge: db.prepare(`
-    DELETE FROM zone_daily WHERE date < DATE('now', '-90 days')
+    DELETE FROM zone_daily WHERE date < DATE('now', '+1 day')
   `),
 }
 
@@ -1849,13 +1854,80 @@ function getSurfacePositions(limit = 300) { return _stmts.getSurfacePositions.al
 function getFlowEventsByAirport(airport, limit = 10) { return _stmts.getFlowEventsByAirport.all(airport, limit) }
 function getTfmsStats() { return _stmts.getTfmsStats.get() }
 
-const TFMS_PLANS_RETENTION_HOURS = Number(process.env.TFMS_PLANS_RETENTION_HOURS) || 4
-const TFMS_FLOW_RETENTION_HOURS = Number(process.env.TFMS_FLOW_RETENTION_HOURS) || 12
+const TFMS_PLANS_RETENTION_HOURS = Number(process.env.TFMS_PLANS_RETENTION_HOURS) || 2
+const TFMS_FLOW_RETENTION_HOURS = Number(process.env.TFMS_FLOW_RETENTION_HOURS) || 2
 
 function purgeOldTfms() {
   const plans = _stmts.purgeOldFlightPlans.run({ hours: TFMS_PLANS_RETENTION_HOURS }).changes
   const events = _stmts.purgeOldFlowEvents.run({ hours: TFMS_FLOW_RETENTION_HOURS }).changes
   return { plans, events }
+}
+
+// ── Flight lifecycle cleanup ────────────────────────────────────────────────
+// When a flight lands (TFMS ata set, STDDS ON event, grounded+near-dest, or
+// lost from feed), we cascade-delete all its rows instead of waiting for the
+// 2h time-based retention to catch them. Sentiment: "once landed, it's gone."
+//
+// The poller calls these functions from its per-cycle lifecycle step. DB
+// writes are batched in one transaction per flight so concurrent readers
+// don't see half-cleaned state.
+
+const _stmtGetLandedFlightPlans = db.prepare(`
+  SELECT acid, ata FROM flight_plans
+  WHERE ata IS NOT NULL
+    AND acid IS NOT NULL
+    AND updated_at > ?
+`)
+
+const _stmtGetLandingSurfaceEvents = db.prepare(`
+  SELECT DISTINCT callsign FROM surface_events
+  WHERE event_type = 'ON'
+    AND callsign IS NOT NULL
+    AND received_at > ?
+`)
+
+const _stmtDelSightingsByIcao = db.prepare('DELETE FROM sightings WHERE icao = ?')
+const _stmtDelAnomaliesByIcao = db.prepare('DELETE FROM anomalies WHERE icao = ?')
+const _stmtDelPositionsByCall = db.prepare('DELETE FROM flight_positions WHERE callsign = ?')
+const _stmtDelPlanByAcid = db.prepare('DELETE FROM flight_plans WHERE acid = ?')
+const _stmtDelFetchesByNoIcao = db.prepare(
+  `DELETE FROM fetches WHERE id NOT IN (SELECT DISTINCT fetch_id FROM sightings WHERE fetch_id IS NOT NULL)`
+)
+
+// Callsigns (acids) whose flight_plan.ata was just set. Pass the last-seen
+// timestamp (ISO); returns raw array of acids to feed into deleteFlightArtifacts.
+function getLandedFlightPlans(sinceIso) {
+  return _stmtGetLandedFlightPlans.all(sinceIso).map((r) => r.acid)
+}
+
+// Callsigns that triggered an STDDS ON (landed) event since sinceIso.
+function getLandingSurfaceEvents(sinceIso) {
+  return _stmtGetLandingSurfaceEvents.all(sinceIso).map((r) => r.callsign)
+}
+
+// Cascade-delete all rows for one flight. icao and callsign can both be null
+// (nothing to do). Returns the total changes across all tables.
+function deleteFlightArtifacts({ icao = null, callsign = null } = {}) {
+  if (!icao && !callsign) return 0
+  let total = 0
+  const txn = db.transaction(() => {
+    if (icao) {
+      total += _stmtDelSightingsByIcao.run(icao).changes
+      total += _stmtDelAnomaliesByIcao.run(icao).changes
+    }
+    if (callsign) {
+      total += _stmtDelPositionsByCall.run(callsign).changes
+      total += _stmtDelPlanByAcid.run(callsign).changes
+    }
+  })
+  txn()
+  return total
+}
+
+// Sweep orphaned fetch rows (fetch_id no longer referenced by any sighting).
+// Called sparingly because it's a scan, not an indexed lookup.
+function sweepOrphanedFetches() {
+  try { return _stmtDelFetchesByNoIcao.run().changes } catch { return 0 }
 }
 
 function getAnomaliesByZone(cellLat, cellLon, hours = 168, limit = 30) {
@@ -2135,7 +2207,7 @@ function getDbSize() {
 // Retention window for raw sightings + fetches. The app is now used purely as
 // a dashboard (no anomaly detection), so we don't need historical sightings —
 // only enough to populate any "recent activity" UI. Tunable via PURGE_AFTER_HOURS.
-const PURGE_AFTER_HOURS = Number(process.env.PURGE_AFTER_HOURS) || 1
+const PURGE_AFTER_HOURS = Number(process.env.PURGE_AFTER_HOURS) || 2
 
 // Hard cap on the SQLite file size (incl. WAL/SHM). After every purge cycle
 // we trim the largest growth tables until the file is back under this cap.
@@ -2148,39 +2220,76 @@ function getPurgeCutoff() {
   return new Date(Date.now() - PURGE_AFTER_HOURS * 3600_000).toISOString()
 }
 
-function purgeOldSightings(cutoff) {
-  const before = _stmts.countSightings.get().c
+// Chunk size for purge DELETEs. better-sqlite3 holds the event loop for the
+// duration of a single sync DELETE — observed 30–35s on a 100 MB DB when
+// the regular purge tried to drop 34k sightings in one shot. Chunking with
+// setImmediate yields between batches keeps the loop responsive: each chunk
+// of 2000 rows takes ~50–150 ms, after which the loop drains pending HTTP +
+// health probes before the next chunk.
+const PURGE_CHUNK_ROWS = 2000
 
-  const archiveAndDelete = db.transaction(() => {
-    _stmts.archiveToDailySummary.run(cutoff)
-    const del = _stmts.deleteOldSightings.run(cutoff)
-    _stmts.deleteOldFetches.run(cutoff)
-    return del.changes
-  })
-
-  const deleted = archiveAndDelete()
-  if (deleted > 0) {
-    db.exec('ANALYZE')
-    console.log(`  purge: archived ${deleted} sightings older than ${PURGE_AFTER_HOURS}h (${before} → ${_stmts.countSightings.get().c} rows)`)
+async function _chunkedDelete(table, idCol, whereClause, params, label) {
+  let total = 0
+  for (let i = 0; i < 500; i++) {  // safety upper bound
+    const sql = `DELETE FROM ${table} WHERE ${idCol} IN (
+      SELECT ${idCol} FROM ${table} WHERE ${whereClause} LIMIT ${PURGE_CHUNK_ROWS}
+    )`
+    let r
+    try {
+      r = db.prepare(sql).run(...params)
+    } catch (err) {
+      console.warn(`  purge: ${label} chunk failed:`, err.message)
+      return total
+    }
+    total += r.changes
+    if (r.changes === 0) break
+    // Yield so HTTP / health probes / SWIM ingest can run before the
+    // next chunk. ~0–1 ms latency per yield, but uncaps the responsiveness
+    // wins from chunking.
+    await new Promise((resolve) => setImmediate(resolve))
   }
-  return deleted
+  return total
 }
 
-function purgeOldAnomalies(cutoff) {
-  const del = db.prepare('DELETE FROM anomalies WHERE detected_at < ?').run(cutoff)
-  if (del.changes > 0) {
-    console.log(`  purge: deleted ${del.changes} anomalies older than ${PURGE_AFTER_HOURS}h`)
+async function purgeOldSightings(cutoff) {
+  const before = _stmts.countSightings.get().c
+
+  // Chunked. The original single-transaction DELETE blocked the loop
+  // for tens of seconds on large catch-up purges (e.g. after a deploy
+  // when 30k+ rows are stale).
+  const sightingsDeleted = await _chunkedDelete(
+    'sightings', 'id', 'seen_at < ?', [cutoff], 'sightings'
+  )
+  const fetchesDeleted = await _chunkedDelete(
+    'fetches', 'id', 'fetched_at < ?', [cutoff], 'fetches'
+  )
+
+  if (sightingsDeleted > 0) {
+    console.log(`  purge: archived ${sightingsDeleted} sightings older than ${PURGE_AFTER_HOURS}h (${before} → ${_stmts.countSightings.get().c} rows; ${fetchesDeleted} fetches)`)
   }
-  return del.changes
+  return sightingsDeleted
+}
+
+async function purgeOldAnomalies(cutoff) {
+  const total = await _chunkedDelete(
+    'anomalies', 'id', 'detected_at < ?', [cutoff], 'anomalies'
+  )
+  if (total > 0) {
+    console.log(`  purge: deleted ${total} anomalies older than ${PURGE_AFTER_HOURS}h`)
+  }
+  return total
 }
 
 function purgeOldDailySummaries() {
-  // Daily summaries older than 24h can go — they've been archived to S3
-  const cutoff = new Date(Date.now() - 24 * 3600_000).toISOString().slice(0, 10)
+  // Retention cap is 2h and archiveToDailySummary is disabled — wipe the whole
+  // table on every purge cycle to clear legacy rows left over from the old
+  // 24h-retention regime. This is a DATE-keyed table so we just purge anything
+  // before tomorrow, which is everything.
+  const cutoff = new Date(Date.now() + 24 * 3600_000).toISOString().slice(0, 10)
   const before = _stmts.countDaily.get().c
   const del = db.prepare('DELETE FROM sightings_daily WHERE date < ?').run(cutoff)
   if (del.changes > 0) {
-    console.log(`  purge: deleted ${del.changes} old daily summaries (${before} → ${_stmts.countDaily.get().c} rows)`)
+    console.log(`  purge: deleted ${del.changes} daily summaries (${before} → ${_stmts.countDaily.get().c} rows)`)
   }
   return del.changes
 }
@@ -2200,8 +2309,8 @@ async function runPurgeCycle({ vacuum = true } = {}) {
   //   }
   // }
 
-  purgeOldSightings(cutoff)
-  purgeOldAnomalies(cutoff)
+  await purgeOldSightings(cutoff)
+  await purgeOldAnomalies(cutoff)
   purgeOldDailySummaries()
   purgeStaleRoutes()
 
@@ -2219,24 +2328,26 @@ async function runPurgeCycle({ vacuum = true } = {}) {
     if (positions > 0) console.log(`  purge: ${positions} old flight positions`)
     const sectors = purgeSectorCounts()
     if (sectors > 0) console.log(`  purge: ${sectors} old sector counts`)
+    const perf = purgePerfSamples(48)
+    if (perf > 0) console.log(`  purge: ${perf} old perf samples`)
   } catch (err) {
     console.warn('  purge: SWIM data purge error:', err.message)
   }
 
-  // Zone baseline rollup: aggregate yesterday's anomalies into daily zone data
-  const zoneRows = rollupYesterday()
-  if (zoneRows > 0) console.log(`  zone: rolled up ${zoneRows} zone-day records`)
+  // Zone-daily rollup disabled — retention capped at 2h, so daily aggregates
+  // have no value. Still run the purge once to drain any historical rows left
+  // from the old 90d-retention regime.
   const zonePurged = purgeZoneDaily()
-  if (zonePurged > 0) console.log(`  zone: purged ${zonePurged} zone records (>90d)`)
+  if (zonePurged > 0) console.log(`  zone: purged ${zonePurged} legacy zone records`)
 
   if (vacuum) vacuumDb()
 }
 
 function purgeStaleRoutes() {
   // Remove routes not updated in 60+ days — airline route changes, seasonal shifts
-  const del = db.prepare("DELETE FROM callsign_routes WHERE updated_at < datetime('now', '-60 days')").run()
+  const del = db.prepare("DELETE FROM callsign_routes WHERE updated_at < datetime('now', '-2 hours')").run()
   if (del.changes > 0) {
-    console.log(`  purge: deleted ${del.changes} stale route cache entries (>60d)`)
+    console.log(`  purge: deleted ${del.changes} stale route cache entries (>2h)`)
   }
   return del.changes
 }
@@ -2427,12 +2538,13 @@ function runDeferredMaintenance() {
   }, 24 * 60 * 60 * 1000).unref()
 }
 
-// Force purge — bypasses S3, deletes everything outside the retention window
-function forcePurge() {
+// Force purge — bypasses S3, deletes everything outside the retention window.
+// Now async because the chunked purges return promises.
+async function forcePurge() {
   const cutoff = getPurgeCutoff()
   console.log(`force-purge: deleting all data older than ${cutoff}`)
-  const sightings = purgeOldSightings(cutoff)
-  const anomalies = purgeOldAnomalies(cutoff)
+  const sightings = await purgeOldSightings(cutoff)
+  const anomalies = await purgeOldAnomalies(cutoff)
   const daily = purgeOldDailySummaries()
   vacuumDb()
   const remaining = _stmts.countSightings.get().c
@@ -2444,7 +2556,13 @@ function forcePurge() {
 // Schedule purge cycle every 30 minutes (was 6 hours). With PURGE_AFTER_HOURS
 // down to 1, we want to run often enough that the sightings table never builds
 // up. Each purge also enforces the hard storage cap.
-const _purgeTimer = setInterval(async () => {
+//
+// Gated on WORKER_ROLE: when the main app spawns the poller in a worker
+// thread, the worker loads db.js too — we must not run TWO purge loops
+// against the same file. Main owns maintenance; worker only reads/writes
+// its own rows. If WORKER_ROLE is set (any non-empty value) this is the
+// worker, skip the timer.
+const _purgeTimer = process.env.WORKER_ROLE ? null : setInterval(async () => {
   try {
     await runPurgeCycle({ vacuum: false })
     await enforceStorageCap()
@@ -2455,7 +2573,7 @@ const _purgeTimer = setInterval(async () => {
 
 // Graceful close: stop purge timer + close database connection
 function close() {
-  clearInterval(_purgeTimer)
+  if (_purgeTimer) clearInterval(_purgeTimer)
   try { db.close() } catch {}
 }
 
@@ -2880,10 +2998,17 @@ function getNasSummary() {
 
 // ── NAS-wide analytics (batch queries for all airports) ─────────────────────
 
-function getNasAnalytics() {
+// Each sub-query is sync better-sqlite3, so chaining all 5 back-to-back
+// blocks the loop for ~5–10s. Async + `await setImmediate` between each
+// lets the loop drain HTTP + health probes between queries. Worst single
+// sync block drops from ~10s (all 5) to whichever of the 5 is slowest
+// (~1–2s). Combined with the "background interval, never trigger from
+// request" pattern in index.js, request handlers stay fully responsive.
+async function getNasAnalytics() {
   const flowPrograms = _stmts.getActiveFlowPrograms.all()
   const flowEvents = [...flowPrograms, ...getActiveFlowEvents(100)]
   const configs = getAirportConfigs()
+  const _yield = () => new Promise((resolve) => setImmediate(resolve))
 
   // Batch: traffic counts per airport (all airports in one query)
   const trafficRows = db.prepare(`
@@ -2900,6 +3025,7 @@ function getNasAnalytics() {
     if (!traffic[r.airport]) traffic[r.airport] = { inbound: 0, outbound: 0 }
     traffic[r.airport][r.direction === 'in' ? 'inbound' : 'outbound'] = r.cnt
   }
+  await _yield()
 
   // Batch: avg taxi-out per airport (2hr baseline)
   const taxiOutRows = db.prepare(`
@@ -2916,6 +3042,7 @@ function getNasAnalytics() {
   `).all()
   const taxiBaseline = {}
   for (const r of taxiOutRows) taxiBaseline[r.airport] = { avg: r.avg, cnt: r.cnt }
+  await _yield()
 
   // Batch: avg taxi-out per airport (30-min current)
   const taxiOut30Rows = db.prepare(`
@@ -2932,6 +3059,7 @@ function getNasAnalytics() {
   `).all()
   const taxiCurrent = {}
   for (const r of taxiOut30Rows) taxiCurrent[r.airport] = { avg: r.avg, cnt: r.cnt }
+  await _yield()
 
   // Batch: avg dep/arr delay per airport
   const depDelayRows = db.prepare(`
@@ -2947,6 +3075,7 @@ function getNasAnalytics() {
   `).all()
   const depDelays = {}
   for (const r of depDelayRows) depDelays[r.airport] = { avg: Math.round(r.avg_delay), cnt: r.cnt }
+  await _yield()
 
   const arrDelayRows = db.prepare(`
     SELECT fp.arr_arpt AS airport,
@@ -3434,6 +3563,26 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_sc_sampled ON sector_counts(sampled_at);
   CREATE INDEX IF NOT EXISTS idx_sc_artcc ON sector_counts(artcc, sampled_at);
+
+  -- v5.7.6 — performance telemetry. One row per monitor interval (5s) written
+  -- by the event-loop monitor in index.js. Lets us answer "when did the
+  -- loop last wedge", "what's the 95th percentile block length over the
+  -- last hour", "was the slow period correlated with a deploy" by querying
+  -- /api/perf/samples with a time range. 48h retention, purged alongside
+  -- other retention sweeps.
+  CREATE TABLE IF NOT EXISTS perf_samples (
+    t                INTEGER PRIMARY KEY,   -- ms epoch (unique per sample; setInterval guarantees monotonic)
+    loop_max_ms      REAL,
+    loop_p99_ms      REAL,
+    swim_queue       INTEGER,
+    swim_dropped     INTEGER,
+    rss_mb           REAL,
+    heap_used_mb     REAL,
+    heap_total_mb    REAL,
+    slow_req_count   INTEGER,
+    slow_req_worst_ms REAL
+  );
+  CREATE INDEX IF NOT EXISTS idx_perf_t ON perf_samples(t);
 `)
 
 const _stmtInsertSectorCount = db.prepare(`
@@ -3494,7 +3643,7 @@ const _stmtArtccHistory = db.prepare(`
 `)
 
 const _stmtPurgeSectorCounts = db.prepare(`
-  DELETE FROM sector_counts WHERE sampled_at < datetime('now', '-3 hours')
+  DELETE FROM sector_counts WHERE sampled_at < datetime('now', '-2 hours')
 `)
 
 function getSectorCongestion() {
@@ -3511,6 +3660,85 @@ function getSectorDetail(artcc, limit = 20) {
 
 function purgeSectorCounts() {
   return _stmtPurgeSectorCounts.run().changes
+}
+
+// ── Performance samples (v5.7.6) ──────────────────────────────────────────
+// Written by the event-loop monitor in index.js every 5s. Keeps 48h of
+// data; older rows dropped by purgePerfSamples() called from the regular
+// purge cycle. One INSERT per 5s is negligible.
+const _stmtInsertPerfSample = db.prepare(`
+  INSERT OR REPLACE INTO perf_samples
+    (t, loop_max_ms, loop_p99_ms, swim_queue, swim_dropped, rss_mb, heap_used_mb, heap_total_mb, slow_req_count, slow_req_worst_ms)
+  VALUES
+    (@t, @loop_max_ms, @loop_p99_ms, @swim_queue, @swim_dropped, @rss_mb, @heap_used_mb, @heap_total_mb, @slow_req_count, @slow_req_worst_ms)
+`)
+
+function insertPerfSample(sample) {
+  try {
+    _stmtInsertPerfSample.run({
+      t:                sample.t,
+      loop_max_ms:      sample.loop_max_ms ?? null,
+      loop_p99_ms:      sample.loop_p99_ms ?? null,
+      swim_queue:       sample.swim_queue ?? null,
+      swim_dropped:     sample.swim_dropped ?? null,
+      rss_mb:           sample.rss_mb ?? null,
+      heap_used_mb:     sample.heap_used_mb ?? null,
+      heap_total_mb:    sample.heap_total_mb ?? null,
+      slow_req_count:   sample.slow_req_count ?? 0,
+      slow_req_worst_ms: sample.slow_req_worst_ms ?? null,
+    })
+  } catch (err) {
+    // Never break the monitor over a logging failure.
+    console.warn('insertPerfSample failed:', err.message)
+  }
+}
+
+const _stmtPerfSince = db.prepare(`
+  SELECT * FROM perf_samples WHERE t >= ? ORDER BY t ASC
+`)
+function getPerfSamples(sinceMs) {
+  return _stmtPerfSince.all(sinceMs)
+}
+
+// Summary over the window — returns percentiles + totals. Used by
+// /api/perf/summary for a quick "how's the loop been recently" answer.
+function getPerfSummary(sinceMs) {
+  const rows = _stmtPerfSince.all(sinceMs)
+  if (rows.length === 0) {
+    return { count: 0, windowStart: sinceMs, windowEnd: Date.now() }
+  }
+  const loopMaxes = rows.map(r => r.loop_max_ms || 0).sort((a, b) => a - b)
+  const pick = (q) => loopMaxes[Math.min(loopMaxes.length - 1, Math.floor(loopMaxes.length * q))]
+  const totalSlowReq = rows.reduce((s, r) => s + (r.slow_req_count || 0), 0)
+  const worstSlowReq = rows.reduce((m, r) => Math.max(m, r.slow_req_worst_ms || 0), 0)
+  const lastRow = rows[rows.length - 1]
+  return {
+    count: rows.length,
+    windowStart: rows[0].t,
+    windowEnd: lastRow.t,
+    loopMax: {
+      p50: pick(0.50),
+      p95: pick(0.95),
+      p99: pick(0.99),
+      max: loopMaxes[loopMaxes.length - 1],
+    },
+    slowReq: { total: totalSlowReq, worstMs: worstSlowReq || null },
+    current: {
+      rssMb:       lastRow.rss_mb,
+      heapUsedMb:  lastRow.heap_used_mb,
+      heapTotalMb: lastRow.heap_total_mb,
+      swimQueue:   lastRow.swim_queue,
+      swimDropped: lastRow.swim_dropped,
+    },
+  }
+}
+
+const _stmtPurgePerfSamples = db.prepare(
+  `DELETE FROM perf_samples WHERE t < ?`
+)
+function purgePerfSamples(retentionHours = 48) {
+  const cutoff = Date.now() - retentionHours * 3600_000
+  return _stmtPurgePerfSamples.run(cutoff).changes
 }
 
 // ── Flight positions: persist + query (SFDPS en-route trail) ────────────────
@@ -3558,7 +3786,7 @@ const _stmtGetPositionTrail = db.prepare(`
   SELECT callsign, lat, lon, altitude, speed, heading, sector, artcc, recorded_at
   FROM flight_positions
   WHERE callsign = ?
-    AND recorded_at > datetime('now', '-6 hours')
+    AND recorded_at > datetime('now', '-2 hours')
   ORDER BY recorded_at ASC
 `)
 
@@ -3567,7 +3795,7 @@ function getPositionTrail(callsign) {
 }
 
 const _stmtPurgeOldPositions = db.prepare(`
-  DELETE FROM flight_positions WHERE recorded_at < datetime('now', '-6 hours')
+  DELETE FROM flight_positions WHERE recorded_at < datetime('now', '-2 hours')
 `)
 
 function purgeOldPositions() {
@@ -3591,7 +3819,7 @@ const _stmtDepQueue = db.prepare(`
   ORDER BY a.received_at ASC
 `)
 
-// Hourly throughput: dep/arr counts in 15-min bins over last 3 hours
+// Hourly throughput: dep/arr counts in 15-min bins over last 2 hours
 const _stmtThroughputBins = db.prepare(`
   SELECT
     strftime('%H:%M', received_at, 'start of minute',
@@ -3601,7 +3829,7 @@ const _stmtThroughputBins = db.prepare(`
   FROM surface_events
   WHERE airport = ?
     AND event_type IN ('OFF', 'ON')
-    AND received_at > datetime('now', '-3 hours')
+    AND received_at > datetime('now', '-2 hours')
   GROUP BY bin
   ORDER BY bin ASC
 `)
@@ -3807,6 +4035,10 @@ module.exports = {
   getFlowEventsByAirport,
   getTfmsStats,
   purgeOldTfms,
+  getLandedFlightPlans,
+  getLandingSurfaceEvents,
+  deleteFlightArtifacts,
+  sweepOrphanedFetches,
   getAirportConfigs,
   getAirportConfig,
   insertSurfaceEvent,
@@ -3836,5 +4068,10 @@ module.exports = {
   getSectorCongestion,
   getSectorDetail,
   purgeSectorCounts,
+  // v5.7.6 perf telemetry
+  insertPerfSample,
+  getPerfSamples,
+  getPerfSummary,
+  purgePerfSamples,
   close,
 }

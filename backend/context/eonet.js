@@ -21,7 +21,7 @@ async function fetchEvents({ lat, lon, radiusKm = 200, status = 'open', days = 7
   } else {
     const res = await axios.get(BASE, {
       params: { status, days, limit: 200 },
-      timeout: 15000,
+      timeout: 4000,
     })
     raw = res.data?.events || []
     CACHE.set(cacheKey, { t: now, v: raw })

@@ -23,8 +23,8 @@ function classifyKp(kp) {
 async function fetchStatus() {
   if (CACHE.v && Date.now() - CACHE.t < TTL_MS) return CACHE.v
   const [kpRes, alertRes] = await Promise.allSettled([
-    axios.get(KP_URL, { timeout: 10000 }),
-    axios.get(ALERT_URL, { timeout: 10000 }),
+    axios.get(KP_URL, { timeout: 4000 }),
+    axios.get(ALERT_URL, { timeout: 4000 }),
   ])
 
   // Kp: take the most recent sample with kp_index set.

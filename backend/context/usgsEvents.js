@@ -20,7 +20,7 @@ async function fetchQuakes({ lat, lon, radiusKm = 500, minMag = 2.5 } = {}) {
   if (hit && now - hit.t < TTL_MS) {
     features = hit.v
   } else {
-    const res = await axios.get(QUAKE_URL, { timeout: 15000 })
+    const res = await axios.get(QUAKE_URL, { timeout: 4000 })
     features = res.data?.features || []
     CACHE.set('quakes', { t: now, v: features })
   }
@@ -55,7 +55,7 @@ async function fetchVolcanoAlerts() {
   const now = Date.now()
   if (hit && now - hit.t < TTL_MS) return hit.v
 
-  const res = await axios.get(VOLCANO_URL, { timeout: 15000 })
+  const res = await axios.get(VOLCANO_URL, { timeout: 4000 })
   const raw = Array.isArray(res.data) ? res.data : []
   // Group by volcano, keep highest alert per volcano (most recent).
   const byVolcano = new Map()

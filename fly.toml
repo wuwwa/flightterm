@@ -14,6 +14,22 @@ primary_region = 'iad'
   POLLER_ENABLED = 'true'
   CORS_ORIGIN = 'https://flightterm.fly.dev'
   SWIM_WORKER_URL = 'http://flightterm-swim.internal:3002'
+  # Global 2h retention cap. Matches in-code cutoffs for notams, terminal
+  # weather, surface events, position trails, route cache, sightings,
+  # anomalies, fetches. Anything older gets purged every 30 min.
+  PURGE_AFTER_HOURS = '2'
+  TFMS_PLANS_RETENTION_HOURS = '2'
+  TFMS_FLOW_RETENTION_HOURS = '2'
+  # With 2h retention everywhere, natural DB size is ~80–120 MB. Cap at
+  # 200 MB gives headroom without triggering the sync-VACUUM path in
+  # enforceStorageCap() (that path blocks the event loop for 20–40s).
+  STORAGE_CAP_MB = '200'
+  # 600 req/min/IP — dashboard's aggregate polling (LiveFeed 12/min,
+  # NasMap 10/min, flights ~3/min, plus ~15 other panels + enrichment bursts)
+  # easily runs 40–80 req/min sustained and can spike higher on panel switches.
+  # Default 100 was sized for a hypothetical untrusted user; single dashboard
+  # use regularly tripped it. Still blocks runaway loops and abuse.
+  RATE_MAX = '600'
   # Rate limiting defaults — override here if needed
   # RATE_WINDOW_MS = '60000'
   # RATE_MAX = '100'

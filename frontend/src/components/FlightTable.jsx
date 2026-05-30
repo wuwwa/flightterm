@@ -395,19 +395,36 @@ export default function FlightTable({ flights, filter, selectedIcao, enrichCache
               )}
               onClick={() => onSelect(f)}
             >
-              {/* Single-line dense row: callsign type route | alt spd v/r phase */}
-              <div className="flex items-baseline gap-1 text-[9px] tabular-nums">
+              {/* Two-line mobile row.
+                  Line 1 — identity: anomaly marker · callsign · mil · type ·
+                    route · squawk-label · phase pill (right-aligned).
+                  Line 2 — metrics with unit suffixes so a user without column
+                    headers can still tell what the numbers mean.
+                  Previously a single line of bare numbers ("151 79 -138 CLB")
+                  was unreadable to anyone who didn't know the column order. */}
+              <div className="flex items-baseline gap-1 text-[10px]">
                 {anomaly && <span className="text-red">{anomaly.confirmed ? '!!' : '!'}</span>}
-                <span className="text-ylw text-[10px]">{f.callsign}</span>
+                <span className="text-ylw font-mono">{f.callsign}</span>
                 {f.mil && <span className="text-red text-[7px]">mil</span>}
-                {acType && <span className="text-fg3">{acType}</span>}
-                {route && <span className="text-fg3/60">{route}</span>}
+                {acType && <span className="text-fg3 text-[9px]">{acType}</span>}
+                {route && <span className="text-fg3/60 text-[9px]">{route}</span>}
                 {squawkLabel(f.squawk) && <span className={clsx('text-[7px]', squawkColor(f.squawk))}>{squawkLabel(f.squawk)}</span>}
                 <span className="flex-1" />
-                <span className={f.grounded ? 'text-ylw' : 'text-cyn'}>{altFt != null ? altFt.toLocaleString() : ''}</span>
-                <span className="text-fg2">{spdKt ?? ''}</span>
-                {vr != null && <span className={clsx(Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg3')}>{vr > 0 ? '+' : ''}{vr}</span>}
-                <span className={clsx('font-bold', PHASE_COLOR[phase])}>{PHASE_LABEL[phase]}</span>
+                <span className={clsx('font-bold text-[9px]', PHASE_COLOR[phase])}>{PHASE_LABEL[phase]}</span>
+              </div>
+              <div className="flex items-baseline gap-2 text-[9px] tabular-nums text-fg3 mt-0.5">
+                {altFt != null && (
+                  <span><span className="text-fg3/50">alt </span><span className={f.grounded ? 'text-ylw' : 'text-cyn'}>{altFt.toLocaleString()}</span><span className="text-fg3/50">ft</span></span>
+                )}
+                {spdKt != null && (
+                  <span><span className="text-fg3/50">spd </span><span className="text-fg2">{spdKt}</span><span className="text-fg3/50">kt</span></span>
+                )}
+                {vr != null && (
+                  <span><span className="text-fg3/50">v/r </span><span className={clsx(Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg3')}>{vr > 0 ? '+' : ''}{vr}</span><span className="text-fg3/50">fpm</span></span>
+                )}
+                {f.icao && (
+                  <span className="ml-auto text-fg3/40">{f.icao}</span>
+                )}
               </div>
             </div>
           )

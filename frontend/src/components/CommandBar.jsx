@@ -27,6 +27,10 @@ export default function CommandBar({
 }) {
   const [time, setTime] = useState('')
   const [remaining, setRemaining] = useState(null)
+  // mobileExpanded: when true on < sm, the region/settings/usage/clear/clock
+  // cluster slides into a second row. Default collapsed so the bar stays at
+  // ~24 px on phones instead of wrapping to 4 rows of ~120 px total.
+  const [mobileExpanded, setMobileExpanded] = useState(false)
   const { status: swimStatus } = useSwim()
 
   // v5.6.0 — suggestions dropdown. Debounced search + keyboard-nav open-dossier.
@@ -256,21 +260,23 @@ export default function CommandBar({
         )}
       </div>
 
-      {/* Region selector */}
-      <div className="flex gap-0.5 items-center">
+      {/* Region selector — desktop only (mobile shows in expanded panel below) */}
+      <div className="hidden sm:flex gap-0.5 items-center">
         {REGIONS.map(r => (
           <Pill key={r} active={region === r} onClick={() => onRegionChange(r)}>{r}</Pill>
         ))}
       </div>
 
-      {/* Controls */}
-      <span className="text-border2">|</span>
-      <Pill onClick={onOpenSettings}>settings</Pill>
-      <Pill onClick={onOpenUsage}>usage</Pill>
-      <Pill danger onClick={onClearLog}>clear</Pill>
+      {/* Controls — desktop only */}
+      <span className="text-border2 hidden sm:inline">|</span>
+      <span className="hidden sm:inline-flex gap-2 items-center">
+        <Pill onClick={onOpenSettings}>settings</Pill>
+        <Pill onClick={onOpenUsage}>usage</Pill>
+        <Pill danger onClick={onClearLog}>clear</Pill>
+      </span>
 
-      {/* Right: live status + clock */}
-      <div className="flex items-center gap-1.5 ml-auto shrink-0">
+      {/* Right: live status + clock — desktop only */}
+      <div className="hidden sm:flex items-center gap-1.5 ml-auto shrink-0">
         {remaining != null && (
           <span className={clsx(
             'tabular-nums',
@@ -286,6 +292,47 @@ export default function CommandBar({
         )}
         <span className="text-fg3 tabular-nums">{time}</span>
       </div>
+
+      {/* Mobile-only: a single live dot + disclosure toggle. Tapping opens
+          the second row with regions/settings/usage/clear/clock. */}
+      <div className="sm:hidden flex items-center gap-1 ml-auto shrink-0">
+        {backendOk && lastFetchAt ? (
+          <span className="animate-blink text-grn">●</span>
+        ) : (
+          <span className={backendOk ? 'text-ylw' : 'text-red'}>○</span>
+        )}
+        <button
+          className="text-fg3 hover:text-fg2 px-1.5 border border-border text-[12px] leading-none"
+          onClick={() => setMobileExpanded(v => !v)}
+          aria-label={mobileExpanded ? 'collapse controls' : 'expand controls'}
+        >
+          {mobileExpanded ? '×' : '⋯'}
+        </button>
+      </div>
+
+      {/* Mobile expanded row — full-width second line containing every control
+          we hid above. Stacked vertically when narrow so nothing overflows. */}
+      {mobileExpanded && (
+        <div className="sm:hidden basis-full flex flex-wrap items-center gap-x-2 gap-y-1 pt-1 mt-1 border-t border-border">
+          <div className="flex gap-0.5 items-center flex-wrap">
+            {REGIONS.map(r => (
+              <Pill key={r} active={region === r} onClick={() => { onRegionChange(r); setMobileExpanded(false) }}>{r}</Pill>
+            ))}
+          </div>
+          <span className="text-border2">|</span>
+          <Pill onClick={() => { onOpenSettings(); setMobileExpanded(false) }}>settings</Pill>
+          <Pill onClick={() => { onOpenUsage(); setMobileExpanded(false) }}>usage</Pill>
+          <Pill danger onClick={() => { onClearLog(); setMobileExpanded(false) }}>clear</Pill>
+          <div className="flex items-center gap-1.5 ml-auto shrink-0">
+            {remaining != null && (
+              <span className={clsx('tabular-nums', remaining > 0 ? 'text-grn' : 'text-ylw animate-pulse')}>
+                {remaining > 0 ? `${remaining}s` : 'now'}
+              </span>
+            )}
+            <span className="text-fg3 tabular-nums">{time}</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

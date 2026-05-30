@@ -618,14 +618,20 @@ export default function FlightMap({ snapshots, flight, flights, fullscreen, onTo
         center={center}
         zoom={12}
         className="h-full w-full"
-        zoomControl={false}
+        zoomControl={true}
         attributionControl={false}
         dragging={true}
-        scrollWheelZoom={true}
+        scrollWheelZoom={false}
         doubleClickZoom={true}
         touchZoom={true}
         key={flight?.icao}
       >
+        {/* scrollWheelZoom=false: inline map lives inside a scrollable
+            dossier, so wheel events need to scroll the page, not zoom the
+            map. User zooms via the visible +/- control (zoomControl=true)
+            or double-click / pinch-touch. Prior behavior (scrollWheelZoom
+            true) ate wheel events and made the dossier feel broken during
+            scroll. */}
         <MapContent {...contentProps} />
       </MapContainer>
     </div>

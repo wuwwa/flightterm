@@ -23,7 +23,7 @@ async function loadAll() {
   for (let i = 0; i < 6; i++) {
     const res = await axios.get(BASE, {
       params: { api_key: KEY, limit: pageSize, start },
-      timeout: 10000,
+      timeout: 4000,
     })
     const chunk = res.data?.data || []
     for (const cam of chunk) {

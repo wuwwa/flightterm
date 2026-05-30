@@ -47,8 +47,54 @@ const tfmsFlowBuffer = []
 const routeBuffer = []
 const consumers = {}
 
+// Flush cadence — bumped from 5s → 10s at the same batch size (50). This
+// halves the per-second POST rate into the main app (was ~4 POSTs every
+// 5s = 0.8/s, now 0.4/s) while keeping throughput identical as long as
+// ingestion stays under 50 items/10s per feed. Main app's sync SQLite
+// writes on /internal/swim/* were contributing to its event-loop wedges.
 const FLUSH_BATCH = 50
-const FLUSH_INTERVAL = 5000
+const FLUSH_INTERVAL = 10000
+
+// Adaptive backpressure: if a POST takes longer than SLOW_POST_MS, we
+// infer the main app is overloaded and skip the next N flush intervals
+// to let it breathe. Exponential-ish: one slow POST costs us 1 skip;
+// repeated slow POSTs stack up to MAX_SKIPS. The skip counter burns down
+// every interval where the POST was fast, so recovery is fast too.
+const SLOW_POST_MS = 3000
+const MAX_SKIPS = 6            // up to 60s pause if main is hammered
+let _skipsRemaining = 0
+
+// Hard cap on per-feed buffer size so long backoffs don't leak memory.
+// When a buffer hits BUFFER_CAP we drop the OLDEST items, keeping the
+// newest — SWIM data ages fast anyway, and we'd rather forward recent
+// state than backlog stale messages.
+//
+// Sized at 5000 (100× FLUSH_BATCH). Normal SWIM bursts hit a few hundred
+// items/sec during busy ops — we need headroom. If we're at 5000 it's a
+// pathological situation (main wedged for ~10 min at max backoff), at
+// which point dropping is the right call.
+const BUFFER_CAP = 5000
+const _dropCounter = { fns: 0, tfmsFlight: 0, tfmsFlow: 0, routes: 0, _lastLog: 0 }
+function capBuffer(name, buf) {
+  if (buf.length > BUFFER_CAP) {
+    const dropped = buf.length - BUFFER_CAP
+    buf.splice(0, dropped)
+    _dropCounter[name] = (_dropCounter[name] || 0) + dropped
+    // Log at most once per 10s to avoid flooding the log during sustained
+    // overflow (which is already a diagnostic signal in itself).
+    const now = Date.now()
+    if (now - _dropCounter._lastLog > 10_000) {
+      const summary = ['fns', 'tfmsFlight', 'tfmsFlow', 'routes']
+        .map(k => `${k}=${_dropCounter[k] || 0}`).join(' ')
+      console.warn(`swim-service: buffer overflow (last 10s) ${summary} — main app overloaded or backpressure active`)
+      _dropCounter.fns = 0
+      _dropCounter.tfmsFlight = 0
+      _dropCounter.tfmsFlow = 0
+      _dropCounter.routes = 0
+      _dropCounter._lastLog = now
+    }
+  }
+}
 
 const feedStats = {
   fns: { received: 0, processed: 0 },
@@ -66,10 +112,25 @@ const mainApi = axios.create({
 })
 
 async function postToMain(path, data) {
+  const t0 = Date.now()
   try {
     await mainApi.post(path, data)
   } catch (err) {
     console.error(`swim-service: POST ${path} failed:`, err.message)
+    // Treat any failure as "main is overloaded" — max skip budget.
+    _skipsRemaining = MAX_SKIPS
+    return
+  }
+  const ms = Date.now() - t0
+  if (ms > SLOW_POST_MS) {
+    // Main took a long time to ack this POST. It's likely wedged doing
+    // heavy sync work. Back off for 1 extra interval; if we see more
+    // slow responses we'll stack up to MAX_SKIPS.
+    _skipsRemaining = Math.min(MAX_SKIPS, _skipsRemaining + 1)
+    console.warn(`swim-service: slow POST ${path} (${ms}ms) — backing off ${_skipsRemaining} interval(s)`)
+  } else if (_skipsRemaining > 0) {
+    // Good response: burn down the skip budget fast so we recover quickly.
+    _skipsRemaining = Math.max(0, _skipsRemaining - 1)
   }
 }
 
@@ -106,6 +167,7 @@ function handleFnsMessage(xml, props) {
 
   if (!notam) return
   fnsBuffer.push({ notam, xml: xml || null })
+  capBuffer('fns', fnsBuffer)
   feedStats.fns.processed++
 }
 
@@ -128,7 +190,10 @@ function handleTfmsMessage(xml, props) {
 
   if (msgClass === 'flow') {
     const event = parseFlowData(xml, props)
-    if (event) tfmsFlowBuffer.push(event)
+    if (event) {
+      tfmsFlowBuffer.push(event)
+      capBuffer('tfmsFlow', tfmsFlowBuffer)
+    }
   } else {
     const flights = parseFlightData(xml, props)
     for (const fp of flights) {
@@ -145,6 +210,8 @@ function handleTfmsMessage(xml, props) {
         })
       }
     }
+    capBuffer('tfmsFlight', tfmsFlightBuffer)
+    capBuffer('routes', routeBuffer)
   }
   feedStats.tfms.processed++
 }
@@ -300,8 +367,22 @@ async function startAll() {
     console.log(`swim-service: ${active.length} feed(s) active: ${active.join(', ')}`)
   }
 
-  // Flush durable data to main app every 5s
+  // Flush durable data to main app on the FLUSH_INTERVAL cadence. The
+  // _skipsRemaining counter provides adaptive backpressure — when main
+  // is wedged, postToMain() sees slow responses and bumps the counter,
+  // causing us to skip subsequent flushes until main is healthy again.
+  // Items stay in the buffers and go out on the next allowed flush.
   setInterval(async () => {
+    if (_skipsRemaining > 0) {
+      _skipsRemaining--
+      if (_skipsRemaining % 2 === 0) {
+        const pending =
+          fnsBuffer.length + tfmsFlightBuffer.length +
+          tfmsFlowBuffer.length + routeBuffer.length
+        console.warn(`swim-service: skipping flush (${_skipsRemaining} skips remain, ${pending} items buffered)`)
+      }
+      return
+    }
     await flushFns()
     await flushTfms()
   }, FLUSH_INTERVAL)

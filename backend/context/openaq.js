@@ -23,7 +23,7 @@ async function fetchNearbyAQ({ lat, lon, radiusKm = 15, limit = 10 } = {}) {
   const locRes = await axios.get(`${BASE}/locations`, {
     params: { coordinates: `${lat},${lon}`, radius: radiusMeters, limit },
     headers: headers(),
-    timeout: 15000,
+    timeout: 4000,
   })
   const locs = locRes.data?.results || []
 
@@ -33,7 +33,7 @@ async function fetchNearbyAQ({ lat, lon, radiusKm = 15, limit = 10 } = {}) {
     const closest = locs[0]
     try {
       const latestRes = await axios.get(`${BASE}/locations/${closest.id}/latest`, {
-        headers: headers(), timeout: 10000,
+        headers: headers(), timeout: 4000,
       })
       latest = {
         locationId: closest.id,

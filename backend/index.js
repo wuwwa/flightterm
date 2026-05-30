@@ -23,9 +23,18 @@ const { getStatus: getS3Status, isEnabled: s3IsEnabled } = require('./s3archive'
 const rateLimit = require('express-rate-limit')
 
 const path = require('path')
-const poller = require('./poller')
+// v5.7.5 — poller now runs in a worker thread so sync DB writes + anomaly
+// scoring can't wedge the main event loop that serves HTTP. poller-host is
+// a drop-in facade that keeps the same API (start/stop/getFlights/
+// getStatus/anomalyEvents/getActiveKeyCount/getRouteDeviationsLive).
+const poller = require('./poller-host')
 const swim = require('./swim')
 const app = express()
+// Fly routes all traffic through fly-proxy. Without this, every request
+// appears to come from the proxy's internal IP, which (a) makes per-IP rate
+// limiting useless (one bucket for everyone) and (b) hides the real client IP
+// from logs. Trust the first proxy hop (Fly is the only hop we terminate at).
+app.set('trust proxy', 1)
 const PORT = process.env.PORT || 3001
 const AERO_BASE = 'https://aeroapi.flightaware.com/aeroapi'
 const AERO_CAP = 5.00 // hard cap in USD — do not change
@@ -42,7 +51,10 @@ app.use(express.json({ limit: '10mb' }))
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 // Configurable via .env — defaults are sane for single-user / small-team use
 const RATE_WINDOW_MS = Number(process.env.RATE_WINDOW_MS) || 60_000       // 1 minute
-const RATE_MAX       = Number(process.env.RATE_MAX)       || 100          // requests per window
+// 600/min = 10 req/s per IP. Sized for the dashboard's aggregate polling:
+// LiveFeed 12/min + NasMap 10/min + flights 3/min + ~15 other panels at
+// varying cadences + enrichment bursts. Still blocks runaway loops or abuse.
+const RATE_MAX       = Number(process.env.RATE_MAX)       || 600
 const SSE_MAX_PER_IP = Number(process.env.SSE_MAX_PER_IP) || 5            // concurrent SSE connections
 const SSE_TIMEOUT_MS = Number(process.env.SSE_TIMEOUT_MS) || 5 * 60_000   // 5 minutes
 const POST_MAX_ITEMS = Number(process.env.POST_MAX_ITEMS) || 2000         // max array items per POST
@@ -52,6 +64,12 @@ app.use('/api/', rateLimit({
   max: RATE_MAX,
   standardHeaders: true,
   legacyHeaders: false,
+  // Fly's health probes and the SWIM worker's internal POSTs hit /api/health/*
+  // and /internal/swim/* on a fixed schedule. Exempting them keeps the user's
+  // quota clean and prevents health probes from ever getting 429'd. Note:
+  // req.path is relative to the '/api/' mount, so '/health/live' is what we
+  // see here for a request to '/api/health/live'.
+  skip: (req) => req.originalUrl.startsWith('/api/health') || req.originalUrl.startsWith('/internal/'),
   message: { error: 'rate limit exceeded — try again shortly' },
 }))
 
@@ -62,15 +80,34 @@ app.use('/api/', (_req, res, next) => {
   next()
 })
 
-// ── Slow request logger ──────────────────────────────────────────────────────
+// ── Slow request logger + counter ───────────────────────────────────────────
 // Records when a route handler runs sync work that blocks the event loop. We
 // already have the perf_hooks monitor flagging when the loop blocks; this
 // pinpoints WHICH endpoint caused it. Logs anything over 500ms.
+//
+// Also tracks rolling counters consumed by the perf-sample writer below —
+// the counters are reset every sample interval so each row in perf_samples
+// reflects "slow requests during this 5s window."
+let _slowReqCount = 0
+let _slowReqWorstMs = 0
+// Perf-sampling state — see the event-loop monitor below for how these
+// throttle DB writes to ~1/minute during healthy operation.
+let _perfSampleTick = 0          // rotates 0..2, write only on 0
+let _lastPerfWriteAt = 0          // ms epoch of last actual insert
+function drainSlowReqCounters() {
+  const out = { count: _slowReqCount, worstMs: _slowReqWorstMs || null }
+  _slowReqCount = 0
+  _slowReqWorstMs = 0
+  return out
+}
+
 app.use('/api/', (req, res, next) => {
   const t0 = Date.now()
   res.on('finish', () => {
     const ms = Date.now() - t0
     if (ms > 500) {
+      _slowReqCount++
+      if (ms > _slowReqWorstMs) _slowReqWorstMs = ms
       console.warn(`slow-req ${ms}ms ${req.method} ${req.originalUrl}`)
     }
   })
@@ -85,17 +122,60 @@ function cachePrivate(res, maxAge) {
   res.set('Cache-Control', `private, max-age=${maxAge}`)
 }
 
-// ── In-memory memoization for heavy aggregation endpoints ────────────────────
+// ── Stale-while-revalidate memoization for heavy aggregation endpoints ──────
 // Frontend dashboards poll multiple SWIM analytics endpoints simultaneously.
-// Some of those run multi-table joins that take seconds. Memoize the result
-// so concurrent callers share one computation, and re-run at most every TTL.
+// Some of those run multi-table joins that take seconds on better-sqlite3
+// (sync, blocks the event loop).
+//
+// Previous behaviour: classic memoize — on cache expiry the NEXT request
+// recomputed synchronously on the request path, blocking the loop for
+// seconds. That was the documented "prime suspect for multi-second
+// event-loop blocks" (see nasAnalytics handler for history).
+//
+// Current behaviour: stale-while-revalidate. When the cache is stale,
+// return the stale value immediately AND schedule a background refresh
+// via setImmediate. The refresh still runs sync SQL (because
+// better-sqlite3 is sync), but it runs OFF the request's tick, so the
+// HTTP response is never waiting on it. Concurrent stale hits share one
+// in-flight refresh via the `refreshing` flag — we never stack up
+// parallel refreshes of the same key.
+//
+// First-hit requests still pay the sync cost once (cold cache), but
+// every subsequent request — including across TTL rollovers — returns
+// instantly. TTL becomes an "async refresh trigger," not a "block now."
+//
+// Cache entries: { t: ms, v: value, refreshing: bool }
 const _memoCache = new Map()
 function memoized(key, ttlMs, fn) {
   const now = Date.now()
   const hit = _memoCache.get(key)
+
+  // Fresh: serve from memory.
   if (hit && now - hit.t < ttlMs) return hit.v
+
+  // Stale with a value: serve stale + kick off background refresh.
+  if (hit && hit.v !== undefined) {
+    if (!hit.refreshing) {
+      hit.refreshing = true
+      setImmediate(() => {
+        try {
+          const fresh = fn()
+          _memoCache.set(key, { t: Date.now(), v: fresh, refreshing: false })
+        } catch (err) {
+          console.warn(`memoized: bg refresh of ${key} failed:`, err.message)
+          const cur = _memoCache.get(key)
+          if (cur) cur.refreshing = false
+        }
+      })
+    }
+    return hit.v
+  }
+
+  // Cold: first-ever hit for this key. No stale value to return — must
+  // compute sync on the request path. This is a one-time cost per key;
+  // subsequent requests hit the SWR path above.
   const v = fn()
-  _memoCache.set(key, { t: now, v })
+  _memoCache.set(key, { t: now, v, refreshing: false })
   return v
 }
 
@@ -1104,19 +1184,28 @@ app.get('/api/apl/mil', (_req, res) => {
 // ── adsb.fi proxy (CORS bypass) ─────────────────────────────────────────────
 
 // GET /api/adsbfi/hex/:hex — enrich by ICAO hex
+// SWR cache: 5 min fresh / 1 h stale. adsb.fi can hang 10–16 s; serving the
+// last-known result (even if minutes old) is strictly better than blocking.
 app.get('/api/adsbfi/hex/:hex', async (req, res) => {
   cachePrivate(res, 5)
   if (!serviceAvailable('adsbfi')) {
     return res.status(503).json({ error: 'adsb.fi temporarily unavailable (circuit breaker)', retry_after: 30 })
   }
-  const t0 = Date.now()
+  const hex = req.params.hex.trim().toLowerCase()
   try {
-    const hex = req.params.hex.trim().toLowerCase()
-    const resp = await axios.get(`https://opendata.adsb.fi/api/v2/hex/${hex}`, { timeout: 10000 })
-    recordServiceOk('adsbfi', Date.now() - t0)
-    res.json(resp.data)
+    const data = await swrGet(`adsbfi:hex:${hex}`, 5 * 60_000, 60 * 60_000, async () => {
+      const t0 = Date.now()
+      try {
+        const resp = await axios.get(`https://opendata.adsb.fi/api/v2/hex/${hex}`, { timeout: 4000 })
+        recordServiceOk('adsbfi', Date.now() - t0)
+        return resp.data
+      } catch (err) {
+        recordServiceError('adsbfi', Date.now() - t0, err.message)
+        throw err
+      }
+    })
+    res.json(data)
   } catch (err) {
-    recordServiceError('adsbfi', Date.now() - t0, err.message)
     res.status(err.response?.status || 502).json({ error: err.message })
   }
 })
@@ -1127,41 +1216,53 @@ app.get('/api/adsbfi/callsign/:cs', async (req, res) => {
   if (!serviceAvailable('adsbfi')) {
     return res.status(503).json({ error: 'adsb.fi temporarily unavailable (circuit breaker)', retry_after: 30 })
   }
-  const t0 = Date.now()
+  const cs = req.params.cs.trim()
   try {
-    const cs = req.params.cs.trim()
-    const resp = await axios.get(`https://opendata.adsb.fi/api/v2/callsign/${cs}`, { timeout: 10000 })
-    recordServiceOk('adsbfi', Date.now() - t0)
-    res.json(resp.data)
+    const data = await swrGet(`adsbfi:cs:${cs}`, 5 * 60_000, 60 * 60_000, async () => {
+      const t0 = Date.now()
+      try {
+        const resp = await axios.get(`https://opendata.adsb.fi/api/v2/callsign/${cs}`, { timeout: 4000 })
+        recordServiceOk('adsbfi', Date.now() - t0)
+        return resp.data
+      } catch (err) {
+        recordServiceError('adsbfi', Date.now() - t0, err.message)
+        throw err
+      }
+    })
+    res.json(data)
   } catch (err) {
-    recordServiceError('adsbfi', Date.now() - t0, err.message)
     res.status(err.response?.status || 502).json({ error: err.message })
   }
 })
 
 // GET /api/hexdb/route/:callsign — proxy hexdb.io route lookup (no CORS from browser)
+// SWR cache: 30 min fresh / 24 h stale. Routes for a callsign change rarely
+// (mostly seasonal/airline-schedule); hexdb regularly responds 4–10 s. We'd
+// rather serve a route from this morning than hang a user on this click.
 app.get('/api/hexdb/route/:callsign', async (req, res) => {
   const cs = req.params.callsign.trim().replace(/\s+/g, '')
   if (!cs) return res.status(400).json({ error: 'missing callsign' })
   cachePublic(res, 3600)
   try {
-    const routeRes = await axios.get(`https://hexdb.io/api/v1/route/icao/${cs}`, { timeout: 8000 })
-    const routeStr = routeRes.data
-    if (!routeStr || typeof routeStr !== 'string' || !routeStr.includes('-')) {
-      return res.json({ route: null })
-    }
-    const [originIcao, destIcao] = routeStr.split('-').map(s => s.trim())
-    // Fetch airport details in parallel
-    const [originRes, destRes] = await Promise.allSettled([
-      axios.get(`https://hexdb.io/api/v1/airport/icao/${originIcao}`, { timeout: 8000 }),
-      axios.get(`https://hexdb.io/api/v1/airport/icao/${destIcao}`, { timeout: 8000 }),
-    ])
-    const parseAirport = (r, icao) => {
-      if (r.status !== 'fulfilled' || !r.value?.data) return { icao }
-      const d = r.value.data
-      return { icao, iata: d.iata || null, name: d.airport || null, lat: d.latitude != null ? parseFloat(d.latitude) : null, lon: d.longitude != null ? parseFloat(d.longitude) : null, municipality: d.municipality || null, country: d.country || null }
-    }
-    res.json({ route: { origin: parseAirport(originRes, originIcao), destination: parseAirport(destRes, destIcao), source: 'hexdb' } })
+    const data = await swrGet(`hexdb:route:${cs}`, 30 * 60_000, 24 * 60 * 60_000, async () => {
+      const routeRes = await axios.get(`https://hexdb.io/api/v1/route/icao/${cs}`, { timeout: 4000 })
+      const routeStr = routeRes.data
+      if (!routeStr || typeof routeStr !== 'string' || !routeStr.includes('-')) {
+        return { route: null }
+      }
+      const [originIcao, destIcao] = routeStr.split('-').map(s => s.trim())
+      const [originRes, destRes] = await Promise.allSettled([
+        axios.get(`https://hexdb.io/api/v1/airport/icao/${originIcao}`, { timeout: 4000 }),
+        axios.get(`https://hexdb.io/api/v1/airport/icao/${destIcao}`, { timeout: 4000 }),
+      ])
+      const parseAirport = (r, icao) => {
+        if (r.status !== 'fulfilled' || !r.value?.data) return { icao }
+        const d = r.value.data
+        return { icao, iata: d.iata || null, name: d.airport || null, lat: d.latitude != null ? parseFloat(d.latitude) : null, lon: d.longitude != null ? parseFloat(d.longitude) : null, municipality: d.municipality || null, country: d.country || null }
+      }
+      return { route: { origin: parseAirport(originRes, originIcao), destination: parseAirport(destRes, destIcao), source: 'hexdb' } }
+    })
+    res.json(data)
   } catch (err) {
     if (err.response?.status === 404) return res.json({ route: null })
     res.status(502).json({ error: err.message })
@@ -1188,6 +1289,72 @@ function memoizedAsync(key, ttlMs, fn) {
   return p
 }
 
+// ── Stale-while-revalidate cache for flaky third-party proxies ──────────────
+// Extends memoizedAsync with two TTLs:
+//   - freshMs: return cached value without touching upstream
+//   - staleMs: return cached value immediately AND kick off a background
+//     refresh; outside this window, await the upstream call
+// Concurrent callers for the same key share the in-flight refresh. If the
+// refresh fails but we still have a stale value within staleMs, we serve it
+// instead of propagating the error (graceful degradation).
+//
+// Used for /api/context/aircraft/:icao and the hexdb/adsbfi proxies whose
+// upstreams regularly take 10–30 s or fail outright.
+//
+// Cache entry shape: { value, fetchedAt, inflight }
+//   value      — last successful upstream response (undefined until first hit)
+//   fetchedAt  — Date.now() ms of that success
+//   inflight   — Promise of the in-progress refresh (null when idle)
+const _swrCache = new Map()
+const SWR_MAX_ENTRIES = 5000 // LRU-ish cap so we don't leak memory
+
+function swrGet(key, freshMs, staleMs, fetcher) {
+  const now = Date.now()
+  const entry = _swrCache.get(key) || {}
+  const age = entry.fetchedAt ? now - entry.fetchedAt : Infinity
+  const hasValue = entry.value !== undefined
+
+  // Fresh hit: serve immediately, no upstream call.
+  if (hasValue && age < freshMs) return Promise.resolve(entry.value)
+
+  // Kick off a background refresh if one isn't already in flight.
+  if (!entry.inflight) {
+    // Evict oldest entry if we're at the cap (simple LRU-ish — Maps preserve
+    // insertion order, oldest is the first key).
+    if (_swrCache.size >= SWR_MAX_ENTRIES && !_swrCache.has(key)) {
+      const oldest = _swrCache.keys().next().value
+      if (oldest) _swrCache.delete(oldest)
+    }
+
+    const p = Promise.resolve()
+      .then(() => fetcher())
+      .then((v) => {
+        _swrCache.set(key, { value: v, fetchedAt: Date.now(), inflight: null })
+        return v
+      })
+      .catch((err) => {
+        const cur = _swrCache.get(key) || {}
+        _swrCache.set(key, { value: cur.value, fetchedAt: cur.fetchedAt, inflight: null })
+        // Graceful degradation: if we have any stale value within staleMs,
+        // serve it rather than bubble the error up. Outside staleMs, throw.
+        const curAge = cur.fetchedAt ? Date.now() - cur.fetchedAt : Infinity
+        if (cur.value !== undefined && curAge < staleMs) return cur.value
+        throw err
+      })
+
+    _swrCache.set(key, { value: entry.value, fetchedAt: entry.fetchedAt, inflight: p })
+
+    // If we have a stale value in the grace window, return it immediately
+    // and let the refresh finish in the background.
+    if (hasValue && age < staleMs) return Promise.resolve(entry.value)
+    return p
+  }
+
+  // Refresh already in flight. Serve stale if available, else wait.
+  if (hasValue && age < staleMs) return Promise.resolve(entry.value)
+  return entry.inflight
+}
+
 // GET /api/weather/metar?ids=KJFK,KLAX  or  ?bbox=25,-130,50,-60
 // Memoized 90s — aviationweather.gov is slow and METARs only refresh hourly anyway.
 app.get('/api/weather/metar', async (req, res) => {
@@ -1200,7 +1367,7 @@ app.get('/api/weather/metar', async (req, res) => {
     const key = `metar:${JSON.stringify(req.query)}`
     const data = await memoizedAsync(key, 90000, async () => {
       const params = { format: 'json', ...req.query }
-      const resp = await axios.get(`${AWX_BASE}/metar`, { params, timeout: 10000 })
+      const resp = await axios.get(`${AWX_BASE}/metar`, { params, timeout: 5000 })
       return resp.data
     })
     recordServiceOk('aviationweather', Date.now() - t0)
@@ -1222,7 +1389,7 @@ app.get('/api/weather/pirep', async (req, res) => {
     const key = `pirep:${JSON.stringify(req.query)}`
     const data = await memoizedAsync(key, 90000, async () => {
       const params = { format: 'json', ...req.query }
-      const resp = await axios.get(`${AWX_BASE}/pirep`, { params, timeout: 10000 })
+      const resp = await axios.get(`${AWX_BASE}/pirep`, { params, timeout: 5000 })
       return resp.data
     })
     recordServiceOk('aviationweather', Date.now() - t0)
@@ -1244,7 +1411,7 @@ app.get('/api/weather/sigmet', async (req, res) => {
     const key = `sigmet:${JSON.stringify(req.query)}`
     const data = await memoizedAsync(key, 90000, async () => {
       const params = { format: 'json', ...req.query }
-      const resp = await axios.get(`${AWX_BASE}/airsigmet`, { params, timeout: 10000 })
+      const resp = await axios.get(`${AWX_BASE}/airsigmet`, { params, timeout: 5000 })
       return resp.data
     })
     recordServiceOk('aviationweather', Date.now() - t0)
@@ -1809,7 +1976,7 @@ app.get('/api/swim/routes/deviations', (req, res) => {
   cachePublic(res, 30)
   try {
     const { getRouteDeviations } = require('./db')
-    const { getRouteDeviationsLive } = require('./poller')
+    const { getRouteDeviationsLive } = require('./poller-host')
     const limit = Math.min(Number(req.query.limit) || 20, 50)
     const dbResults = getRouteDeviations(limit)
     const liveResults = getRouteDeviationsLive(20, limit)
@@ -1877,16 +2044,145 @@ app.get('/api/swim/sectors/:artcc', (req, res) => {
   }
 })
 
-// GET /api/swim/nas/analytics — full NAS-wide analytics (all airports, scored and ranked)
-// Memoized 60s — runs 5 large self-joins on surface_events and flight_plans.
-// This is the prime suspect for the multi-second event-loop blocks.
-app.get('/api/swim/nas/analytics', (_req, res) => {
-  cachePublic(res, 60)
+// GET /api/swim/nas/analytics — full NAS-wide analytics (all airports,
+// scored and ranked). The computation runs 5 large self-joins on
+// surface_events / flight_plans; historically this was memoized 60s but
+// the FIRST request after expiry triggered a 5–10s sync recompute on the
+// request path, wedging the event loop and cascading PC05 timeouts from
+// Fly.
+//
+// Fix: decouple the recompute from request handlers entirely. A background
+// interval (startNasAnalyticsRefresh) runs the recompute with setImmediate
+// yields between its 5 sub-queries, so even when it runs, no single block
+// exceeds ~2s. Request handlers read the last cached value from memory —
+// they NEVER trigger computation.
+let _nasAnalyticsCache = null
+let _nasAnalyticsRunning = false
+
+async function refreshNasAnalytics() {
+  if (_nasAnalyticsRunning) return  // don't stack up if one's already in flight
+  _nasAnalyticsRunning = true
   try {
     const { getNasAnalytics } = require('./db')
-    res.json(memoized('nasAnalytics', 60000, () => getNasAnalytics()))
+    _nasAnalyticsCache = await getNasAnalytics()
+  } catch (err) {
+    console.warn('nas-analytics: refresh failed:', err.message)
+  } finally {
+    _nasAnalyticsRunning = false
+  }
+}
+
+// Kick off an initial compute + interval. Initial deferred via setImmediate
+// so we don't block startup; interval fires every 60s thereafter.
+setImmediate(() => { refreshNasAnalytics() })
+setInterval(refreshNasAnalytics, 60_000).unref()
+
+// ── Cache warmers for the 6 global-key memoized endpoints ──────────────────
+// SWR (in memoized() above) avoids wedging on cache expiry, but the FIRST
+// request after startup for each of these is still a cold sync compute —
+// that's up to ~60s of cumulative sync work while the dashboard loads.
+//
+// Warming kicks off each global cache via a deferred call right after boot.
+// Each is staggered by 1s so they don't compete for the loop. After the
+// warmer runs once, the SWR path in memoized() keeps them fresh forever.
+//
+// Per-airport / per-callsign endpoints (airportOps, surfaceFlow, lifecycle,
+// posTrail, sectorDetail) can't be pre-warmed because the key space is
+// unbounded. Those still pay a one-time sync cost per unique airport/
+// callsign on first request — acceptable because users hit a bounded set
+// of airports in practice.
+function warmMemoCache() {
+  const dbm = require('./db')
+  const warmers = [
+    { key: 'activeTfrs',       ttl: 60_000, fn: () => dbm.getActiveTfrs() },
+    { key: 'activeFlightPlans', ttl: 30_000, fn: () => dbm.getActiveFlightPlans(200) },
+    { key: 'liveFeed',         ttl: 10_000, fn: () => dbm.getLiveFeed(200) },
+    { key: 'weatherDelays',    ttl: 30_000, fn: () => dbm.getWeatherDelayCausation() },
+    { key: 'sectorCongestion', ttl: 30_000, fn: () => dbm.getSectorCongestion() },
+    { key: 'nasSummary',       ttl: 30_000, fn: () => dbm.getNasSummary() },
+  ]
+  warmers.forEach((w, i) => {
+    setTimeout(() => {
+      try {
+        memoized(w.key, w.ttl, w.fn)
+      } catch (err) {
+        console.warn(`cache warm: ${w.key} failed:`, err.message)
+      }
+    }, 1000 * (i + 1))
+  })
+}
+setImmediate(warmMemoCache)
+
+// ── v5.7.6 Performance telemetry endpoints ──────────────────────────────────
+// GET /api/perf/samples?hours=1 — raw samples (one per 5s) for the window.
+//   Returns a JSON array of { t, loop_max_ms, loop_p99_ms, swim_queue,
+//   swim_dropped, rss_mb, heap_used_mb, heap_total_mb, slow_req_count,
+//   slow_req_worst_ms }. At 5s cadence × 1h = 720 rows ≈ 80KB.
+// GET /api/perf/summary?hours=1 — p50/p95/p99/max of loop_max, slow-req
+//   totals, current memory + swim queue. Cheap, summary-style for
+//   dashboard widgets.
+// GET /api/perf/samples.csv?hours=N — same as samples but CSV for import
+//   into a spreadsheet.
+app.get('/api/perf/samples', (req, res) => {
+  cachePublic(res, 5)
+  const hours = Math.min(Math.max(Number(req.query.hours) || 1, 0.1), 48)
+  const sinceMs = Date.now() - hours * 3600_000
+  try {
+    const { getPerfSamples } = require('./db')
+    res.json({ hours, sinceMs, samples: getPerfSamples(sinceMs) })
   } catch (err) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+app.get('/api/perf/summary', (req, res) => {
+  cachePublic(res, 5)
+  const hours = Math.min(Math.max(Number(req.query.hours) || 1, 0.1), 48)
+  const sinceMs = Date.now() - hours * 3600_000
+  try {
+    const { getPerfSummary } = require('./db')
+    res.json({ hours, ...getPerfSummary(sinceMs) })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get('/api/perf/samples.csv', (req, res) => {
+  const hours = Math.min(Math.max(Number(req.query.hours) || 1, 0.1), 48)
+  const sinceMs = Date.now() - hours * 3600_000
+  try {
+    const { getPerfSamples } = require('./db')
+    const rows = getPerfSamples(sinceMs)
+    const cols = ['t', 'iso', 'loop_max_ms', 'loop_p99_ms', 'swim_queue', 'swim_dropped',
+      'rss_mb', 'heap_used_mb', 'heap_total_mb', 'slow_req_count', 'slow_req_worst_ms']
+    const lines = [cols.join(',')]
+    for (const r of rows) {
+      lines.push([
+        r.t,
+        new Date(r.t).toISOString(),
+        r.loop_max_ms, r.loop_p99_ms,
+        r.swim_queue, r.swim_dropped,
+        r.rss_mb, r.heap_used_mb, r.heap_total_mb,
+        r.slow_req_count, r.slow_req_worst_ms ?? '',
+      ].join(','))
+    }
+    res.set('Content-Type', 'text/csv')
+    res.set('Content-Disposition', `attachment; filename=perf-${hours}h.csv`)
+    res.send(lines.join('\n'))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get('/api/swim/nas/analytics', (_req, res) => {
+  cachePublic(res, 60)
+  // Always serves the in-memory cache — no sync compute on the request
+  // path. Returns 503 until the first background compute populates
+  // (usually within ~2s of boot).
+  if (_nasAnalyticsCache) {
+    res.json(_nasAnalyticsCache)
+  } else {
+    res.status(503).json({ error: 'nas-analytics warming up; retry shortly' })
   }
 })
 
@@ -2259,12 +2555,32 @@ app.get('/api/context/aircraft/:icao', ctxWrap(async (req, res) => {
 
   cachePublic(res, 30)  // only set on the success path
 
-  // Pull a short track from the sightings DB to feed orbit detection.
-  let track = []
-  try { track = getAircraftTrack(icao, 60) } catch { /* ignore */ }
+  // SWR cache key — include lat/lon bucketed to ~11 km so that each correlation
+  // run is valid for ~30 s of flight at 550 kt. Aircraft moving cross-country
+  // pierces the bucket quickly (good — gets fresh context); aircraft in a
+  // pattern or on the ground reuses the cached bundle (good — we're not
+  // burning 10 external APIs on every hover).
+  //
+  // 30 s fresh / 5 min stale: the correlation bundle is mostly slow-moving
+  // environmental data (fires, weather, NOTAMs) — a few minutes old is fine.
+  const latBucket = Math.round(aircraft.lat * 10) / 10  // 0.1 deg ≈ 11 km
+  const lonBucket = Math.round(aircraft.lon * 10) / 10
+  const cacheKey = `ctx:aircraft:${icao}:${latBucket}:${lonBucket}`
 
-  const bundle = await ctx.correlation.buildContext({ aircraft, track })
-  res.json(bundle)
+  try {
+    const bundle = await swrGet(cacheKey, 30_000, 5 * 60_000, async () => {
+      // Pull a short track from the sightings DB to feed orbit detection.
+      // Kept inside the fetcher so track changes invalidate the cache via the
+      // position bucket moving.
+      let track = []
+      try { track = getAircraftTrack(icao, 60) } catch { /* ignore */ }
+      return ctx.correlation.buildContext({ aircraft, track })
+    })
+    res.json(bundle)
+  } catch (err) {
+    // If SWR has no stale value to fall back on, surface as 502.
+    res.status(502).json({ error: err.message })
+  }
 }))
 
 // POST /api/context/position — same shape but for arbitrary lat/lon + optional track
@@ -2420,23 +2736,113 @@ if (!process.env.VITEST) _server = app.listen(PORT, () => {
     console.log('  ℹ  SWIM worker not configured — set SWIM_WORKER_URL to enable')
   }
 
-  // ── Event loop lag monitor (diagnostic) ──────────────────────────────────
-  // Uses perf_hooks.monitorEventLoopDelay for accurate p99/max samples and
-  // includes the SWIM ingest queue depth so we can attribute future stalls
+  // ── Event loop lag monitor + auto-restart watchdog ──────────────────────
+  // Uses perf_hooks.monitorEventLoopDelay for accurate p99/max samples.
+  // Includes the SWIM ingest queue depth so we can attribute future stalls
   // (SWIM ingestion vs poller vs other) without guessing.
+  //
+  // The watchdog escalation: if the event loop is wedged hard enough that
+  // Fly's health probes are about to fail, exit the process so Fly restarts
+  // it. Better to take a 5–10s downtime hit than spend minutes wedged with
+  // every health check timing out and downstream services seeing PC05s.
+  //
+  // Threshold reasoning: Fly's `live` health check is interval=15s,
+  // timeout=10s, grace_period=30s. Two consecutive failures takes the
+  // machine out of load balancing. Our worst observed loop block was 48s
+  // at startup (deferred maintenance). We escalate at LOOP_RESTART_MS to
+  // restart BEFORE Fly does — controlled exit + WAL-checkpointed close
+  // beats a flyd kill. Set to 0 to disable (dev / debug).
+  const LOOP_RESTART_MS = Number(process.env.LOOP_RESTART_MS) || 25_000
+  const STARTUP_GRACE_MS = 60_000  // ignore wedges during initial deferred-maintenance burst
+  const _bootAt = Date.now()
+  let _restartArmed = false
+
   const { monitorEventLoopDelay } = require('perf_hooks')
   const _loopHist = monitorEventLoopDelay({ resolution: 50 })
   _loopHist.enable()
   setInterval(() => {
     const maxMs = _loopHist.max / 1e6
+    const p99Ms = _loopHist.percentile(99) / 1e6
+    const mem = process.memoryUsage()
     if (maxMs > 1000) {
-      const p99Ms = _loopHist.percentile(99) / 1e6
-      const mem = process.memoryUsage()
       console.warn(
         `⚠ event-loop max=${maxMs.toFixed(0)}ms p99=${p99Ms.toFixed(0)}ms ` +
         `swimQ=${swimQueue.length} swimDrop=${swimDropped} ` +
         `rss=${(mem.rss/1048576).toFixed(0)}MB heap=${(mem.heapUsed/1048576).toFixed(0)}/${(mem.heapTotal/1048576).toFixed(0)}MB`
       )
+    }
+
+    // v5.7.6 — persist a perf sample, with two mechanisms to keep telemetry
+    // overhead negligible:
+    //
+    //   1. Subsample. Monitor ticks every 5s (watchdog needs that cadence),
+    //      but we only persist every 3rd tick (~15s). Cuts insert rate 3x.
+    //   2. Skip boring rows. If loop was quiet AND no slow-reqs AND swim
+    //      queue is healthy, skip the write — UNLESS it's been >60s since
+    //      the last write (we always keep a heartbeat so gaps are visible).
+    //
+    // Result: healthy operation writes ~1 row/minute. Noisy operation writes
+    // ~1 row/15s when something's interesting. Storage stays tiny and DB
+    // write cost stays below 0.01% of main thread time.
+    _perfSampleTick = (_perfSampleTick + 1) % 3
+    if (_perfSampleTick === 0) {
+      const slow = drainSlowReqCounters()
+      const boring = maxMs < 300 && slow.count === 0 && swimQueue.length < 5
+      const timeSinceLast = Date.now() - _lastPerfWriteAt
+      if (!boring || timeSinceLast > 60_000) {
+        try {
+          const dbm = require('./db')
+          dbm.insertPerfSample({
+            t: Date.now(),
+            loop_max_ms: +maxMs.toFixed(0),
+            loop_p99_ms: +p99Ms.toFixed(0),
+            swim_queue: swimQueue.length,
+            swim_dropped: swimDropped,
+            rss_mb: +(mem.rss / 1048576).toFixed(1),
+            heap_used_mb: +(mem.heapUsed / 1048576).toFixed(1),
+            heap_total_mb: +(mem.heapTotal / 1048576).toFixed(1),
+            slow_req_count: slow.count,
+            slow_req_worst_ms: slow.worstMs,
+          })
+          _lastPerfWriteAt = Date.now()
+        } catch (err) {
+          console.warn('perf sample write failed:', err.message)
+        }
+      } else {
+        // Slow-req counts would be lost if we drained above and then skipped.
+        // drainSlowReqCounters() already returned them; we're dropping them
+        // on the floor here on purpose — zero slow reqs is the signal we're
+        // quiet. If the next interval has activity it gets its own count.
+      }
+    }
+    // Watchdog: escalate to restart if a single sample wedged us beyond
+    // the threshold AND we're past the startup grace window. We require
+    // p99 > LOOP_RESTART_MS too — a single anomalous max with healthy
+    // p99 is an outlier (e.g. GC pause), not a sustained wedge worth
+    // restarting for.
+    if (
+      LOOP_RESTART_MS > 0 &&
+      Date.now() - _bootAt > STARTUP_GRACE_MS &&
+      maxMs > LOOP_RESTART_MS &&
+      _loopHist.percentile(99) / 1e6 > LOOP_RESTART_MS / 2 &&
+      !_restartArmed
+    ) {
+      _restartArmed = true
+      console.error(
+        `‼ WATCHDOG: event loop wedged ${maxMs.toFixed(0)}ms (>${LOOP_RESTART_MS}ms threshold). ` +
+        `Initiating graceful restart so Fly probes don't time out and the ` +
+        `process gets killed mid-write. Set LOOP_RESTART_MS=0 to disable.`
+      )
+      // Try graceful first (closes DB cleanly via shutdown handler), but
+      // hard-exit on a 5s deadline so we don't get stuck in shutdown when
+      // the loop is the thing that's wedged. shutdown() is sync, but its
+      // _server.close() callback runs on the loop, which may itself be
+      // wedged — hence the timeout fallback.
+      try { shutdown('WATCHDOG') } catch (_) { /* fall through to timeout */ }
+      setTimeout(() => {
+        console.error('‼ WATCHDOG: graceful shutdown timed out, hard-exiting')
+        process.exit(137)
+      }, 5_000).unref()
     }
     _loopHist.reset()
   }, 5000).unref()

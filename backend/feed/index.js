@@ -13,7 +13,12 @@
 // Cost: step 2 trims ~5k to typically 50–300 candidates. Step 3 is N DB
 // queries for those candidates. Cached 20 s to absorb repeated polling.
 
-const poller = require('../poller')
+// v5.7.5+ — must require poller-host (the main-thread facade) instead of
+// the raw poller module. The real poller now runs in a worker thread; the
+// raw module in main thread is a zombie with empty latestFlights, which
+// caused /api/feed/interesting to return `totalFlights: 0` after the
+// worker_thread refactor.
+const poller = require('../poller-host')
 const { getAircraftTrack, getActiveAnomalies } = require('../db')
 const { scoreFlight, isCandidate } = require('./score')
 const milCache = require('./milCache')
@@ -64,6 +69,15 @@ function getInterestingFlights({ limit = DEFAULT_LIMIT } = {}) {
     const anomaly = anomalyByIcao.get((f.icao || '').toLowerCase()) || null
     const { score, primary, tags } = scoreFlight({ flight: f, track, anomaly })
     if (score >= MIN_SCORE) {
+      // Hoist the size/use category out of the tags array. classifyAircraft
+      // attaches it as `{ source: 'category', weight: 0, label: <category> }`
+      // so the frontend can chip-filter by category cleanly.
+      const catTag = (tags || []).find(t => t.source === 'category')
+      // Also surface a flat list of plain tag labels (not the weighted form),
+      // for chip-based filtering. Excludes the category pseudo-tag.
+      const labels = (tags || [])
+        .filter(t => t.source !== 'category')
+        .map(t => t.label)
       scored.push({
         icao: f.icao,
         callsign: f.callsign,
@@ -78,6 +92,8 @@ function getInterestingFlights({ limit = DEFAULT_LIMIT } = {}) {
         mil: !!f.mil,
         grounded: !!f.grounded,
         routeDeviation: f.routeDeviation || 0,
+        category: catTag?.label || null,
+        labels,
         score,
         primary,
         tags,
