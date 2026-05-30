@@ -7,7 +7,7 @@ import { useSwim } from '../../contexts/SwimContext'
 import AIRPORTS from '../../data/airports'
 import axios from 'axios'
 import { fetchSigmets, fetchPireps } from '../../services/weather'
-import { fetchAnomalyFeed, fetchAnomalyHotspots, fetchFlightPositions, fetchSurfacePositions } from '../../services/dashboard'
+import { fetchAnomalyFeed, fetchFlightPositions, fetchSurfacePositions } from '../../services/dashboard'
 import { fetchMapContext } from '../../services/contextMap'
 
 // ── Correlation-layer icons (v5.1.0) ────────────────────────────────────────
@@ -258,7 +258,6 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
   const [pireps, setPireps] = useState([])
   const [tfrs, setTfrs] = useState([])
   const [anomalies, setAnomalies] = useState([])
-  const [hotspots, setHotspots] = useState([])
   const [terminalWx, setTerminalWx] = useState([])
   const [routeDeviations, setRouteDeviations] = useState([])
   const [ifrPositions, setIfrPositions] = useState([])
@@ -284,7 +283,6 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
         fetchPireps(24, -125, 50, -66, { age: 2 }),
         axios.get('/api/swim/tfrs').then(r => r.data),
         fetchAnomalyFeed(100),
-        fetchAnomalyHotspots(24, 2),
         axios.get('/api/swim/weather', { params: { limit: 200 } }).then(r => r.data),
         axios.get('/api/swim/routes/deviations', { params: { limit: 25 } }).then(r => r.data),
         fetchFlightPositions(1000),
@@ -298,13 +296,12 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
         setPireps(val(1) || [])
         setTfrs(val(2) || [])
         setAnomalies(val(3) || [])
-        setHotspots(val(4) || [])
-        setTerminalWx(val(5) || [])
-        setRouteDeviations(val(6) || [])
-        setIfrPositions(val(7) || [])
-        setSurfacePositions(val(8) || [])
-        setWeatherDelays(val(9) || null)
-        setSectorData(val(10) || [])
+        setTerminalWx(val(4) || [])
+        setRouteDeviations(val(5) || [])
+        setIfrPositions(val(6) || [])
+        setSurfacePositions(val(7) || [])
+        setWeatherDelays(val(8) || null)
+        setSectorData(val(9) || [])
       })
     }
     refresh()
@@ -440,12 +437,6 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
   const anomalyPoints = useMemo(() =>
     anomalies.filter(a => a.lat != null && a.lon != null),
     [anomalies]
-  )
-
-  // Hotspot circles
-  const hotspotCircles = useMemo(() =>
-    hotspots.filter(h => h.lat != null && h.lon != null),
-    [hotspots]
   )
 
   // Terminal weather markers — ITWS Alerts have null lat/lon and are keyed by
@@ -588,7 +579,7 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
         className={compact ? 'flex-1 min-h-0' : undefined}
         style={compact ? undefined : { height: 'min(78vh, 760px)', minHeight: 520 }}
       >
-        <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={true} scrollWheelZoom={false} attributionControl={false}>
+        <MapContainer center={[39, -96]} zoom={6} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={true} scrollWheelZoom={false} attributionControl={false}>
           <MapInvalidator />
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
 
@@ -706,18 +697,6 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
                 {n.airspace > 0 && <span style={{ color: '#ff3333' }}>AIRSPACE:{n.airspace}</span>}
               </span></Tooltip>
             </Marker>
-          ))}
-
-          {/* ── Anomaly hotspot circles (24h) ──────────────────────────��──── */}
-          {showAnomalies && hotspotCircles.map((h, i) => (
-            <CircleMarker key={`hs-${i}`} center={[h.lat, h.lon]}
-              radius={Math.min(20, 6 + (h.count || 1) * 2)}
-              pathOptions={{ color: '#cc6666', fillColor: '#cc6666', fillOpacity: 0.08, weight: 1, dashArray: '3 3' }}>
-              <Tooltip><span style={{ fontFamily: 'monospace', fontSize: 11 }}>
-                hotspot: {h.count} anomalies in 24h
-                {h.deviation != null && <><br />{h.deviation > 1 ? `${h.deviation.toFixed(1)}x above` : `${(1/h.deviation).toFixed(1)}x below`} baseline</>}
-              </span></Tooltip>
-            </CircleMarker>
           ))}
 
           {/* ── Anomaly aircraft markers ────────────���─────────────────────── */}
