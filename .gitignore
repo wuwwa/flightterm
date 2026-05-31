@@ -1,12 +1,10 @@
-# dependencies
 node_modules/
-
-# build output
-dvdist/
-dist/
+backend/node_modules/
+frontend/node_modules/
 frontend/dist/
 
-# env files — every location/prefix, with or without a leading dot
+# env files — every location/prefix, with or without a leading dot.
+# NOTE: the real secret file is `backend/env` (no dot), so dotless patterns matter.
 .env
 .env.*
 *.env
@@ -17,6 +15,15 @@ env
 backend/env
 frontend/env
 
-logs/
-*.log
-*.local
+# SQLite database
+backend/*.db
+backend/*.db-wal
+backend/*.db-shm
+
+# Playwright MCP artifacts
+.playwright-mcp/
+*.png
+
+# OS
+.DS_Store
+Thumbs.db
