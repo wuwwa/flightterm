@@ -165,6 +165,20 @@ async function getOsToken(slotIndex) {
   return osTokens[idx].token
 }
 
+// Pre-fetch an OpenSky OAuth token at boot so the first real /states/all call
+// is already authenticated. Best-effort: failures are logged and ignored — the
+// poll cycle re-attempts token acquisition on its own.
+async function prewarmOpenSky() {
+  const slot = selectOpenSkySlot()
+  if (slot < 0) return
+  try {
+    await getOsToken(slot)
+    console.log('poller: opensky token pre-warmed')
+  } catch (err) {
+    console.warn('poller: opensky token pre-warm failed:', err.message)
+  }
+}
+
 // ── Data fetching ────────────────────────────────────────────────────────────
 
 async function fetchOpenSky(region = 'usa') {
@@ -1193,6 +1207,11 @@ function start() {
     }, 6 * 60 * 60 * 1000)
   }
 
+  // Pre-warm the OpenSky OAuth token so the very first /states/all call in the
+  // immediate first cycle doesn't also pay the token round-trip. Fire-and-forget;
+  // the cycle below will fetch a token anyway if this hasn't landed yet.
+  prewarmOpenSky()
+
   // Run first cycle immediately, then on interval
   pollCycle().catch(err => console.error('poller: cycle error:', err.message))
   pollTimer = setInterval(() => {
@@ -1310,6 +1329,7 @@ module.exports = {
   stop,
   getStatus,
   getFlights,
+  prewarmOpenSky,
   getRouteDeviationsLive,
   getActiveKeyCount,
   anomalyEvents,

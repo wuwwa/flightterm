@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import axios from 'axios'
+import Loading from '../Loading'
+import SwimWarming from '../SwimWarming'
 
 const TYPE_COLOR = {
   flow:    'text-red',
@@ -42,6 +44,7 @@ export default function LiveFeed({ backendOk }) {
   const [events, setEvents] = useState([])
   const [filter, setFilter] = useState({ flow: true, weather: true, anomaly: true, surface: true, tfr: true })
   const [paused, setPaused] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const newKeysRef = useRef(new Set())
   const seenKeysRef = useRef(new Set())
   const [highlight, setHighlight] = useState(new Set())
@@ -69,6 +72,7 @@ export default function LiveFeed({ backendOk }) {
             seenKeysRef.current = new Set(Array.from(seenKeysRef.current).slice(-300))
           }
           setEvents(data)
+          setLoaded(true)
           if (fresh.size > 0) {
             newKeysRef.current = fresh
             setHighlight(fresh)
@@ -122,9 +126,15 @@ export default function LiveFeed({ backendOk }) {
       {/* Event list */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {filtered.length === 0 ? (
-          <div className="py-3 px-2 text-center text-fg3/50 text-[9px]">
-            {events.length === 0 ? 'waiting for events...' : 'no events match filter'}
-          </div>
+          <SwimWarming fallback={
+            !loaded ? (
+              <Loading label="awaiting events" />
+            ) : (
+              <div className="py-3 px-2 text-center text-fg3/50 text-[9px]">
+                {events.length === 0 ? 'waiting for events...' : 'no events match filter'}
+              </div>
+            )
+          } />
         ) : filtered.map((e, i) => {
           const key = `${e.type}:${e.time}:${e.title}`
           const isNew = highlight.has(key)

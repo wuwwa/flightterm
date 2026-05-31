@@ -2,6 +2,7 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { useSwim } from '../../contexts/SwimContext'
 import { WeatherDetailPopup } from './SwimPopup'
+import SwimWarming from '../SwimWarming'
 
 // Display order: most-severe types first
 const TYPE_ORDER = ['TORNADO', 'MICROBURST', 'WINDSHEAR', 'GUST_FRONT', 'LIGHTNING', 'HAZARD_TEXT', 'PRECIP', 'STORM_MOTION']
@@ -55,9 +56,11 @@ export default function ItwsPanel({ backendOk }) {
       </div>
 
       {!hasAny ? (
-        <div className="flex-1 flex items-center justify-center text-[9px] text-grn/70">
-          no terminal hazards
-        </div>
+        <SwimWarming fallback={
+          <div className="flex-1 flex items-center justify-center text-[9px] text-grn/70">
+            no terminal hazards
+          </div>
+        } />
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto py-1">
           {activeGroups.map(g => (

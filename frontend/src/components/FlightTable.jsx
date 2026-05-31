@@ -4,6 +4,7 @@ import { squawkLabel, squawkColor } from '../utils/squawk'
 import { detectPhase, PHASE } from '../utils/anomaly'
 import FilterBar, { emptyFilters, isFiltersActive, applyFilters, computeFilterCounts } from './FilterBar'
 import AircraftSearchBox from './AircraftSearchBox'
+import Loading from './Loading'
 
 // Column layout (desktop): 8 essential columns. Older "operator", "country",
 // "eta", "squawk", "hdg", "src" are folded into other cells or shown via tooltips
@@ -276,8 +277,8 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
             {isSyncing ? 'syncing' : 'sync'}
           </button>
         </div>
-        <div className="p-8 text-center text-fg3">
-          no data — press fetch
+        <div className="p-8 flex flex-col items-center justify-center gap-2 text-center text-fg3">
+          <Loading label={isSyncing ? 'syncing' : 'awaiting first poll'} />
         </div>
       </div>
     )

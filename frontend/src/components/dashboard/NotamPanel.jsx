@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import axios from 'axios'
 import { useSwim } from '../../contexts/SwimContext'
+import SwimWarming from '../SwimWarming'
 
 // Color semantics:
 //   red    = critical (airspace restrictions, TFRs, life-safety)
@@ -160,9 +161,11 @@ export default function NotamPanel({ backendOk }) {
       </div>
 
       {!hasAny ? (
-        <div className="flex-1 flex items-center justify-center text-[9px] text-grn/70">
-          {connected ? 'no active NOTAMs' : 'FNS feed not connected'}
-        </div>
+        <SwimWarming fallback={
+          <div className="flex-1 flex items-center justify-center text-[9px] text-grn/70">
+            {connected ? 'no active NOTAMs' : 'FNS feed not connected'}
+          </div>
+        } />
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto py-1">
           {/* TFRs first — most critical */}

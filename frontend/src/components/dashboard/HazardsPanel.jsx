@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { fetchSigmets, fetchPireps } from '../../services/weather'
+import Loading from '../Loading'
 
 const REGIONS = {
   usa:      { bbox: [24, -125, 49.5, -66] },
@@ -13,11 +14,13 @@ const REGIONS = {
 export default function HazardsPanel({ backendOk, region = 'usa' }) {
   const [sigmets, setSigmets] = useState([])
   const [pireps, setPireps] = useState([])
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     if (!backendOk) return
     let cancelled = false
     const bbox = REGIONS[region]?.bbox || REGIONS.usa.bbox
+    setLoaded(false)
 
     Promise.allSettled([
       fetchSigmets('conv').catch(() => []),
@@ -26,6 +29,7 @@ export default function HazardsPanel({ backendOk, region = 'usa' }) {
       if (cancelled) return
       if (sigR.status === 'fulfilled') setSigmets(Array.isArray(sigR.value) ? sigR.value : [])
       if (pirR.status === 'fulfilled') setPireps(Array.isArray(pirR.value) ? pirR.value : [])
+      setLoaded(true)
     })
 
     const id = setInterval(() => {
@@ -62,10 +66,15 @@ export default function HazardsPanel({ backendOk, region = 'usa' }) {
         {iceSigmets.length > 0 && <span className="text-cyn">{iceSigmets.length} icing</span>}
         {sevPireps.length > 0 && <span className="text-red">{sevPireps.length} severe PIREP</span>}
         {modPireps.length > 0 && <span className="text-ylw">{modPireps.length} moderate PIREP</span>}
-        {sigmets.length === 0 && pireps.length === 0 && <span className="text-grn">no hazards</span>}
+        {loaded
+          ? (sigmets.length === 0 && pireps.length === 0 && <span className="text-grn">no hazards</span>)
+          : <span className="text-fg3/50">checking…</span>}
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
+        {!loaded && sigmets.length === 0 && pireps.length === 0 && (
+          <Loading label="scanning hazards" color="ylw" />
+        )}
         {sigmets.slice(0, 10).map((s, i) => (
           <div key={s.id || i} className={clsx('flex items-center gap-1 py-0.5 px-2 text-[8px] border-b border-white/3',
             s.hazard === 'CONVECTIVE' || s.hazard === 'conv' ? 'bg-red/3' : ''

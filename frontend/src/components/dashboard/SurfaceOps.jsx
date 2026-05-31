@@ -2,6 +2,7 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { useSwim } from '../../contexts/SwimContext'
 import { FlightLifecyclePopup, AirportMovementsPopup } from './SwimPopup'
+import SwimWarming from '../SwimWarming'
 
 function timeAgo(ts) {
   if (!ts) return ''
@@ -65,9 +66,11 @@ export default function SurfaceOps({ backendOk }) {
             </div>
           )
         }) : (
-          <div className="py-2 px-2 text-center text-fg3 text-[9px]">
-            {stats?.airports > 0 ? 'waiting for movements...' : 'STDDS feed not connected'}
-          </div>
+          <SwimWarming fallback={
+            <div className="py-2 px-2 text-center text-fg3 text-[9px]">
+              {stats?.airports > 0 ? 'waiting for movements...' : 'STDDS feed not connected'}
+            </div>
+          } />
         )}
       </div>
 

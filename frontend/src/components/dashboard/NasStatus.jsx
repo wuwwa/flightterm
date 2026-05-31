@@ -2,6 +2,7 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { useSwim } from '../../contexts/SwimContext'
 import { FlowEventPopup } from './SwimPopup'
+import SwimWarming from '../SwimWarming'
 
 // ── Health assessment from NAS analytics ─────────────────────────────────────
 function deriveHealth(nasSummary, flowEvents) {
@@ -51,7 +52,7 @@ function reasonLabel(reason) {
 }
 
 export default function NasStatus({ backendOk }) {
-  const { status, flowEvents, nasSummary } = useSwim()
+  const { status, flowEvents, nasSummary, warming } = useSwim()
   const [selectedAirport, setSelectedAirport] = useState(null)
 
   const feeds = status?.feeds || {}
@@ -151,7 +152,9 @@ export default function NasStatus({ backendOk }) {
           <div className="py-1.5 px-2 text-[8px] text-grn/80">No active restrictions</div>
         )}
         {connectedCount === 0 && (
-          <div className="py-1.5 px-2 text-[8px] text-fg3/50">SWIM feeds not connected — configure in .env</div>
+          warming
+            ? <SwimWarming />
+            : <div className="py-1.5 px-2 text-[8px] text-fg3/50">SWIM feeds not connected — configure in .env</div>
         )}
       </div>
 

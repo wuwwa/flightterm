@@ -111,14 +111,58 @@ export function SwimProvider({ backendOk, children }) {
     wakeSwim().catch(() => {})
   }, [backendOk, status?.workerConnected, wakeSwim])
 
+  // ── Derived warm-up state ────────────────────────────────────────────────
+  // The SWIM worker scales to zero after idle and takes ~20-55s to wake and
+  // connect its FAA feeds. Surface that progression so panels can show
+  // "waking / connecting feeds (n/m)" instead of a silent empty/"not connected"
+  // state that reads as broken.
+  const warmup = deriveSwimWarmup(status, wakeState)
+
   return (
     <SwimContext.Provider value={{
       status, flowEvents, flights, airportConfigs, tfrs, notamAirports, weather, oooi, nasSummary,
       wakeSwim, wakeState,
+      // warm-up surface
+      warming: warmup.phase !== 'live',
+      warmupPhase: warmup.phase,
+      feedsConnected: warmup.connected,
+      feedsTotal: warmup.total,
+      warmupLabel: warmup.label,
     }}>
       {children}
     </SwimContext.Provider>
   )
+}
+
+// Collapse /api/swim/status + the wake state machine into a simple warm-up
+// descriptor. Tolerant of `feeds` being an object map (the real shape:
+// { fns: { connected }, tfms: { connected }, ... }), an array, or absent while
+// the worker is still coming up.
+//
+// phase: 'waking'     — wake requested / machine starting, no feeds yet
+//        'connecting' — worker reachable but 0 feeds connected
+//        'live'       — at least one feed connected (treat dashboard as ready)
+function deriveSwimWarmup(status, wakeState) {
+  const feeds = status?.feeds
+  let total = 0
+  let connected = 0
+  if (feeds && typeof feeds === 'object') {
+    const entries = Array.isArray(feeds) ? feeds : Object.values(feeds)
+    total = entries.length
+    connected = entries.filter(f => f && f.connected).length
+  }
+
+  if (connected > 0) {
+    return { phase: 'live', connected, total, label: 'feeds live' }
+  }
+
+  const ws = wakeState?.state
+  if (ws === 'starting' || ws === 'idle' || !status) {
+    return { phase: 'waking', connected: 0, total: total || 5, label: 'waking swim' }
+  }
+  // Worker reachable (we have a status payload) but no feeds connected yet.
+  const t = total || 5
+  return { phase: 'connecting', connected: 0, total: t, label: 'linking feeds' }
 }
 
 export function useSwim() {

@@ -9,6 +9,7 @@ import axios from 'axios'
 import { fetchSigmets, fetchPireps } from '../../services/weather'
 import { fetchAnomalyFeed, fetchAnomalyHotspots, fetchFlightPositions, fetchSurfacePositions } from '../../services/dashboard'
 import { fetchMapContext } from '../../services/contextMap'
+import Loading from '../Loading'
 
 // ── Correlation-layer icons (v5.1.0) ────────────────────────────────────────
 
@@ -216,7 +217,7 @@ function LayerBtn({ active, onClick, color, children, count }) {
 // ── Main component ───────────��───────────────────────────────────��──────────
 
 export default function NasMap({ backendOk, onSelectAirport, compact = false, flights: propFlights, trackedIcaos, trackHistory }) {
-  const { nasSummary, flights: swimFlights, flowEvents, notamAirports } = useSwim()
+  const { nasSummary, flights: swimFlights, flowEvents, notamAirports, warming: swimWarming, warmupLabel: swimWarmupLabel } = useSwim()
   const flights = propFlights || swimFlights
 
   // Layer toggles — default to route/weather context only; users opt into the rest.
@@ -266,6 +267,7 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
   const [surfacePositions, setSurfacePositions] = useState([])
   const [weatherDelays, setWeatherDelays] = useState(null)
   const [sectorData, setSectorData] = useState([])
+  const [layersLoaded, setLayersLoaded] = useState(false)
 
   // Correlation-layer data (v5.1.0)
   const [fires, setFires]         = useState([])
@@ -306,6 +308,7 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
         setSurfacePositions(val(8) || [])
         setWeatherDelays(val(9) || null)
         setSectorData(val(10) || [])
+        setLayersLoaded(true)
       })
     }
     refresh()
@@ -543,6 +546,16 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
       <div className="py-0.5 px-2.5 text-[9px] text-fg3 bg-bg2 border-b border-border flex flex-wrap gap-1 justify-between items-center">
         <span className="flex items-center gap-1.5">
           <span>US airspace</span>
+          {!layersLoaded && backendOk && (
+            <span className="flex items-center gap-1 text-fg3/60">
+              <Loading inline color="ylw" /> syncing layers
+            </span>
+          )}
+          {layersLoaded && swimWarming && backendOk && (
+            <span className="flex items-center gap-1 text-fg3/60">
+              <Loading inline color="acc" /> {swimWarmupLabel}
+            </span>
+          )}
           {gsCount > 0 && <span className="text-red animate-pulse">GS:{gsCount}</span>}
           {gdpCount > 0 && <span className="text-ylw">GDP:{gdpCount}</span>}
         </span>
@@ -587,9 +600,17 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
       )}
 
       <div
-        className={compact ? 'flex-1 min-h-0' : undefined}
+        className={clsx('relative', compact ? 'flex-1 min-h-0' : undefined)}
         style={compact ? undefined : { height: 'min(78vh, 760px)', minHeight: 520 }}
       >
+        {/* Compact mode hides the layer header, so surface the cold-start
+            sync state as a floating badge over the map instead. */}
+        {compact && backendOk && (!layersLoaded || swimWarming) && (
+          <div className="absolute top-1.5 left-1.5 z-500 flex items-center gap-1.5 bg-bg1/85 border border-border rounded px-1.5 py-0.5 text-[9px] text-fg3/70 pointer-events-none">
+            <Loading inline color={!layersLoaded ? 'ylw' : 'acc'} />
+            {!layersLoaded ? 'syncing layers' : swimWarmupLabel}
+          </div>
+        )}
         <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={true} scrollWheelZoom={false} attributionControl={false}>
           <MapInvalidator />
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />

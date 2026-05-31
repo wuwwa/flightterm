@@ -4,6 +4,7 @@ import { divIcon } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import clsx from 'clsx'
 import { fetchBusinessJetTracker } from '../services/dashboard'
+import Loading from './Loading'
 
 const REFRESH_MS = 30_000
 
@@ -448,9 +449,15 @@ export default function BusinessJetTracker({ backendOk }) {
               </MapContainer>
               {positions.length === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <span className="bg-bg1/85 border border-border px-3 py-2 text-[10px] text-fg3">
-                    waiting for matched private-jet positions
-                  </span>
+                  {data == null && !error ? (
+                    <div className="bg-bg1/85 border border-border px-3 py-2">
+                      <Loading label={backendOk ? 'acquiring jets' : 'awaiting backend'} />
+                    </div>
+                  ) : (
+                    <span className="bg-bg1/85 border border-border px-3 py-2 text-[10px] text-fg3">
+                      waiting for matched private-jet positions
+                    </span>
+                  )}
                 </div>
               )}
             </div>

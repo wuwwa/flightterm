@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import axios from 'axios'
+import Loading from '../Loading'
 
 export default function TopTraffic({ backendOk }) {
   const [aircraft, setAircraft] = useState([])
   const [countries, setCountries] = useState([])
   const [routeCount, setRouteCount] = useState(null)
   const [tab, setTab] = useState('aircraft')
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     if (!backendOk) return
@@ -21,6 +23,7 @@ export default function TopTraffic({ backendOk }) {
       setAircraft(ac)
       setCountries(co)
       setRouteCount(rt?.total ?? null)
+      setLoaded(true)
     })
 
     const id = setInterval(() => {
@@ -64,7 +67,9 @@ export default function TopTraffic({ backendOk }) {
 
       {tab === 'aircraft' && (
         <div className="max-h-[200px] overflow-y-auto">
-          {aircraft.length === 0 ? (
+          {!loaded ? (
+            <Loading label="tallying traffic" />
+          ) : aircraft.length === 0 ? (
             <div className="py-3 px-2.5 text-center text-fg3 text-[10px]">no data yet</div>
           ) : aircraft.map((ac, i) => (
             <div key={ac.icao} className="flex items-center gap-1.5 py-0.5 px-2.5 text-[10px] border-b border-white/3 group">
@@ -88,7 +93,9 @@ export default function TopTraffic({ backendOk }) {
 
       {tab === 'countries' && (
         <div className="max-h-[200px] overflow-y-auto">
-          {countries.length === 0 ? (
+          {!loaded ? (
+            <Loading label="tallying countries" />
+          ) : countries.length === 0 ? (
             <div className="py-3 px-2.5 text-center text-fg3 text-[10px]">no data yet</div>
           ) : countries.map((co, i) => (
             <div key={co.country} className="flex items-center gap-1.5 py-0.5 px-2.5 text-[10px] border-b border-white/3">
