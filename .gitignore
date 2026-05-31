@@ -1,22 +1,22 @@
+# dependencies
 node_modules/
-backend/node_modules/
-frontend/node_modules/
+
+# build output
+dvdist/
+dist/
 frontend/dist/
 
-# API keys — never commit this
+# env files — every location/prefix, with or without a leading dot
 .env
+.env.*
 *.env
-backend/.env
+*.env.*
+env
+*/env
+**/env
+backend/env
+frontend/env
 
-# SQLite database
-backend/*.db
-backend/*.db-wal
-backend/*.db-shm
-
-# Playwright MCP artifacts
-.playwright-mcp/
-*.png
-
-# OS
-.DS_Store
-Thumbs.db
+logs/
+*.log
+*.local
