@@ -5,7 +5,11 @@ frontend/dist/
 backend/*.db
 backend/*.db-wal
 backend/*.db-shm
-backend/.env
+.env*
+backend/.env*
+backend/env
+frontend/.env*
+frontend/env
 .git/
 .claude/
 .gitignore

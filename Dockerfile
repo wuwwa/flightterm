@@ -1,23 +1,20 @@
                     # ── stage 1: build frontend ──────────────────────────────────────────────────
-FROM node:20-slim AS frontend-build
+FROM node:24-slim AS frontend-build
 WORKDIR /app
 
-# Copy root package.json (needed by "file:.." dependency)
-COPY package.json ./
-
-# Install frontend deps and build
+# Install frontend dependencies before copying sources so code-only changes can
+# reuse the dependency layer.
+COPY frontend/package.json frontend/package-lock.json frontend/
+RUN cd frontend && npm ci --omit=dev
 COPY frontend/ frontend/
-RUN cd frontend && npm install --omit=dev && npm run build
+RUN cd frontend && npm run build
 
 # ── stage 2: production runtime ─────────────────────────────────────────────
-FROM node:20-slim
+FROM node:24-slim
 WORKDIR /app
 
 # better-sqlite3 needs build tools
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
-
-# Copy root package.json
-COPY package.json ./
 
 # Install backend deps only
 COPY backend/package.json backend/package-lock.json backend/
@@ -30,7 +27,7 @@ COPY backend/data/ backend/data/
 # v5.0.0+ — correlation layer + feed scoring subsystems
 COPY backend/context/ backend/context/
 COPY backend/feed/ backend/feed/
-# v5.7 — shared FAA registry job module (startup self-heal + weekly refresh)
+# Shared FAA registry job module (startup self-heal + weekly refresh)
 # and CLI ingest script (fly ssh console one-shot).
 COPY backend/jobs/ backend/jobs/
 COPY backend/scripts/ backend/scripts/

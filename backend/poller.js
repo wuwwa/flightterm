@@ -26,9 +26,14 @@ const ANOMALY_SCORE_DIVISOR = Math.max(1, parseInt(process.env.ANOMALY_SCORE_DIV
 
 const OS_BASE = 'https://opensky-network.org/api'
 const OS_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
-const APL_BASE = 'https://api.airplanes.live/v2'
+const ADSBFI_BASE = process.env.ADSBFI_BASE || 'https://opendata.adsb.fi/api/v2'
 const AIRPLANES_LIVE_BASE = process.env.AIRPLANES_LIVE_BASE || 'https://api.airplanes.live/v2'
-const AIRPLANES_LIVE_PRIMARY = process.env.AIRPLANES_LIVE_PRIMARY === 'true'
+// AIRPLANES_LIVE_PRIMARY is retained as a backwards-compatible alias. The
+// community feed now prefers adsb.fi because airplanes.live requires explicit
+// project approval and returns HTTP 403 for unapproved server-side clients.
+const COMMUNITY_FEED_PRIMARY = process.env.COMMUNITY_FEED_PRIMARY === 'true'
+  || process.env.AIRPLANES_LIVE_PRIMARY === 'true'
+const COMMUNITY_POINT_DELAY_MS = Math.max(0, parseInt(process.env.COMMUNITY_POINT_DELAY_MS || '1100', 10))
 const AWX_BASE = 'https://aviationweather.gov/api/data'
 
 const REGIONS = {
@@ -54,6 +59,7 @@ const pendingAnomalies = new Map() // icao → { anomaly, cycles } — persisten
 const enrichCache = new Map()      // icao → { adsbfi, flightroute, ... }
 let latestFlights = []             // most recent flight states from last cycle
 let lastFetchAt = null             // timestamp of last successful fetch
+let lastFeedSource = null          // provider used for the most recent snapshot
 let weatherContext = null           // { sigmets, pireps } from last cycle
 let baselineCache = new Map()      // "KJFK→KLAX" → baseline object
 let pollTimer = null
@@ -89,7 +95,8 @@ function nextOpenSkyResetMs(retryAfterSeconds = null) {
   return reset.getTime()
 }
 
-const AIRPLANES_LIVE_FALLBACK_ENABLED = process.env.AIRPLANES_LIVE_FALLBACK_DISABLED !== 'true'
+const COMMUNITY_FALLBACK_ENABLED = process.env.COMMUNITY_FALLBACK_DISABLED !== 'true'
+  && process.env.AIRPLANES_LIVE_FALLBACK_DISABLED !== 'true'
 const AIRPLANES_LIVE_FALLBACK_POINTS = {
   usa: [
     [47.6, -122.3], [37.6, -122.4], [34.0, -118.2], [33.4, -112.0],
@@ -121,6 +128,9 @@ function pauseOpenSkySlot(slotIndex, reason, retryAfterSeconds = null) {
 }
 
 function selectOpenSkySlot() {
+  // OpenSky supports anonymous state-vector requests. No configured OAuth
+  // slots is therefore a valid mode, not the same thing as exhausted slots.
+  if (OS_KEY_SLOTS.length === 0) return null
   const now = Date.now()
   for (let i = 0; i < OS_KEY_SLOTS.length; i++) {
     const idx = (activeKeySlot + i) % OS_KEY_SLOTS.length
@@ -156,6 +166,7 @@ async function getOsToken(slotIndex) {
   })
   const res = await axios.post(OS_TOKEN_URL, params.toString(), {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    timeout: 10000,
   })
   const expiresIn = res.data.expires_in ?? 1800
   osTokens[idx] = {
@@ -170,7 +181,7 @@ async function getOsToken(slotIndex) {
 // poll cycle re-attempts token acquisition on its own.
 async function prewarmOpenSky() {
   const slot = selectOpenSkySlot()
-  if (slot < 0) return
+  if (slot == null || slot < 0) return
   try {
     await getOsToken(slot)
     console.log('poller: opensky token pre-warmed')
@@ -183,7 +194,7 @@ async function prewarmOpenSky() {
 
 async function fetchOpenSky(region = 'usa') {
   const selectedSlot = selectOpenSkySlot()
-  if (selectedSlot < 0) {
+  if (selectedSlot === -1) {
     const pause = getOpenSkyPause()
     const err = new Error(`OpenSky credits exhausted; paused until ${pause?.until || 'reset'}`)
     err.code = 'OPENSKY_PAUSED'
@@ -194,18 +205,19 @@ async function fetchOpenSky(region = 'usa') {
   const params = reg.bbox ? { ...reg.bbox } : {}
   const headers = {}
   const slotUsed = selectedSlot
+  const keyLabel = slotUsed == null ? 'anonymous' : `key ${slotUsed + 1}/${OS_KEY_SLOTS.length}`
 
   try {
     const token = await getOsToken()
     if (token) {
       headers['Authorization'] = `Bearer ${token}`
-    } else {
-      console.warn(`poller: opensky no token available (slot ${slotUsed + 1}/${OS_KEY_SLOTS.length}, id: ${OS_KEY_SLOTS[slotUsed]?.id?.substring(0, 8)}...)`)
+    } else if (slotUsed != null) {
+      console.warn(`poller: opensky no token available (${keyLabel}, id: ${OS_KEY_SLOTS[slotUsed]?.id?.substring(0, 8)}...)`)
     }
   } catch (err) {
     const status = err.response?.status
     const body = err.response?.data ? JSON.stringify(err.response.data).substring(0, 200) : ''
-    console.warn(`poller: opensky token failed (slot ${slotUsed + 1}): ${status || ''} ${err.message}${body ? ' — ' + body : ''}`)
+    console.warn(`poller: opensky token failed (${keyLabel}): ${status || ''} ${err.message}${body ? ' — ' + body : ''}`)
   }
 
   const authMode = headers['Authorization'] ? 'authenticated' : 'anonymous'
@@ -222,9 +234,9 @@ async function fetchOpenSky(region = 'usa') {
     if (status === 429) {
       const retry = Number(err.response?.headers?.['x-rate-limit-retry-after-seconds']) || null
       if (retry) retryHint = ` · retry in ${(retry / 3600).toFixed(1)}h`
-      pauseOpenSkySlot(slotUsed, 'credits exhausted', retry)
+      if (slotUsed != null) pauseOpenSkySlot(slotUsed, 'credits exhausted', retry)
     }
-    console.error(`poller: opensky API ${status || 'network error'} (${authMode}, key ${slotUsed + 1}/${OS_KEY_SLOTS.length})${retryHint}: ${err.message}${body ? ' — ' + body : ''}`)
+    console.error(`poller: opensky API ${status || 'network error'} (${authMode}, ${keyLabel})${retryHint}: ${err.message}${body ? ' — ' + body : ''}`)
     // Auto-switch key on 429 (rate limit) or 401 (bad token)
     if ((status === 429 || status === 401) && OS_KEY_SLOTS.length > 1) {
       const nextSlot = (activeKeySlot + 1) % OS_KEY_SLOTS.length
@@ -235,7 +247,7 @@ async function fetchOpenSky(region = 'usa') {
   }
   const states = res.data?.states || []
   if (states.length === 0) {
-    console.warn(`poller: opensky returned 0 states (${authMode}, key ${slotUsed + 1}, region: ${region})`)
+    console.warn(`poller: opensky returned 0 states (${authMode}, ${keyLabel}, region: ${region})`)
   }
 
   // Check remaining credits from response header and auto-switch if needed
@@ -243,7 +255,7 @@ async function fetchOpenSky(region = 'usa') {
   const rem = remaining != null ? Number(remaining) : null
   if (Number.isFinite(rem)) {
     if (rem <= 0) {
-      pauseOpenSkySlot(slotUsed, 'credits exhausted')
+      if (slotUsed != null) pauseOpenSkySlot(slotUsed, 'credits exhausted')
     }
     if (rem < CREDIT_SWITCH_THRESHOLD && OS_KEY_SLOTS.length > 1) {
       const nextSlot = (activeKeySlot + 1) % OS_KEY_SLOTS.length
@@ -307,7 +319,7 @@ function msRateFromFpm(fpm) {
   return Number.isFinite(n) ? n * 0.00508 : null
 }
 
-function normalizeAirplanesLiveAircraft(ac) {
+function normalizeCommunityAircraft(ac, source = 'adsb.fi') {
   const hex = String(ac.hex || ac.icao || '').trim().toLowerCase()
   if (!/^[0-9a-f]{6}$/.test(hex)) return null
   const grounded = ac.ground === true || ac.alt_baro === 'ground'
@@ -330,7 +342,7 @@ function normalizeAirplanesLiveAircraft(ac) {
     posSrc: 0,
     ndb: null,
     mil: false,
-    src: 'airplanes.live',
+    src: source,
     acReg: ac.r || null,
     acType: ac.t || null,
     acDesc: ac.desc || null,
@@ -339,50 +351,96 @@ function normalizeAirplanesLiveAircraft(ac) {
   }
 }
 
+function normalizeAirplanesLiveAircraft(ac) {
+  return normalizeCommunityAircraft(ac, 'airplanes.live')
+}
+
+function normalizeAdsbFiAircraft(ac) {
+  return normalizeCommunityAircraft(ac, 'adsb.fi')
+}
+
 async function fetchAirplanesLivePoint(lat, lon, radiusNm = 250) {
   const res = await axios.get(`${AIRPLANES_LIVE_BASE}/point/${lat}/${lon}/${radiusNm}`, {
     timeout: 15000,
     headers: { 'User-Agent': 'flightterm-poller/1.0' },
   })
-  return Array.isArray(res.data?.ac) ? res.data.ac : []
+  const rows = res.data?.aircraft || res.data?.ac
+  return Array.isArray(rows) ? rows : []
 }
 
-async function fetchAirplanesLiveFallback(region = 'usa') {
-  if (!AIRPLANES_LIVE_FALLBACK_ENABLED) return []
+async function fetchAdsbFiPoint(lat, lon, radiusNm = 250) {
+  const res = await axios.get(`${ADSBFI_BASE}/lat/${lat}/lon/${lon}/dist/${radiusNm}`, {
+    timeout: 15000,
+    headers: { 'User-Agent': 'flightterm-poller/2.0' },
+  })
+  const rows = res.data?.aircraft || res.data?.ac
+  return Array.isArray(rows) ? rows : []
+}
+
+async function fetchCommunityFallback(region = 'usa') {
+  if (!COMMUNITY_FALLBACK_ENABLED) return []
   const points = AIRPLANES_LIVE_FALLBACK_POINTS[region] || AIRPLANES_LIVE_FALLBACK_POINTS.usa
-  const settled = await Promise.allSettled(points.map(([lat, lon]) => fetchAirplanesLivePoint(lat, lon)))
   const byHex = new Map()
   let ok = 0
-  for (const result of settled) {
-    if (result.status !== 'fulfilled') continue
+  let provider = 'adsb.fi'
+
+  // adsb.fi asks clients to stay near one request per second. Query points
+  // sequentially and keep partial results if the provider starts rate-limiting.
+  for (let i = 0; i < points.length; i++) {
+    const [lat, lon] = points[i]
+    let rows = null
+    let source = 'adsb.fi'
+    try {
+      rows = await fetchAdsbFiPoint(lat, lon)
+    } catch (err) {
+      if (err?.response?.status === 429) {
+        console.warn(`poller: adsb.fi rate limited after ${ok}/${points.length} points; using partial feed`)
+        break
+      }
+      // Compatibility fallback for installations that have received explicit
+      // airplanes.live project approval.
+      try {
+        rows = await fetchAirplanesLivePoint(lat, lon)
+        source = 'airplanes.live'
+        provider = source
+      } catch {
+        continue
+      }
+    }
+
     ok += 1
-    for (const raw of result.value) {
-      const ac = normalizeAirplanesLiveAircraft(raw)
+    for (const raw of rows) {
+      const ac = source === 'adsb.fi'
+        ? normalizeAdsbFiAircraft(raw)
+        : normalizeAirplanesLiveAircraft(raw)
       if (ac && ac.lat != null && ac.lon != null) byHex.set(ac.icao, ac)
+    }
+    if (COMMUNITY_POINT_DELAY_MS > 0 && i + 1 < points.length) {
+      await new Promise(resolve => setTimeout(resolve, COMMUNITY_POINT_DELAY_MS))
     }
   }
   if (byHex.size > 0) {
-    console.log(`poller: airplanes.live fallback ${byHex.size} flights from ${ok}/${points.length} points`)
+    console.log(`poller: ${provider} community feed ${byHex.size} flights from ${ok}/${points.length} points`)
   } else {
-    console.warn(`poller: airplanes.live fallback returned 0 flights (${ok}/${points.length} points)`)
+    console.warn(`poller: community feed returned 0 flights (${ok}/${points.length} points)`)
   }
   return [...byHex.values()]
 }
 
-// ── APL enrichment for anomaly aircraft ─────────────────────────────────────
-// Single hex lookups for aircraft that scored above threshold.
+// ── Community-feed enrichment for anomaly aircraft ──────────────────────────
+// Single adsb.fi hex lookups for aircraft that scored above threshold.
 // Returns enrichment fields the scorer can use (emergency, MCP, category, mil).
 
 let _aplLastReq = 0
 
 async function fetchAplHex(icao) {
-  // Enforce 1 req/sec to respect APL rate limits
+  // Enforce 1 req/sec to respect community-feed rate limits
   const now = Date.now()
   const wait = Math.max(0, 1100 - (now - _aplLastReq))
   if (wait > 0) await new Promise(r => setTimeout(r, wait))
   _aplLastReq = Date.now()
 
-  const res = await axios.get(`${APL_BASE}/hex/${icao}`, { timeout: 8000 })
+  const res = await axios.get(`${ADSBFI_BASE}/hex/${icao}`, { timeout: 8000 })
   const ac = res.data?.ac?.[0]
   if (!ac) return null
 
@@ -420,8 +478,6 @@ async function enrichAnomaliesWithApl(anomalyFlights) {
 
 const ADSBDB_BASE = 'https://api.adsbdb.com/v0'
 let _enrichAbort = null
-
-const ADSBFI_BASE = 'https://opendata.adsb.fi/api/v2'
 
 async function enrichFromAdsbfi(icao) {
   const res = await axios.get(`${ADSBFI_BASE}/hex/${icao}`, { timeout: 10000 })
@@ -803,12 +859,12 @@ async function pollCycle() {
   // 1. Fetch flight data (retry once with next key on 429/401)
   let flights
   let feedSource = 'opensky'
-  if (AIRPLANES_LIVE_PRIMARY) {
+  if (COMMUNITY_FEED_PRIMARY) {
     try {
-      flights = await fetchAirplanesLiveFallback(region)
-      if (flights?.length) feedSource = 'airplanes.live'
+      flights = await fetchCommunityFallback(region)
+      if (flights?.length) feedSource = flights[0]?.src || 'community'
     } catch (fallbackErr) {
-      console.warn('poller: airplanes.live primary fetch failed:', fallbackErr.message)
+      console.warn('poller: community primary fetch failed:', fallbackErr.message)
     }
   }
 
@@ -832,10 +888,10 @@ async function pollCycle() {
     }
     if (!flights?.length) {
       try {
-        flights = await fetchAirplanesLiveFallback(region)
-        feedSource = 'airplanes.live'
+        flights = await fetchCommunityFallback(region)
+        feedSource = flights[0]?.src || 'community'
       } catch (fallbackErr) {
-        console.warn('poller: airplanes.live fallback failed:', fallbackErr.message)
+        console.warn('poller: community fallback failed:', fallbackErr.message)
         return
       }
     }
@@ -843,10 +899,10 @@ async function pollCycle() {
 
   if (!flights?.length && feedSource === 'opensky') {
     try {
-      flights = await fetchAirplanesLiveFallback(region)
-      if (flights.length) feedSource = 'airplanes.live'
+      flights = await fetchCommunityFallback(region)
+      if (flights.length) feedSource = flights[0]?.src || 'community'
     } catch (fallbackErr) {
-      console.warn('poller: airplanes.live fallback failed:', fallbackErr.message)
+      console.warn('poller: community fallback failed:', fallbackErr.message)
     }
   }
 
@@ -855,6 +911,7 @@ async function pollCycle() {
   // Store latest flights for API consumers
   latestFlights = flights
   lastFetchAt = Date.now()
+  lastFeedSource = feedSource
 
   const anomalyFlightsThisCycle = ANOMALY_DETECTION_ENABLED && ANOMALY_SCORE_DIVISOR > 1
     ? flights.filter((_, idx) => idx % ANOMALY_SCORE_DIVISOR === anomalyScoreCursor)
@@ -1186,7 +1243,7 @@ function start() {
   if (running) return
   running = true
 
-  console.log(`poller: starting (interval: ${POLL_INTERVAL / 1000}s, region: ${process.env.POLL_REGION || 'usa'}, keys: ${OS_KEY_SLOTS.length}, anomaly: ${ANOMALY_DETECTION_ENABLED ? 'on' : 'off'}, primary: ${AIRPLANES_LIVE_PRIMARY ? 'airplanes.live' : 'opensky'})`)
+  console.log(`poller: starting (interval: ${POLL_INTERVAL / 1000}s, region: ${process.env.POLL_REGION || 'usa'}, keys: ${OS_KEY_SLOTS.length}, anomaly: ${ANOMALY_DETECTION_ENABLED ? 'on' : 'off'}, primary: ${COMMUNITY_FEED_PRIMARY ? 'community' : 'opensky'})`)
   for (let i = 0; i < OS_KEY_SLOTS.length; i++) {
     console.log(`poller:   key ${i + 1}: ${OS_KEY_SLOTS[i].id.substring(0, 12)}...`)
   }
@@ -1235,6 +1292,8 @@ function getStatus() {
     region: process.env.POLL_REGION || 'usa',
     openSkyPaused: !!openSkyPause,
     openSkyPause,
+    lastFetchAt,
+    lastFeedSource,
     // When anomaly detection is off we don't maintain trackHistory, so report
     // the latest flight count instead — the readiness check just wants proof
     // that the poller has completed at least one cycle.
@@ -1342,12 +1401,33 @@ module.exports = {
     summarizePireps,
     summarizeSigmets,
     normalizeAirplanesLiveAircraft,
-    fetchAirplanesLiveFallback,
+    normalizeAdsbFiAircraft,
+    fetchCommunityFallback,
+    // Backwards-compatible test/internal alias.
+    fetchAirplanesLiveFallback: fetchCommunityFallback,
     trackHistory,
     activeAnomalies,
     anomalyMisses,
     enrichCache,
-    resetFlights() { latestFlights = []; lastFetchAt = null },
+    resetFlights() { latestFlights = []; lastFetchAt = null; lastFeedSource = null },
+    resetTestState() {
+      latestFlights = []
+      lastFetchAt = null
+      lastFeedSource = null
+      weatherContext = null
+      trackHistory.clear()
+      activeAnomalies.clear()
+      anomalyMisses.clear()
+      pendingAnomalies.clear()
+      enrichCache.clear()
+      baselineCache.clear()
+      anomalyScoreCursor = 0
+      activeKeySlot = 0
+      osPauseReason = null
+      osTokens.fill(null)
+      osKeyPausedUntil.fill(0)
+      _aplLastReq = 0
+    },
     _setTestFlights(flights) { latestFlights = flights || [] },
   },
 }

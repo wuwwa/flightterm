@@ -1,4 +1,8 @@
-require('dotenv').config()
+const path = require('path')
+require('dotenv').config({
+  path: [path.join(__dirname, '.env'), path.join(__dirname, 'env')],
+  quiet: true,
+})
 const express = require('express')
 const axios = require('axios')
 const cors = require('cors')
@@ -22,7 +26,6 @@ const {
 const { getStatus: getS3Status, isEnabled: s3IsEnabled } = require('./s3archive')
 const rateLimit = require('express-rate-limit')
 
-const path = require('path')
 const poller = require('./poller')
 const businessJetTracker = require('./businessJetTracker')
 const swim = require('./swim')
@@ -232,7 +235,8 @@ async function getOsToken(clientId, clientSecret) {
     client_secret: clientSecret,
   })
   const res = await axios.post(OS_TOKEN_URL, params.toString(), {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    timeout: 10000,
   })
   const expiresIn = res.data.expires_in ?? 1800
   _osTokens[clientId] = {
@@ -354,14 +358,21 @@ app.use('/api/swim', (req, _res, next) => {
 app.get('/api/health', (_req, res) => {
   cachePublic(res, 10)
   const ps = poller.getStatus()
+  const pollerStaleAfterMs = Math.max(ps.interval * 3, 5 * 60 * 1000)
+  const pollerStale = ps.running && (!ps.lastFetchAt || Date.now() - ps.lastFetchAt > pollerStaleAfterMs)
   res.json({
-    status: 'ok',
+    status: pollerStale ? 'degraded' : 'ok',
     aeroapi_configured: !!process.env.AEROAPI_KEY,
     opensky_configured: !!(process.env.OS_CLIENT_ID && process.env.OS_CLIENT_SECRET),
     faa_notam_configured: !!(process.env.FAA_CLIENT_ID && process.env.FAA_CLIENT_SECRET),
     poller_running: ps.running,
     poller_region: ps.region,
     poller_aircraft: ps.trackedAircraft,
+    poller_last_fetch: ps.lastFetchAt ? new Date(ps.lastFetchAt).toISOString() : null,
+    poller_feed_source: ps.lastFeedSource,
+    poller_stale: pollerStale,
+    opensky_paused: ps.openSkyPaused,
+    opensky_pause: ps.openSkyPause,
     s3_archive: getS3Status(),
     db_size: getDbSize(),
     timestamp: new Date().toISOString()
@@ -408,7 +419,6 @@ const _serviceHealth = {
   aviationweather: { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null, failures: 0, openAt: null },
   aeroapi:         { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null, failures: 0, openAt: null },
   faa_notam:       { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null, failures: 0, openAt: null },
-  airplaneslive:   { status: 'unknown', lastOk: null, lastError: null, lastLatency: null, error: null, failures: 0, openAt: null },
   // adsbdb + hexdb are called directly from the browser (CORS-enabled), not proxied
 }
 
@@ -538,6 +548,7 @@ app.get('/api/opensky/states', async (req, res) => {
     const response = await axios.get(`${OS_BASE}/states/all`, {
       headers,
       params: req.query,   // bbox params (lamin/lomin/lamax/lomax) pass straight through
+      timeout: 30000,
     })
     recordServiceOk('opensky', Date.now() - t0)
     const stateCount = response.data?.states?.length || 0
@@ -1266,15 +1277,15 @@ app.get('/api/routes/stats', (_req, res) => {
   res.json({ total: getRouteCount() })
 })
 
-// ── airplanes.live proxy (rate limited, service health tracked) ──────────────
+// ── Community ADS-B proxy (backwards-compatible /api/apl routes) ─────────────
 
-const APL_BASE = 'https://api.airplanes.live/v2'
+const COMMUNITY_ADSB_BASE = process.env.ADSBFI_BASE || 'https://opendata.adsb.fi/api/v2'
 let _aplLastReq = 0  // timestamp of last request — enforce 1 req/sec server-side
 
 async function aplFetch(path, res) {
   cachePrivate(res, 5)
-  if (!serviceAvailable('airplaneslive')) {
-    return res.status(503).json({ error: 'airplanes.live temporarily unavailable (circuit breaker)', retry_after: 30 })
+  if (!serviceAvailable('adsbfi')) {
+    return res.status(503).json({ error: 'community ADS-B feed temporarily unavailable (circuit breaker)', retry_after: 30 })
   }
   // Server-side rate limiting: wait if needed to respect 1 req/sec
   const now = Date.now()
@@ -1284,11 +1295,16 @@ async function aplFetch(path, res) {
 
   const t0 = Date.now()
   try {
-    const resp = await axios.get(`${APL_BASE}${path}`, { timeout: 10000 })
-    recordServiceOk('airplaneslive', Date.now() - t0)
-    res.json(resp.data)
+    const resp = await axios.get(`${COMMUNITY_ADSB_BASE}${path}`, { timeout: 10000 })
+    recordServiceOk('adsbfi', Date.now() - t0)
+    const data = resp.data || {}
+    // Keep the historical /api/apl response contract (`ac`) even though the
+    // adsb.fi geographic endpoint names the collection `aircraft`.
+    res.json(Array.isArray(data.aircraft) && !data.ac
+      ? { ...data, ac: data.aircraft }
+      : data)
   } catch (err) {
-    recordServiceError('airplaneslive', Date.now() - t0, err.message)
+    recordServiceError('adsbfi', Date.now() - t0, err.message)
     res.status(err.response?.status || 502).json({ error: err.message })
   }
 }
@@ -1296,7 +1312,7 @@ async function aplFetch(path, res) {
 // GET /api/apl/point?lat=37&lon=-122&radius=250
 app.get('/api/apl/point', (req, res) => {
   const { lat, lon, radius } = req.query
-  aplFetch(`/point/${lat}/${lon}/${Math.min(radius || 250, 250)}`, res)
+  aplFetch(`/lat/${lat}/lon/${lon}/dist/${Math.min(radius || 250, 250)}`, res)
 })
 
 // GET /api/apl/hex?hex=a12345
@@ -1306,7 +1322,7 @@ app.get('/api/apl/hex', (req, res) => {
 
 // GET /api/apl/squawk?code=7700
 app.get('/api/apl/squawk', (req, res) => {
-  aplFetch(`/squawk/${req.query.code || '7700'}`, res)
+  res.status(501).json({ error: 'squawk search is not supported by the current community feed' })
 })
 
 // GET /api/apl/mil

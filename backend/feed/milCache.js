@@ -1,15 +1,15 @@
 // ── Military-ICAO cache (v5.2.1) ───────────────────────────────────────────
 // The OpenSky state vector has no `mil` field. The poller stores every flight
 // with `mil: false`. To restore a useful military signal we periodically fetch
-// the airplanes.live /mil list (currently-tracked military aircraft globally)
+// the adsb.fi /mil list (currently-tracked military aircraft globally)
 // and build a Set of hex codes. `isMil(icao)` answers in O(1).
 //
-// TTL 5 minutes. APL rate-limits at 1 req/sec; 5-min cadence is comfortably
+// TTL 5 minutes. The provider rate-limits at 1 req/sec; 5-min cadence is comfortably
 // under that even if multiple processes hit it.
 
 const axios = require('axios')
 
-const URL = 'https://api.airplanes.live/v2/mil'
+const URL = `${process.env.ADSBFI_BASE || 'https://opendata.adsb.fi/api/v2'}/mil`
 const TTL_MS = 5 * 60_000
 let _cache = { t: 0, set: new Set(), size: 0 }
 let _inFlight = null
@@ -17,7 +17,7 @@ let _inFlight = null
 async function refresh() {
   try {
     const res = await axios.get(URL, { timeout: 15_000 })
-    const list = res.data?.ac || []
+    const list = res.data?.aircraft || res.data?.ac || []
     const set = new Set()
     for (const a of list) {
       if (a.hex) set.add(a.hex.toLowerCase())
@@ -55,7 +55,8 @@ function stats() {
   return { size: _cache.size, ageMs: Date.now() - _cache.t, stale: Date.now() - _cache.t > TTL_MS }
 }
 
-// Eager warm-up on module load.
-ensureFresh().catch(() => {})
+// Eager warm-up in the running service, but never perform network I/O merely
+// because a test imported the feed module.
+if (!process.env.VITEST) ensureFresh().catch(() => {})
 
 module.exports = { isMil, ensureFresh, stats }

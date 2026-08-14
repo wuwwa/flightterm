@@ -1,7 +1,7 @@
 {
   "name": "flightterm-backend",
   "version": "2.5.0",
-  "description": "flightterm Express proxy server. v2.3.0 adds GET /api/flights/:icao (single live flight lookup with sightings fallback) and GET /api/flight/:icao/history (aggregated sightings summary with common callsigns/countries/squawks) for the Flight Dossier.",
+  "description": "Flightterm Express API, live-flight poller, SQLite persistence, and data-source integrations.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -10,21 +10,20 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1014.0",
-    "axios": "^1.6.0",
-    "better-sqlite3": "^12.8.0",
+    "@aws-sdk/client-s3": "^3.1110.0",
+    "axios": "^1.19.0",
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "express-rate-limit": "^8.3.1",
-    "fast-xml-parser": "^5.5.10",
-    "flightterm": "file:..",
-    "node-stream-zip": "^1.15.0",
+    "dotenv": "^17.4.2",
+    "express": "^4.22.2",
+    "express-rate-limit": "^8.6.2",
+    "fast-xml-parser": "^5.10.1",
+    "node-stream-zip": "^1.16.0",
     "solclientjs": "^10.18.3"
   },
   "devDependencies": {
     "nodemon": "^3.0.2",
     "supertest": "^7.2.2",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.10"
   }
 }

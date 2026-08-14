@@ -135,7 +135,8 @@ const SECTIONS = [
     items: [
       { term: 'FAA SWIM',   color: 'text-grn', desc: 'System Wide Information Management. Real-time data direct from the FAA via Solace messaging. Active feeds: AIM FNS (NOTAMs/TFRs) and TFMS (filed flight plans, track updates, flow management — GDPs, ground stops, reroutes). Planned: SFDPS (en route track data from 20 ARTCCs), ITWS (terminal weather). Free access at portal.swim.faa.gov.' },
       { term: 'Airplanes.live', color: 'text-mag', desc: 'Default source for regional tracking. Unfiltered ADS-B/MLAT including military and blocked aircraft. Provides 50+ fields per aircraft: IAS, TAS, Mach, roll, wind, temperature, MCP/FMS altitudes, nav modes. 1 req/sec, no credits, no auth.' },
-      { term: 'OpenSky',    color: 'text-acc', desc: 'Fallback and global source. ADS-B crowd-sourced network with bounding-box queries. 4,000 credits/day (authenticated). Used for global region or when airplanes.live is unavailable.' },
+      { term: 'OpenSky',    color: 'text-acc', desc: 'Primary global source. ADS-B crowd-sourced network with bounding-box queries; OAuth credentials improve daily rate limits.' },
+      { term: 'adsb.fi',    color: 'text-cyn', desc: 'Rate-limited community fallback used when OpenSky is unavailable or out of credits.' },
       { term: 'adsb.fi',    color: 'text-acc', desc: 'Aircraft enrichment. Registration, type, operator, year, MCP settings, emergency field, military flag, and emitter category (used for aircraft class normalization).' },
       { term: 'ADSBdb',     color: 'text-acc', desc: 'Aircraft database. Maps ICAO hex codes to aircraft details and callsigns to origin/destination routes. Primary source for the route cache.' },
       { term: 'AvnWx',      color: 'text-acc', desc: 'aviationweather.gov. FAA weather data — METARs, PIREPs, SIGMETs. Updated every minute. Feeds into weather correlation scoring.' },

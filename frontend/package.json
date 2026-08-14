@@ -1,7 +1,7 @@
 {
   "name": "flightterm-frontend",
   "version": "2.6.3",
-  "description": "v2.3.0 adds FlightDossier.jsx — the full-page deep-dive at #flight=<icao>. Hash-based routing + parallel source aggregation, reuses FlightMap + ContextPanel, adds altitude/speed profile charts (recharts).",
+  "description": "Flightterm React dashboard and flight dossier interface.",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,20 +12,19 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.2.2",
-    "@vitejs/plugin-react": "^4.2.0",
-    "axios": "1.13.6",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.0.5",
+    "axios": "1.19.0",
     "clsx": "^2.1.1",
-    "flightterm": "file:..",
     "leaflet": "^1.9.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-leaflet": "^4.2.1",
-    "recharts": "^3.8.1",
-    "tailwindcss": "^4.2.2",
-    "vite": "^5.0.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-leaflet": "^5.0.0",
+    "recharts": "^3.10.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.1"
   },
   "devDependencies": {
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.10"
   }
 }

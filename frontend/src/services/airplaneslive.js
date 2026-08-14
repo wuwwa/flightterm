@@ -34,7 +34,7 @@ function hexToCountry(hex) {
   return null
 }
 
-// ── Unit conversions (airplanes.live uses feet/knots/ft-per-min) ────────────
+// ── Unit conversions (community readsb feeds use feet/knots/ft-per-min) ──────
 const FT_TO_M = 0.3048
 const KT_TO_MS = 0.514444
 const FPM_TO_MS = 0.00508
@@ -94,7 +94,7 @@ function parseAircraft(a) {
 
 /**
  * Fetch rich data for a single aircraft by hex.
- * Used to enrich anomaly detections with 50+ fields from airplanes.live.
+ * Used to enrich anomaly detections with 50+ fields from the community feed.
  */
 export async function fetchAplByHex(hex) {
   const res = await axios.get('/api/apl/hex', {

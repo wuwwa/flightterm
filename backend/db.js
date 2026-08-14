@@ -5,6 +5,7 @@ const { isEnabled: s3Enabled, archiveBeforePurge } = require('./s3archive')
 
 const DB_DIR = process.env.DB_DIR || __dirname
 const DB_PATH = path.join(DB_DIR, 'flightterm.db')
+fs.mkdirSync(DB_DIR, { recursive: true })
 const db = new Database(DB_PATH, { timeout: 10000 }) // 10s busy timeout for multi-process access
 
 // ── pragmas for performance ─────────────────────────────────────────────────

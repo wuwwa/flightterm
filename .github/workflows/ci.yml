@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Test backend
+        run: npm test --prefix backend
+
+      - name: Test frontend
+        run: npm test --prefix frontend
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Audit root dependencies
+        run: npm audit --audit-level=high
+
+      - name: Audit backend dependencies
+        run: npm audit --prefix backend --audit-level=high
+
+      - name: Audit frontend dependencies
+        run: npm audit --prefix frontend --audit-level=high

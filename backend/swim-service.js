@@ -6,7 +6,11 @@
 // Runs as a separate Fly.io app with its own CPU — solclientjs can block this
 // event loop all it wants without affecting the main HTTP server.
 
-require('dotenv').config({ path: require('path').join(__dirname, '.env') })
+const path = require('path')
+require('dotenv').config({
+  path: [path.join(__dirname, '.env'), path.join(__dirname, 'env')],
+  quiet: true,
+})
 const express = require('express')
 const axios = require('axios')
 

@@ -55,7 +55,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 <StatusDot ok={!!local.userOsClientId && !!local.userOsClientSecret} label="opensky (yours)" />
                 <StatusDot ok={serverKeys.aeroapi} label="aeroapi (server)" />
                 <StatusDot ok={!!local.userAeroKey} label="aeroapi (yours)" />
-                <StatusDot ok={true} label="airplanes.live (free)" />
+                <StatusDot ok={true} label="adsb.fi community feed" />
                 <StatusDot ok={serverKeys.faa_notam} label="faa notam (server)" />
                 <StatusDot ok={serverKeys.s3_archive?.enabled} label={
                   serverKeys.s3_archive?.enabled

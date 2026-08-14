@@ -334,31 +334,35 @@ test('db.persistFlightPositions: deduplicates multiple snapshots per callsign', 
 test('db.getPositionTrail: returns positions ordered by recorded_at ASC', () => {
   cleanDbState()
 
+  const t1 = new Date(Date.now() - 50 * 60 * 1000).toISOString()
+  const t2 = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  const t3 = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+
   // Insert out of chronological order
   insertPositionRaw({
     callsign: 'SWA999',
     lat: 32.0, lon: -96.0, altitude: 30000, speed: 420, heading: 270,
     sector: 'A', artcc: 'ZFW',
-    recorded_at: '2026-04-07T01:30:00.000Z',
+    recorded_at: t2,
   })
   insertPositionRaw({
     callsign: 'SWA999',
     lat: 31.0, lon: -95.0, altitude: 25000, speed: 380, heading: 260,
     sector: 'B', artcc: 'ZFW',
-    recorded_at: '2026-04-07T01:10:00.000Z',
+    recorded_at: t1,
   })
   insertPositionRaw({
     callsign: 'SWA999',
     lat: 33.0, lon: -97.0, altitude: 35000, speed: 450, heading: 280,
     sector: 'C', artcc: 'ZAB',
-    recorded_at: '2026-04-07T01:50:00.000Z',
+    recorded_at: t3,
   })
 
   const trail = db.getPositionTrail('SWA999')
   assert.strictEqual(trail.length, 3)
-  assert.strictEqual(trail[0].recorded_at, '2026-04-07T01:10:00.000Z', 'first is earliest')
-  assert.strictEqual(trail[1].recorded_at, '2026-04-07T01:30:00.000Z', 'middle')
-  assert.strictEqual(trail[2].recorded_at, '2026-04-07T01:50:00.000Z', 'last is latest')
+  assert.strictEqual(trail[0].recorded_at, t1, 'first is earliest')
+  assert.strictEqual(trail[1].recorded_at, t2, 'middle')
+  assert.strictEqual(trail[2].recorded_at, t3, 'last is latest')
 
   // Shape check
   const row = trail[0]
@@ -373,7 +377,7 @@ test('db.getPositionTrail: returns positions ordered by recorded_at ASC', () => 
   assert.ok('recorded_at' in row)
 })
 
-test('db.getPositionTrail: excludes positions older than 6 hours', () => {
+test('db.getPositionTrail: excludes positions older than 2 hours', () => {
   cleanDbState()
   // Very old timestamp
   insertPositionRaw({
@@ -703,3 +707,10 @@ runTests().catch(err => {
   console.error(err)
   process.exit(1)
 })
+
+if (isVitest) {
+  globalThis.afterAll(() => {
+    try { db.close?.() } catch {}
+    try { fs.rmSync(TEST_DB_DIR, { recursive: true, force: true }) } catch {}
+  })
+}

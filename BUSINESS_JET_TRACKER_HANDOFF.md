@@ -143,10 +143,10 @@ Production check on `2026-05-06` showed the app was serving HTML/assets, but `/a
 
 Details:
 
-- Enabled by default unless `AIRPLANES_LIVE_FALLBACK_DISABLED=true`.
-- Uses `AIRPLANES_LIVE_BASE`, default `https://api.airplanes.live/v2`.
+- Enabled by default unless `COMMUNITY_FALLBACK_DISABLED=true`.
+- Uses `ADSBFI_BASE`, default `https://opendata.adsb.fi/api/v2`.
 - For `POLL_REGION=usa`, queries 12 representative points at 250 nm radius, then dedupes by ICAO hex.
-- Normalizes Airplanes.live feet/knots/ft-min fields back into the app's OpenSky-style meters/m/s shape.
+- Normalizes community readsb feet/knots/ft-min fields back into the app's OpenSky-style meters/m/s shape.
 - Existing dashboard consumers still read `/api/flights`; no frontend API change.
 
 Historical URL template tokens:

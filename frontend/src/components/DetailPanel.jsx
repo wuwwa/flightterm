@@ -59,8 +59,8 @@ export default function DetailPanel({
   const { aircraft, flightroute, adsbfi, apl } = enrichData || {}
   const aeroData = flight ? aeroCache[flight.icao] : null
   const srcTag = flight
-    ? flight.src === 'apl'
-      ? { label: 'airplanes.live', colorClass: 'text-mag' }
+    ? ['apl', 'airplanes.live', 'adsb.fi'].includes(flight.src)
+      ? { label: flight.src === 'adsb.fi' ? 'adsb.fi' : 'community ADS-B', colorClass: 'text-mag' }
       : flight.src === 'adsbx'
       ? { label: 'adsbx', colorClass: 'text-acc' }
       : { label: 'opensky', colorClass: 'text-grn' }
@@ -275,7 +275,7 @@ export default function DetailPanel({
       {/* Deep telemetry */}
       <Section
         title="deep telemetry"
-        srcTag={{ label: 'airplanes.live', colorClass: 'text-mag' }}
+        srcTag={{ label: 'community ADS-B', colorClass: 'text-mag' }}
       />
       <DRow
         label="IAS"

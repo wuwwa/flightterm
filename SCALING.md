@@ -47,7 +47,7 @@ Once on Postgres + Redis:
 
 ### Stage 1: Frontend Build (temporary, discarded after build)
 ```
-FROM node:20-slim AS frontend-build
+FROM node:24-slim AS frontend-build
 ```
 - Starts from a lightweight Node 20 image
 - Copies frontend source, runs `npm ci && npm run build`
@@ -56,7 +56,7 @@ FROM node:20-slim AS frontend-build
 
 ### Stage 2: Production Runtime (the actual deployed image)
 ```
-FROM node:20-slim
+FROM node:24-slim
 ```
 - Starts from a fresh Node 20 slim image
 - Installs `python3`, `make`, `g++` because `better-sqlite3` compiles native C++ during install
@@ -106,7 +106,7 @@ The frontend detects anomalies, scores them, categorizes them, then POSTs finish
 `recordAnomalies()` in `db.js` writes to SQLite and returns a count. Nothing happens after that. No webhooks, no event bus, no pub/sub, no notification. The data goes in and sits there until someone polls `/api/anomalies/active`.
 
 ### 3. `index.js` is a 920-line monolith doing 3 jobs
-- **Proxy layer**: forwarding requests to OpenSky, AeroAPI, adsb.fi, aviation weather, hexdb, airplanes.live, FAA NOTAMs
+- **Proxy layer**: forwarding requests to OpenSky, AeroAPI, adsb.fi, aviation weather, hexdb, and FAA NOTAMs
 - **Domain logic**: sightings, anomalies, routes, usage tracking
 - **Static file server**: serving the frontend
 
@@ -249,7 +249,7 @@ All five phases completed. Anomaly detection now runs server-side. 127 backend t
   - Region fallback: if poller region ≠ user-selected region, falls back to direct OpenSky proxy
 - **Preserved:**
   - AeroAPI enrichment remains click-only (no change)
-  - ADSBx/adsb.fi/airplanes.live fallback sources untouched
+  - ADSBx and adsb.fi fallback sources intact
   - Route rate limiting, sightings dedup, all display components intact
   - `frontend/src/utils/anomaly.js` still exists (used by frontend display components for constants)
 

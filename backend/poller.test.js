@@ -1,6 +1,15 @@
 // ── Poller integration tests ──────────────────────────────────────────────────
 // Uses vitest globals mode. Mocks axios and db to avoid real network/DB calls.
 
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const TEST_DB_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'flightterm-poller-test-'))
+process.env.DB_DIR = TEST_DB_DIR
+process.env.ANOMALY_DETECTION_ENABLED = 'true'
+process.env.ANOMALY_SCORE_DIVISOR = '1'
+process.env.COMMUNITY_POINT_DELAY_MS = '0'
+
 const mockGet = vi.fn()
 const mockPost = vi.fn()
 const mockRecordAnomalies = vi.fn(() => 0)
@@ -42,9 +51,7 @@ const NOW = 1711500000000
 
 beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(NOW)
-  trackHistory.clear()
-  activeAnomalies.clear()
-  anomalyMisses.clear()
+  _internals.resetTestState()
   vi.clearAllMocks()
   // Re-apply default mock implementations after clearAllMocks
   mockGet.mockImplementation(() => Promise.resolve({ data: [] }))
@@ -57,6 +64,12 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks()
   poller.stop()
+})
+
+afterAll(() => {
+  poller.stop()
+  db.close?.()
+  fs.rmSync(TEST_DB_DIR, { recursive: true, force: true })
 })
 
 

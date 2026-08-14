@@ -1,147 +1,124 @@
 # flightterm
 
-A terminal-style flight tracking dashboard built with React + Vite (frontend) and Express (backend).
-Follows the FullStackOpen architecture: Vite proxies `/api/*` to Express, keeping API keys server-side.
+Flightterm is a terminal-style flight-tracking dashboard with a React frontend,
+an Express API, a SQLite data store, and an optional FAA SWIM worker.
 
-## Stack
+## Runtime architecture
 
-| Layer     | Technology                      |
-| --------- | ------------------------------- |
-| Frontend  | React 18, Vite 5, axios         |
-| Backend   | Node.js, Express, axios, dotenv |
-| Dev tools | concurrently, nodemon           |
-
-## Data sources
-
-| Source              | What it provides                        | Cost       |
-| ------------------- | --------------------------------------- | ---------- |
-| OpenSky Network     | Live radar — positions, altitude, speed | Free       |
-| ADS-B Exchange      | Live radar — unfiltered incl. military  | ~$10/mo    |
-| adsbdb              | Aircraft type, owner, route             | Free       |
-| FlightAware AeroAPI | Schedules, delays, status, times        | $5/mo free |
-
-## Quick start
-
-### 1. Install dependencies
-
-```bash
-npm install          # installs concurrently at root
-npm run install:all  # installs backend + frontend deps
+```text
+Browser
+  └─ React 19 + Vite 8 static application
+       └─ /api/*
+            └─ Express API + SQLite
+                 ├─ OpenSky live states (primary)
+                 ├─ adsb.fi community states (rate-limited fallback)
+                 ├─ FlightAware AeroAPI
+                 ├─ Aviation Weather / FAA / context services
+                 └─ flightterm-swim worker (optional FAA SWIM ingestion)
 ```
 
-### 2. Configure AeroAPI key
+The production image uses Node.js 24. OpenSky OAuth credentials improve rate
+limits but are optional; the poller can make anonymous requests and falls back
+to adsb.fi when OpenSky is unavailable or out of credits.
+
+## Local setup
+
+Requirements:
+
+- Node.js 24
+- npm 11+
+
+Install the three locked dependency trees:
+
+```bash
+npm ci
+npm ci --prefix backend
+npm ci --prefix frontend
+```
+
+Create the backend environment file:
 
 ```bash
 cp backend/.env.example backend/.env
-# Edit backend/.env and set:
-# AEROAPI_KEY=your_actual_key_here
 ```
 
-Your AeroAPI key is available at:
-https://www.flightaware.com/aeroapi/portal → My AeroAPI → Overview → Add API Key
+`backend/.env` is preferred and is gitignored. For compatibility with older
+local setups, a dotless `backend/env` file is also loaded as a fallback.
 
-### 3. Start both servers
+Useful variables:
+
+| Variable | Purpose | Required |
+| --- | --- | --- |
+| `AEROAPI_KEY` | FlightAware enrichment | No |
+| `OS_CLIENT_ID`, `OS_CLIENT_SECRET` | OpenSky OAuth and higher rate limits | No |
+| `FAA_CLIENT_ID`, `FAA_CLIENT_SECRET` | FAA NOTAM API | No |
+| `POLLER_ENABLED` | Start the server-side live-flight poller | No; defaults off locally |
+| `ANOMALY_DETECTION_ENABLED` | Enable anomaly scoring and sightings writes | No |
+| `ADMIN_SECRET` | Protect administrative endpoints | Recommended |
+| `S3_BUCKET` and AWS credentials | Archive data to S3 | No |
+
+See [backend/.env.example](backend/.env.example) for the complete list.
+
+Start the complete local development stack:
 
 ```bash
 npm run dev
 ```
 
-This runs:
-
-- Express backend on http://localhost:3001
-- Vite frontend on http://localhost:5173
-
-Open http://localhost:5173 in your browser.
-
-### Run servers separately (if needed)
+This starts the API on <http://localhost:3001>, Vite on
+<http://localhost:5173>, and the local SWIM service. To run only part of the
+stack:
 
 ```bash
-# Terminal 1
 npm run dev:backend
-
-# Terminal 2
 npm run dev:frontend
+npm run dev:swim
 ```
 
-## How the proxy works (FullStackOpen pattern)
+## Verification
 
-Vite's dev server proxies any request starting with `/api` to the Express backend:
-
-```
-Browser → GET /api/aero/flights/BAW117
-        → Vite proxy → Express :3001 /api/aero/flights/BAW117
-        → Express adds x-apikey header → FlightAware AeroAPI
-        → Response back to browser (no CORS, no key exposure)
-```
-
-OpenSky and adsbdb are called directly from the browser — they support CORS.
-AeroAPI does NOT support CORS, which is why it goes through the backend.
-
-## Project structure
-
-```
-flightterm/
-├── package.json              # root scripts (concurrently)
-├── .gitignore
-├── README.md
-│
-├── backend/
-│   ├── package.json
-│   ├── index.js              # Express server + AeroAPI proxy routes
-│   ├── .env.example          # copy to .env and add your key
-│   └── .env                  # ← gitignored, your keys live here
-│
-└── frontend/
-    ├── package.json
-    ├── vite.config.js         # proxy /api → localhost:3001
-    ├── index.html
-    └── src/
-        ├── main.jsx
-        ├── App.jsx            # root component, all state management
-        ├── index.css          # global styles, CSS variables
-        ├── components/
-        │   ├── TopBar.jsx     # status bar (stats, source badge, clock)
-        │   ├── ControlBar.jsx # fetch, auto-refresh, region, filter
-        │   ├── LogPanel.jsx   # scrolling activity log
-        │   ├── FlightTable.jsx# sortable flight list
-        │   ├── DetailPanel.jsx# per-flight enrichment (adsbdb + aeroapi)
-        │   ├── UsagePanel.jsx # AeroAPI usage stats + cost map
-        │   └── SettingsModal.jsx
-        └── services/
-            ├── opensky.js     # OpenSky Network API
-            ├── adsbx.js       # ADS-B Exchange via RapidAPI
-            ├── adsbdb.js      # adsbdb aircraft + route lookup
-            └── aeroapi.js     # AeroAPI via Express proxy (/api/aero/*)
+```bash
+npm test --prefix backend
+npm test --prefix frontend
+npm run build
+npm audit --audit-level=high
+npm audit --prefix backend --audit-level=high
+npm audit --prefix frontend --audit-level=high
 ```
 
-## AeroAPI endpoints used
+The GitHub CI workflow runs these checks with Node.js 24. Fly deployment only
+runs after CI succeeds.
 
-| Endpoint             | Cost/result set | Used for                  |
-| -------------------- | --------------- | ------------------------- |
-| GET /flights/{ident} | $0.005          | Per-flight scheduled data |
-| GET /account/usage   | free            | Usage statistics panel    |
-| GET /api/aero/costs  | free (local)    | Cost map display          |
+Health endpoints:
 
-## Settings (persisted to localStorage)
+- `GET /api/health` — configuration and poller snapshot
+- `GET /api/health/live` — process liveness
+- `GET /api/health/ready` — database readiness
+- `GET /api/health/services` — passive upstream-service status
+- SWIM worker: `GET /health`
 
-- **Source**: auto / opensky only / adsbx only
-- **ADS-B Exchange key**: RapidAPI key (stored in browser localStorage)
-- **ADS-B Exchange radius**: search radius in nautical miles (1–100)
-- **OpenSky credentials**: optional username/password for better rate limits
-- **Auto-refresh interval**: seconds between fetches (min 15s)
+## Production
 
-Note: AeroAPI key is NOT in settings — it lives in `backend/.env` only.
+The main application and SWIM worker use separate Fly configurations:
 
-## Usage panel ($ button)
+```bash
+fly deploy
+fly deploy -c fly.swim.toml
+```
 
-Shows live AeroAPI account stats fetched from `/account/usage`:
+The main service can scale to zero. Its first request may therefore include a
+cold start. `poller_last_fetch`, `poller_feed_source`, and `poller_aircraft` in
+`/api/health` distinguish a running process from a successful data poll.
 
-- Total calls, total cost, free credit remaining
-- Per-endpoint breakdown with cost per call
-- Full cost map for all 40+ endpoints
+## Project layout
 
-Data is updated every 10 minutes by FlightAware.
-
-# fly deploy -c fly.swim.toml
-
-# fly deploy
+```text
+backend/                 Express API, poller, SQLite, jobs, SWIM consumers
+frontend/src/            React dashboard, data clients, tests
+.github/workflows/       CI, gated Fly deployment, SWIM wake schedule
+scripts/                 Local development helpers
+Dockerfile               Node 24 production image
+Dockerfile.swim          Node 24 SWIM worker image
+fly.toml                 Main Fly application
+fly.swim.toml            SWIM Fly application
+```

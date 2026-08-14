@@ -97,8 +97,8 @@ export default function FlightInspectorModal({
   if (!flight) return null
 
   // Source tag
-  const srcTag = flight.src === 'apl'
-    ? { label: 'airplanes.live', color: 'text-mag' }
+  const srcTag = ['apl', 'airplanes.live', 'adsb.fi'].includes(flight.src)
+    ? { label: flight.src === 'adsb.fi' ? 'adsb.fi' : 'community ADS-B', color: 'text-mag' }
     : flight.src === 'adsbx'
     ? { label: 'adsbx', color: 'text-acc' }
     : { label: 'opensky', color: 'text-grn' }

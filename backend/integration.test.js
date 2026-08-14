@@ -1,6 +1,15 @@
 // ── Integration tests ─────────────────────────────────────────────────────────
 // End-to-end: poller detects anomaly → event emits → SSE stream delivers → API serves
 
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const TEST_DB_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'flightterm-integration-test-'))
+process.env.DB_DIR = TEST_DB_DIR
+process.env.ANOMALY_DETECTION_ENABLED = 'true'
+process.env.ANOMALY_SCORE_DIVISOR = '1'
+process.env.COMMUNITY_POINT_DELAY_MS = '0'
+
 const mockGet = vi.fn()
 const mockPost = vi.fn()
 
@@ -55,10 +64,7 @@ function mockFlights(states) {
 
 beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(NOW)
-  trackHistory.clear()
-  activeAnomalies.clear()
-  anomalyMisses.clear()
-  _internals.resetFlights()
+  _internals.resetTestState()
   vi.clearAllMocks()
   mockGet.mockImplementation(() => Promise.resolve({ data: [] }))
   mockPost.mockImplementation(() => Promise.resolve({ data: { access_token: 'test', expires_in: 1800 } }))
@@ -70,6 +76,12 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks()
   poller.stop()
+})
+
+afterAll(() => {
+  poller.stop()
+  db.close?.()
+  fs.rmSync(TEST_DB_DIR, { recursive: true, force: true })
 })
 
 
