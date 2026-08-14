@@ -10,16 +10,17 @@ Browser
   └─ React 19 + Vite 8 static application
        └─ /api/*
             └─ Express API + SQLite
-                 ├─ OpenSky live states (primary)
-                 ├─ adsb.fi community states (rate-limited fallback)
+                 ├─ adsb.fi community states (production primary)
+                 ├─ OpenSky live states (configurable primary/fallback)
                  ├─ FlightAware AeroAPI
                  ├─ Aviation Weather / FAA / context services
                  └─ flightterm-swim worker (optional FAA SWIM ingestion)
 ```
 
 The production image uses Node.js 24. OpenSky OAuth credentials improve rate
-limits but are optional; the poller can make anonymous requests and falls back
-to adsb.fi when OpenSky is unavailable or out of credits.
+limits but are optional; the poller can also make anonymous requests. Fly uses
+adsb.fi as the primary feed because OpenSky requests can time out from Fly's
+network, while local deployments default to OpenSky with adsb.fi fallback.
 
 ## Local setup
 

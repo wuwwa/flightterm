@@ -75,10 +75,10 @@ FROM node:24-slim
 |---|---|---|
 | `primary_region` | `iad` | Machine runs in Ashburn, Virginia |
 | `[[mounts]]` | `/data` | Persistent volume for SQLite — survives deploys |
-| `auto_stop_machines` | `stop` | Machine shuts down when idle (saves money) |
+| `auto_stop_machines` | `stop` | Stops surplus machines, while the minimum remains online |
 | `auto_start_machines` | `true` | Boots back up on next incoming request |
-| `min_machines_running` | `0` | Allows full shutdown (cold starts possible) |
-| `size` | `shared-cpu-1x` | Shared vCPU, 512MB RAM |
+| `min_machines_running` | `1` | Keeps the in-process live-feed poller running continuously |
+| `size` | `shared-cpu-1x` | Shared vCPU, 1024MB RAM |
 
 ## Deploy Flow (`npm run deploy` / `fly deploy`)
 1. Fly.io receives source code

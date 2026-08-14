@@ -30,6 +30,10 @@ const poller = require('./poller')
 const businessJetTracker = require('./businessJetTracker')
 const swim = require('./swim')
 const app = express()
+// Fly Proxy terminates TLS and supplies the client address in X-Forwarded-For.
+// Trust exactly that first proxy hop so express-rate-limit keys real clients
+// without emitting ERR_ERL_UNEXPECTED_X_FORWARDED_FOR in production.
+app.set('trust proxy', 1)
 const PORT = process.env.PORT || 3001
 const AERO_BASE = 'https://aeroapi.flightaware.com/aeroapi'
 const AERO_CAP = 5.00 // hard cap in USD — do not change
