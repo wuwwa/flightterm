@@ -46,9 +46,9 @@ primary_region = 'iad'
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  # The in-process poller needs one continuously running machine. With zero,
-  # Fly stops it between HTTP requests before a feed cycle can finish.
-  min_machines_running = 1
+  # Scale fully to zero when the site is idle. A visit starts the machine and
+  # the adsb.fi-first poll completes while the frontend is actively requesting.
+  min_machines_running = 0
 
 [checks]
   [checks.live]
