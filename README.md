@@ -14,7 +14,7 @@ Browser
                  ├─ OpenSky live states (configurable primary/fallback)
                  ├─ FlightAware AeroAPI
                  ├─ Aviation Weather / FAA / context services
-                 └─ flightterm-swim worker (optional FAA SWIM ingestion)
+                 └─ flightterm-swim worker (visit-triggered FAA SWIM ingestion)
 ```
 
 The production image uses Node.js 24. OpenSky OAuth credentials improve rate
@@ -116,7 +116,7 @@ cold start. `poller_last_fetch`, `poller_feed_source`, and `poller_aircraft` in
 ```text
 backend/                 Express API, poller, SQLite, jobs, SWIM consumers
 frontend/src/            React dashboard, data clients, tests
-.github/workflows/       CI, gated Fly deployment, SWIM wake schedule
+.github/workflows/       CI and gated Fly deployment
 scripts/                 Local development helpers
 Dockerfile               Node 24 production image
 Dockerfile.swim          Node 24 SWIM worker image
