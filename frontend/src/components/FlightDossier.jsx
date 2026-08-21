@@ -4,7 +4,7 @@
 // renders sections as they land. Reuses ContextPanel, FlightMap, TrackChart
 // from the inspector modal; adds historical + weather-on-route + externals.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTTooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts'
 import FlightMap from './FlightMap'
@@ -28,21 +28,21 @@ function fmtNum(n, suffix = '') {
 
 function Row({ label, value, color = 'text-fg2', mono = true, onClick, active }) {
   const clickable = !!onClick
-  return (
-    <div className={clsx(
+  const content = <>
+    <span className="text-fg3 text-[10px] uppercase tracking-wide shrink-0">{label}</span>
+    <span className={clsx('text-right truncate', mono && 'tabular-nums', color, clickable && 'border-b border-dotted border-current/40 hover:text-fg')}>
+      {value ?? <span className="text-fg3/30">—</span>}
+    </span>
+  </>
+  const classes = clsx(
       'flex items-baseline justify-between gap-2 py-0.5 text-[11px] border-b border-white/3 last:border-b-0',
       clickable && 'cursor-pointer',
       active && 'bg-acc/10'
-    )}
-      onClick={onClick}
-      title={clickable ? 'click to drill in' : undefined}
-    >
-      <span className="text-fg3 text-[10px] uppercase tracking-wide shrink-0">{label}</span>
-      <span className={clsx('text-right truncate', mono && 'tabular-nums', color, clickable && 'border-b border-dotted border-current/40 hover:text-fg')}>
-        {value ?? <span className="text-fg3/30">—</span>}
-      </span>
-    </div>
   )
+  if (clickable) {
+    return <button type="button" className={clsx(classes, 'w-full border-x-0 border-t-0 bg-transparent text-left')} onClick={onClick} aria-label={`Show other flights for ${label}: ${value}`}>{content}</button>
+  }
+  return <div className={classes}>{content}</div>
 }
 
 // v5.4.0 — drill-in panel. Appears below a clickable Row, scoped to its tile.
@@ -61,14 +61,14 @@ function DrillIn({ title, loading, error, onClose, children }) {
 }
 
 // Helper — a compact flight row that's clickable to open its dossier.
-function SiblingRow({ f }) {
-  const href = `#flight=${f.icao}${f.callsign ? '&cs=' + encodeURIComponent(f.callsign) : ''}`
+function SiblingRow({ f, returnGroup, showMilitary }) {
+  const href = `#flight=${f.icao}${f.callsign ? '&cs=' + encodeURIComponent(f.callsign) : ''}${returnGroup ? '&fromGroup=' + encodeURIComponent(returnGroup) : ''}`
   return (
     <a href={href} className="flex justify-between items-baseline text-[10px] py-0.5 border-b border-white/3 last:border-b-0 hover:bg-bg2/60 px-0.5 rounded cursor-pointer">
       <span className="flex items-baseline gap-1.5 truncate">
         <span className="text-ylw font-mono">{f.callsign || f.icao}</span>
         {f.acType && <span className="text-fg3">{f.acType}</span>}
-        {f.mil && <span className="text-red text-[8px] uppercase">mil</span>}
+        {showMilitary && f.mil && <span className="text-red text-[8px] uppercase">mil</span>}
       </span>
       <span className="shrink-0 text-fg3 tabular-nums">
         {f.distNm != null && <span className="text-cyn mr-1">{f.distNm}nm</span>}
@@ -200,7 +200,7 @@ function ExternalLinks({ icao, callsign, reg }) {
 
 // ── Main dossier page ───────────────────────────────────────────────────────
 
-export default function FlightDossier({ icao, callsign: initialCallsign, onClose, flights }) {
+export default function FlightDossier({ icao, callsign: initialCallsign, onClose, flights, returnFocusTarget, returnGroup, showMilitary = false }) {
   const [sections, setSections] = useState({})
   const [loading, setLoading] = useState(true)
   const [metars, setMetars] = useState(null)
@@ -214,6 +214,8 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
   // Don't fetch it on every dossier open — show a placeholder, let the user
   // opt in with a click. Resets when navigating to a new aircraft.
   const [satLoaded, setSatLoaded] = useState(false)
+  const dossierRef = useRef(null)
+  const returnFocusRef = useRef(null)
   useEffect(() => { setSatLoaded(false) }, [icao])
 
   const openDrillIn = async (scope, loader) => {
@@ -228,12 +230,27 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
   }
   const closeDrillIn = () => setDrillIn(null)
 
-  // Escape closes
+  // This full-screen surface owns focus while it is open.
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    returnFocusRef.current = returnFocusTarget || document.activeElement
+    const focusables = () => Array.from(dossierRef.current?.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); return }
+      if (e.key !== 'Tab') return
+      const items = focusables()
+      if (!items.length) { e.preventDefault(); dossierRef.current?.focus(); return }
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+    requestAnimationFrame(() => focusables()[0]?.focus())
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      returnFocusRef.current?.focus?.()
+    }
+  }, [])
 
   // Kick off the parallel dossier fetch.
   useEffect(() => {
@@ -310,16 +327,16 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
   } : null
 
   return (
-    <div className="fixed inset-0 z-50 bg-bg1 overflow-y-auto">
+    <div ref={dossierRef} className="fixed inset-0 z-[1200] bg-bg1 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="flight-dossier-title" tabIndex={-1}>
       {/* Header (sticky) */}
       <div className="sticky top-0 z-10 bg-bg2/95 backdrop-blur-sm border-b border-border px-3 py-1.5 flex items-center gap-2 flex-wrap">
         <button onClick={onClose} className="text-fg3 hover:text-fg text-[11px] cursor-pointer pr-1" title="close (esc)">‹ back</button>
-        <span className="text-ylw text-[13px] font-mono">{cs || '—'}</span>
+        <span id="flight-dossier-title" className="text-ylw text-[13px] font-mono">{cs || '—'}</span>
         <span className="text-fg3 text-[10px] font-mono">{icao}</span>
         {reg && <Chip tone="cyn">{reg}</Chip>}
         {type && <Chip tone="acc">{type}</Chip>}
         {isLive ? <Chip tone="grn">live</Chip> : <Chip tone="fg3">offline</Chip>}
-        {liveFlight?.mil && <Chip tone="red">MIL</Chip>}
+        {showMilitary && liveFlight?.mil && <Chip tone="red">MIL</Chip>}
         {liveFlight?.squawk && <Chip tone={liveFlight.squawk === '7500' || liveFlight.squawk === '7600' || liveFlight.squawk === '7700' ? 'red' : 'fg3'} title="squawk">{squawkLabel(liveFlight.squawk)}</Chip>}
         <span className="flex-1" />
         {loading && <span className="text-fg3 text-[10px]">loading…</span>}
@@ -344,19 +361,19 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
             active={drillIn?.scope === 'identity-operator'}
           />
           <Row label="country" value={liveFlight?.country} mono={false} />
-          <Row label="mil" value={liveFlight?.mil ? 'yes' : 'no'} color={liveFlight?.mil ? 'text-red' : 'text-fg3'} />
+          {showMilitary && <Row label="mil" value={liveFlight?.mil ? 'yes' : 'no'} color={liveFlight?.mil ? 'text-red' : 'text-fg3'} />}
           <Row label="src" value={liveFlight?.src} />
 
           {drillIn?.scope === 'identity-operator' && (
             <DrillIn title={`other ${oper} flights airborne`} loading={drillIn.loading} error={drillIn.error} onClose={closeDrillIn}>
               {drillIn.data?.count === 0 && <div className="text-fg3/50 text-[10px]">none other</div>}
-              {(drillIn.data?.flights || []).slice(0, 8).map(f => <SiblingRow key={f.icao} f={f} />)}
+              {(drillIn.data?.flights || []).slice(0, 8).map(f => <SiblingRow key={f.icao} f={f} returnGroup={returnGroup} />)}
             </DrillIn>
           )}
           {drillIn?.scope === 'identity-type' && (
             <DrillIn title={`other ${type} airborne`} loading={drillIn.loading} error={drillIn.error} onClose={closeDrillIn}>
               {drillIn.data?.count === 0 && <div className="text-fg3/50 text-[10px]">none other</div>}
-              {(drillIn.data?.flights || []).slice(0, 8).map(f => <SiblingRow key={f.icao} f={f} />)}
+              {(drillIn.data?.flights || []).slice(0, 8).map(f => <SiblingRow key={f.icao} f={f} returnGroup={returnGroup} />)}
               {drillIn.data?.count > 8 && (
                 <div className="text-fg3/60 text-[9px] mt-0.5">… and {drillIn.data.count - 8} more</div>
               )}
@@ -579,10 +596,9 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
           const pos = latLonToSectorPct(sector, liveFlight.lat, liveFlight.lon)
           return (
             <Tile title={`Satellite · ${sector.sat}/${sector.sector} · ${sector.name}`} accent="text-cyn" className="md:col-span-2 xl:col-span-3">
-              <div className="flex gap-2 items-start">
+              <div className="flex flex-col gap-2 md:flex-row md:items-start">
                 <div
-                  className="relative block shrink-0"
-                  style={{ height: '14rem', aspectRatio: '4 / 3' }}
+                  className="relative block w-full max-w-sm mx-auto aspect-[4/3] md:w-auto md:max-w-none md:mx-0 md:h-56 md:shrink-0"
                 >
                   {/* v5.6.2 — lazy-load gate. Placeholder by default; user
                       clicks to load the ~5.9 MB image. Keeps dossier open
@@ -667,7 +683,7 @@ export default function FlightDossier({ icao, callsign: initialCallsign, onClose
             <div className="text-fg3/40 text-[10px] text-center py-3">no other aircraft in range</div>
           ) : (
             <div className="space-y-0.5 max-h-60 overflow-y-auto">
-              {(nearby.flights || []).slice(0, 15).map(f => <SiblingRow key={f.icao} f={f} />)}
+              {(nearby.flights || []).slice(0, 15).map(f => <SiblingRow key={f.icao} f={f} returnGroup={returnGroup} showMilitary={showMilitary} />)}
               {nearby.count > 15 && (
                 <div className="text-fg3/60 text-[9px] mt-0.5">… and {nearby.count - 15} more</div>
               )}

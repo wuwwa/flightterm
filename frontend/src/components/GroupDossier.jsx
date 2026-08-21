@@ -4,7 +4,7 @@
 // a single aircraft. Refreshes every 20s to stay in sync with the backend
 // memoized /api/groups/:groupId endpoint.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { fetchGroup } from '../services/flight'
 
@@ -51,10 +51,10 @@ function BarRow({ id, n, maxN, label, href }) {
   return inner
 }
 
-function FlightRow({ f }) {
+function FlightRow({ f, groupId }) {
   const dep = f.tfms?.dep_arpt
   const arr = f.tfms?.arr_arpt
-  const href = `#flight=${f.icao}${f.callsign ? '&cs=' + encodeURIComponent(f.callsign) : ''}`
+  const href = `#flight=${f.icao}${f.callsign ? '&cs=' + encodeURIComponent(f.callsign) : ''}&fromGroup=${encodeURIComponent(groupId)}`
   return (
     <a
       href={href}
@@ -75,10 +75,33 @@ function FlightRow({ f }) {
   )
 }
 
-export default function GroupDossier({ groupId, onClose }) {
+export default function GroupDossier({ groupId, onClose, returnFocusTarget }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const dossierRef = useRef(null)
+  const returnFocusRef = useRef(null)
+
+  useEffect(() => {
+    returnFocusRef.current = returnFocusTarget || document.activeElement
+    const focusables = () => Array.from(dossierRef.current?.querySelectorAll('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') || [])
+    const onKey = (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
+      if (event.key !== 'Tab') return
+      const items = focusables()
+      if (!items.length) { event.preventDefault(); dossierRef.current?.focus(); return }
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    requestAnimationFrame(() => focusables()[0]?.focus())
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      returnFocusRef.current?.focus?.()
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -108,12 +131,12 @@ export default function GroupDossier({ groupId, onClose }) {
   const accent = KIND_ACCENT[kind] || 'text-fg2'
 
   return (
-    <div className="fixed inset-0 z-[1000] bg-bg1 flex flex-col">
+    <div ref={dossierRef} className="fixed inset-0 z-[1200] bg-bg1 flex flex-col" role="dialog" aria-modal="true" aria-labelledby="group-dossier-title" tabIndex={-1}>
       {/* Header */}
       <div className="border-b border-border px-3 py-2 flex items-baseline justify-between">
         <div className="flex items-baseline gap-2">
           <span className={clsx('text-[10px] uppercase tracking-wide', accent)}>{kind}</span>
-          <span className="font-mono text-fg text-sm">{data?.label || groupId}</span>
+          <span id="group-dossier-title" className="font-mono text-fg text-sm">{data?.label || groupId}</span>
           {data && (
             <span className="text-fg3 text-[11px]">
               {data.count} flights — {data.airborne} airborne / {data.grounded} on ground
@@ -166,7 +189,7 @@ export default function GroupDossier({ groupId, onClose }) {
 
           <Tile title={`Flights (${data.flights.length})`} accent={accent} wide>
             {data.flights.length === 0 && <div className="text-fg3 text-[11px]">no matching flights</div>}
-            {data.flights.map(f => <FlightRow key={f.icao} f={f} />)}
+            {data.flights.map(f => <FlightRow key={f.icao} f={f} groupId={groupId} />)}
           </Tile>
         </div>
       )}

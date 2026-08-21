@@ -5,19 +5,27 @@ import { detectPhase, PHASE } from '../utils/anomaly'
 import FilterBar, { emptyFilters, isFiltersActive, applyFilters, computeFilterCounts } from './FilterBar'
 import AircraftSearchBox from './AircraftSearchBox'
 import Loading from './Loading'
+import PulseMark from './PulseMark'
 
 // Column layout (desktop): 8 essential columns. Older "operator", "country",
 // "eta", "squawk", "hdg", "src" are folded into other cells or shown via tooltips
 // to keep the table scannable. Mobile uses a subset via hideMobile.
 const COLS = [
-  { key: 'icao',     label: 'icao24' },
-  { key: 'callsign', label: 'callsign' },
-  { key: 'type',     label: 'type', hideMobile: true },
-  { key: 'route',    label: 'route', hideMobile: true },
-  { key: 'alt',      label: 'alt' },
-  { key: 'vel',      label: 'spd' },
-  { key: 'vrate',    label: 'v/r', hideMobile: true },
-  { key: 'phase',    label: 'phase' },
+  { key: 'callsign', label: 'Flight' },
+  { key: 'type',     label: 'Type', hideMobile: true },
+  { key: 'route',    label: 'Route', hideMobile: true },
+  { key: 'alt',      label: 'Altitude / ft', numeric: true },
+  { key: 'vel',      label: 'Speed / kt', numeric: true },
+  { key: 'vrate',    label: 'V-rate / fpm', hideMobile: true, numeric: true },
+  { key: 'phase',    label: 'Phase' },
+]
+
+const REGIONS = [
+  ['usa', 'US'],
+  ['global', 'Global'],
+  ['europe', 'Europe'],
+  ['asia', 'Asia'],
+  ['atlantic', 'Atlantic'],
 ]
 
 // Abbreviate common country names to 2-3 chars
@@ -50,10 +58,10 @@ const PHASE_LABEL = {
 }
 
 const PHASE_COLOR = {
-  [PHASE.CLIMB]:    'text-grn',
-  [PHASE.CRUISE]:   'text-cyn',
-  [PHASE.DESCENT]:  'text-ylw',
-  [PHASE.APPROACH]: 'text-mag',
+  [PHASE.CLIMB]:    'text-fg2',
+  [PHASE.CRUISE]:   'text-fg2',
+  [PHASE.DESCENT]:  'text-fg2',
+  [PHASE.APPROACH]: 'text-fg2',
   [PHASE.GROUND]:   'text-fg3',
   [PHASE.UNKNOWN]:  'text-fg3',
 }
@@ -84,18 +92,49 @@ function srcIndicator(f, enrichCache) {
   return parts.join('') || '—'
 }
 
-export default function FlightTable({ flights, filter, onFilterChange, selectedIcao, enrichCache, anomalies = {}, trackHistory = {}, openskyUsage, aeroSpend, trackedIcaos, onToggleTrack, onSelect, onArrived, onDeparted, onSync, isSyncing }) {
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 580
+function verticalRateFpm(f, enrichCache) {
+  if (f.vertRate != null) return Math.round(f.vertRate * 196.85)
+  return enrichCache[f.icao]?.adsbfi?.baroRate ?? null
+}
+
+function SyncButton({ isSyncing, onSync }) {
+  return (
+    <button
+      className={clsx(
+        'flight-sync-button h-5 px-2 border text-[10px] transition-colors shrink-0',
+        isSyncing ? 'border-ylw/45 text-ylw cursor-wait' : 'border-border text-fg3 hover:text-fg2 hover:border-border2'
+      )}
+      onClick={onSync}
+      disabled={isSyncing}
+      title={isSyncing ? 'Refreshing flight records' : 'Refresh flight records now'}
+      aria-label={isSyncing ? 'Refreshing flight records' : 'Refresh flight records now'}
+    >
+      {isSyncing && <PulseMark state="loading" tone="ylw" className="flight-sync-button__mark" />}
+      <span>{isSyncing ? 'Refreshing' : 'Refresh'}</span>
+    </button>
+  )
+}
+
+export default function FlightTable({ flights, filter, onFilterChange, filters, onFiltersChange, selectedIcao, enrichCache, anomalies = {}, trackHistory = {}, onSelect, onArrived, onDeparted, onSync, isSyncing, dataStatus = 'loading', dataError, lastUpdatedAt, region = 'usa', onRegionChange, showMilitary = false, onShowMilitaryChange, signalsOpen = false, onToggleSignals }) {
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 1023px)').matches)
   const PAGE_SIZE = isMobile ? 25 : 50
-  const [sortKey, setSortKey] = useState('takeoff')
+  const [sortKey, setSortKey] = useState('callsign')
   const [sortDir, setSortDir] = useState(1)
   const [page, setPage] = useState(0)
-  const [showAll, setShowAll] = useState(false)
-  const [filters, setFilters] = useState(emptyFilters)
   const [newIcaos, setNewIcaos] = useState(new Set())
   const prevIcaosRef = useRef(new Set())
   const prevFlightsRef = useRef(new Map())
   const initialLoad = useRef(true)
+  const lastSelectionRef = useRef(null)
+  const pendingRevealRef = useRef(false)
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 1023px)')
+    const update = () => setIsMobile(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
 
   // ── diff flights on each update ───────────────────────────────────────────
   useEffect(() => {
@@ -169,12 +208,13 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
 
   // ── apply text filter + dimension filters ─────────────────────────────────
   const filtered = useMemo(() => {
-    setPage(0) // reset to first page on filter change
     let list = flights.filter(f =>
-      f.callsign.toLowerCase().includes(q) ||
-      f.country.toLowerCase().includes(q) ||
-      f.icao.toLowerCase().includes(q) ||
+      (f.callsign || '').toLowerCase().includes(q) ||
+      (f.country || '').toLowerCase().includes(q) ||
+      (f.icao || '').toLowerCase().includes(q) ||
       (f.acOperator || '').toLowerCase().includes(q) ||
+      (f.acReg || '').toLowerCase().includes(q) ||
+      (f.owner || f.acOwner || '').toLowerCase().includes(q) ||
       (f.acType || '').toLowerCase().includes(q) ||
       (f.airline?.name || '').toLowerCase().includes(q) ||
       (f.airline?.icao || '').toLowerCase().includes(q) ||
@@ -189,6 +229,9 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
 
     return list
   }, [flights, q, filters, anomalies, trackHistory, enrichCache])
+  const hasActiveConstraints = isFiltersActive(filters) || Boolean(filter.trim())
+
+  useEffect(() => { setPage(0) }, [q, filters])
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -214,8 +257,8 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
         va = TAKEOFF_RANK[aHist?.length >= 2 ? detectPhase(aHist) : (a.grounded ? PHASE.GROUND : PHASE.UNKNOWN)] ?? 5
         vb = TAKEOFF_RANK[bHist?.length >= 2 ? detectPhase(bHist) : (b.grounded ? PHASE.GROUND : PHASE.UNKNOWN)] ?? 5
       } else if (sortKey === 'vrate') {
-        va = a.vertRate ?? null
-        vb = b.vertRate ?? null
+        va = verticalRateFpm(a, enrichCache)
+        vb = verticalRateFpm(b, enrichCache)
       } else if (sortKey === 'type') {
         va = enrichCache[a.icao]?.adsbfi?.type || enrichCache[a.icao]?.aircraft?.icao_type || a.acType || ''
         vb = enrichCache[b.icao]?.adsbfi?.type || enrichCache[b.icao]?.aircraft?.icao_type || b.acType || ''
@@ -243,42 +286,88 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
     })
   }, [filtered, sortKey, sortDir, anomalies, trackHistory, enrichCache])
 
+  const airborneCount = useMemo(
+    () => filtered.reduce((total, flight) => total + (flight.grounded ? 0 : 1), 0),
+    [filtered]
+  )
+  const sampleTime = lastUpdatedAt ? new Date(lastUpdatedAt) : null
+  const sampleTimestamp = sampleTime && Number.isFinite(sampleTime.getTime())
+    ? sampleTime.toISOString().substring(11, 19) + 'z'
+    : null
+
+  const selectedIndex = selectedIcao ? sorted.findIndex(f => f.icao === selectedIcao) : -1
+  const selectedExists = selectedIcao ? flights.some(f => f.icao === selectedIcao) : false
+  const lastPageSizeRef = useRef(PAGE_SIZE)
+  useEffect(() => {
+    const pageSizeChanged = lastPageSizeRef.current !== PAGE_SIZE
+    lastPageSizeRef.current = PAGE_SIZE
+    if (!selectedIcao) { lastSelectionRef.current = null; return }
+    if (lastSelectionRef.current !== selectedIcao || pageSizeChanged) {
+      lastSelectionRef.current = selectedIcao
+      if (selectedIndex >= 0) setPage(Math.floor(selectedIndex / PAGE_SIZE))
+    }
+  }, [selectedIcao, selectedIndex, PAGE_SIZE])
+
+  useEffect(() => {
+    if (!pendingRevealRef.current || selectedIndex < 0) return
+    pendingRevealRef.current = false
+    setPage(Math.floor(selectedIndex / PAGE_SIZE))
+  }, [selectedIndex, PAGE_SIZE])
+
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages - 1)
-  const displayed = showAll ? sorted : sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
+  const selectedPage = selectedIndex >= 0 ? Math.floor(selectedIndex / PAGE_SIZE) : -1
+  const displayed = sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
   const handleSort = key => {
     if (sortKey === key) setSortDir(d => d * -1)
     else { setSortKey(key); setSortDir(1) }
+    setPage(0)
+  }
+
+  const handleLiveSearchSelect = result => {
+    const liveFlight = flights.find(f => f.icao === result.icao)
+    if (!liveFlight) return false
+    onFilterChange('')
+    onSelect(liveFlight)
+    return true
   }
 
   if (!flights.length) {
+    const emptyMessage = dataStatus === 'live'
+      ? 'No flights in this region.'
+      : dataStatus === 'unavailable'
+        ? 'Live data unavailable.'
+      : dataStatus === 'stale'
+          ? 'Live data delayed.'
+          : 'Loading flights.'
     return (
       <div className="flex flex-col bg-bg flex-1 min-h-0">
         <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 shrink-0">
           <span className="flex items-center gap-1.5">
-            <span className="ft-chip ft-chip--muted">flight records</span>
+            <span className="ft-chip ft-chip--muted">live traffic</span>
             <span className="text-fg2">0</span> records
           </span>
           <AircraftSearchBox
             filter={filter}
             onFilterChange={onFilterChange}
-            className="ml-2 flex-1 max-w-xl"
+            onLiveSelect={handleLiveSearchSelect}
+            className="flight-search ml-2 flex-1 max-w-xl"
           />
-          <button
-            className={clsx(
-              'h-5 px-1.5 border text-[9px] uppercase transition-colors',
-              isSyncing ? 'border-ylw/45 text-ylw cursor-wait' : 'border-border text-fg3 hover:text-fg2 hover:border-border2'
-            )}
-            onClick={onSync}
-            disabled={isSyncing}
-            title="refresh flight records now"
-          >
-            {isSyncing ? 'syncing' : 'sync'}
-          </button>
+          {onRegionChange && (
+            <label className="flight-region">
+              <span className="sr-only">Flight region</span>
+              <select value={region} onChange={event => onRegionChange(event.target.value)} aria-label="Flight region">
+                {REGIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+          )}
+          <SyncButton isSyncing={isSyncing} onSync={onSync} />
         </div>
         <div className="p-8 flex flex-col items-center justify-center gap-2 text-center text-fg3">
-          <Loading label={isSyncing ? 'syncing' : 'awaiting first poll'} />
+          {dataStatus === 'loading' || isSyncing ? <Loading label={isSyncing ? 'Updating index' : 'Loading index'} /> : <span className="text-[12px] text-fg2">{emptyMessage}</span>}
+          {dataError && <span className="text-[11px] text-ylw">{dataError}</span>}
+          {(dataStatus === 'unavailable' || dataStatus === 'stale') && <button className="border border-border2 px-2 py-1 text-[11px] hover:border-acc hover:text-acc" onClick={onSync}>Retry</button>}
         </div>
       </div>
     )
@@ -286,125 +375,104 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
 
   return (
     <div className="flex flex-col bg-bg flex-1 min-h-0">
-      {/* Filter bar */}
-      <FilterBar
-        filters={filters}
-        onChange={setFilters}
-        counts={filterCounts}
-        totalFiltered={filtered.length}
-        totalFlights={flights.length}
-      />
-
+      {dataStatus === 'stale' && (
+        <div className="flight-data-status" role="status">
+          <span>Live data delayed{sampleTimestamp ? ` · ${sampleTimestamp}` : ''}</span>
+          <span>{dataError || 'Refresh unavailable.'}</span>
+          <button onClick={onSync}>Retry</button>
+        </div>
+      )}
       <div className="shrink-0 bg-bg2 border-b border-border text-[10px] sm:text-[11px] text-fg3">
         {/* Row 1: records, pagination, sort */}
-        <div className="flex flex-wrap items-center py-0.5 px-1.5 sm:px-2.5 gap-1.5">
-          <span className="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink-0">
-            <span className="ft-chip ft-chip--muted">flight records</span>
-            <span className="flex items-baseline gap-1">
-              <span className="text-fg tabular-nums text-[13px]">{filtered.length.toLocaleString()}</span>
-              <span className="text-fg3 text-[9px] uppercase tracking-wide">records</span>
-            </span>
-            {isFiltersActive(filters) && (
-              <span className="bg-acc/15 text-acc text-[8px] uppercase px-1 py-px rounded border border-acc/30">filtered</span>
-            )}
-            {!showAll && totalPages > 1 && (
-              <span className="flex items-center gap-0.5">
-                <button
-                  className="bg-transparent border border-border text-fg3 hover:text-fg2 hover:border-fg3 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
-                  onClick={() => setPage(p => Math.max(0, p - 1))}
-                  disabled={safePage === 0}
-                >
-                  ‹
-                </button>
-                <span className="text-fg3 text-[10px] tabular-nums">{safePage + 1}/{totalPages}</span>
-                <button
-                  className="bg-transparent border border-border text-fg3 hover:text-fg2 hover:border-fg3 text-[10px] cursor-pointer px-1 py-0 font-mono rounded disabled:opacity-30 disabled:cursor-default"
-                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                  disabled={safePage >= totalPages - 1}
-                >
-                  ›
-                </button>
-              </span>
-            )}
-            {filtered.length > PAGE_SIZE && (
-              <button
-                className="bg-transparent border-none text-acc text-[10px] cursor-pointer p-0 font-mono hover:underline"
-                onClick={() => { setShowAll(s => !s); setPage(0) }}
-              >
-                {showAll ? `page (${PAGE_SIZE})` : `show all`}
-              </button>
-            )}
-            {newIcaos.size > 0 && <span className="bg-grn/15 text-grn text-[8px] uppercase px-1 py-px rounded border border-grn/30 ml-1">+{newIcaos.size} new</span>}
-          </span>
+        <div className="flight-toolbar">
           <AircraftSearchBox
             filter={filter}
             onFilterChange={onFilterChange}
-            className="order-last sm:order-none w-full sm:flex-1 sm:min-w-72"
+            onLiveSelect={handleLiveSearchSelect}
+            className="flight-search"
           />
-          <div className="flex gap-1 items-center w-full sm:w-auto ml-auto">
+          <span className="flight-toolbar__count">
+            {filtered.length.toLocaleString()} flights<span className="flight-toolbar__airborne"> · {airborneCount.toLocaleString()} airborne</span>
+          </span>
+          {totalPages > 1 && (
+            <nav className="flight-toolbar__pagination" aria-label="Flight pages">
+              <button
+                className="flight-pagination-button"
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={safePage === 0}
+                aria-label="Previous page"
+              >
+                ‹
+              </button>
+              <span>{safePage + 1}/{totalPages}</span>
+              <button
+                className="flight-pagination-button"
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={safePage >= totalPages - 1}
+                aria-label="Next page"
+              >
+                ›
+              </button>
+            </nav>
+          )}
+          {onRegionChange && (
+            <label className="flight-region">
+              <span className="sr-only">Flight region</span>
+              <select value={region} onChange={event => onRegionChange(event.target.value)} aria-label="Flight region">
+                {REGIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+          )}
+          <SyncButton isSyncing={isSyncing} onSync={onSync} />
+          {onToggleSignals && (
             <button
               className={clsx(
-                'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 border flex-1 sm:flex-none text-center uppercase',
-                isSyncing
-                  ? 'bg-ylw/10 border-ylw/35 text-ylw cursor-wait'
-                  : 'bg-transparent border-border text-fg3 hover:text-fg2 hover:border-fg3'
+                'flight-signals-button h-5 px-2 border text-[10px] transition-colors shrink-0',
+                signalsOpen ? 'border-fg2 text-fg bg-fg/8' : 'border-border text-fg3 hover:text-fg2 hover:border-border2'
               )}
-              onClick={onSync}
-              disabled={isSyncing}
-              title="Refresh flight records now"
+              onClick={onToggleSignals}
+              aria-pressed={signalsOpen}
+              aria-label={signalsOpen ? 'Close signal queue' : 'Open signal queue'}
             >
-              {isSyncing ? 'syncing' : 'sync'}
+              Signals
             </button>
-            <button
-              className={clsx(
-                'text-[10px] sm:text-[11px] cursor-pointer font-mono px-1.5 py-0.5 sm:py-0 rounded border flex-1 sm:flex-none text-center',
-                sortKey === 'takeoff'
-                  ? 'bg-acc/15 border-acc/40 text-acc'
-                  : 'bg-transparent border-border text-fg3 hover:text-fg2 hover:border-fg3'
-              )}
-              onClick={() => {
-                if (sortKey === 'takeoff') setSortDir(d => d * -1)
-                else { setSortKey('takeoff'); setSortDir(1) }
-              }}
-              title="Sort by takeoff proximity (ground → climb → cruise)"
-            >
-              {sortKey === 'takeoff' ? `takeoff ${sortDir > 0 ? '▲' : '▼'}` : 'takeoff'}
-            </button>
-          </div>
+          )}
         </div>
-        {/* Row 2: API usage */}
-        {(openskyUsage || (aeroSpend && aeroSpend.source !== 'unconfigured')) && (
-          <div className="flex gap-3 items-center py-0.5 px-1.5 sm:px-2.5 border-t border-white/3">
-            {openskyUsage && (
-              <span>
-                <span className="text-acc">opensky</span>{' '}
-                <span
-                  className={openskyUsage.remaining < 400 ? 'text-red' : openskyUsage.remaining < 1000 ? 'text-ylw' : 'text-grn'}
-                  title={`estimated remaining (${openskyUsage.remaining_source || 'db_estimate'}): db ${Math.round(openskyUsage.db_remaining ?? openskyUsage.remaining)}, header ${openskyUsage.header_remaining ?? 'n/a'}`}
-                >
-                  {Math.round(openskyUsage.remaining).toLocaleString()}
-                </span>
-                <span className="text-fg2">/{openskyUsage.daily_limit.toLocaleString()}</span>
-              </span>
-            )}
-            {aeroSpend && aeroSpend.source !== 'unconfigured' && (
-              <span>
-                <span className="text-mag">aero</span>{' '}
-                <span className={aeroSpend.cap_reached ? 'text-red' : aeroSpend.cap_remaining < 1 ? 'text-ylw' : 'text-grn'}>
-                  ${aeroSpend.cap_remaining.toFixed(2)}
-                </span>
-                <span className="text-fg2">/${aeroSpend.cap.toFixed(2)}</span>
-                {aeroSpend.cap_reached && <span className="text-red ml-1">CAP</span>}
-              </span>
-            )}
-          </div>
-        )}
       </div>
-      {/* ── Mobile card list (< sm) — 2-line rows with all key data ────────── */}
-      <div className="overflow-auto flex-1 min-h-0 sm:hidden">
+      <FilterBar
+        filters={filters}
+        onChange={onFiltersChange}
+        queryActive={Boolean(filter.trim())}
+        onClearQuery={() => onFilterChange('')}
+        counts={filterCounts}
+        totalFiltered={filtered.length}
+        totalFlights={flights.length}
+        showMilitary={showMilitary}
+        onShowMilitaryChange={onShowMilitaryChange}
+      />
+      {selectedIcao && !selectedExists && (
+        <div className="flight-selection-notice" role="status">
+          <span>Flight left the live index.</span>
+          <button onClick={() => onSelect(null)}>Close record</button>
+        </div>
+      )}
+      {selectedIcao && selectedExists && selectedIndex < 0 && (
+        <div className="flight-selection-notice" role="status">
+          <span>Hidden by current filters.</span>
+          <button onClick={() => { pendingRevealRef.current = true; onFiltersChange(emptyFilters()); onFilterChange('') }}>Clear filters</button>
+        </div>
+      )}
+      {selectedIndex >= 0 && selectedPage !== safePage && (
+        <div className="flight-selection-notice" role="status">
+          <span>Selected flight · page {selectedPage + 1}</span>
+          <button onClick={() => setPage(selectedPage)}>Return to selected</button>
+        </div>
+      )}
+      {/* ── Compact records (< lg) — 2-line rows with all key data ─────────── */}
+      <div className="overflow-auto flex-1 min-h-0 lg:hidden">
         {displayed.length === 0 && (
           <div className="text-center py-8 text-fg3 text-[11px]">
-            {isFiltersActive(filters) ? 'no flights match current filters' : 'waiting for poller — first data arrives in ~45s'}
+            {hasActiveConstraints ? 'No records match the current search or filters.' : 'Loading flights.'}
           </div>
         )}
         {displayed.map(f => {
@@ -415,7 +483,7 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
           const hist = trackHistory[f.icao]
           const phase = hist?.length >= 2 ? detectPhase(hist) : (f.grounded ? PHASE.GROUND : PHASE.UNKNOWN)
           const acType = enrich?.adsbfi?.type || enrich?.aircraft?.icao_type || f.acType || null
-          const vr = f.vertRate != null ? Math.round(f.vertRate * 196.85) : (enrich?.adsbfi?.baroRate ?? null)
+          const vr = verticalRateFpm(f, enrichCache)
           const altFt = f.alt != null ? Math.round(f.alt * 3.281) : null
           const spdKt = f.vel != null ? Math.round(f.vel * 1.944) : null
           const route = f.tfms?.dep_arpt && f.tfms?.arr_arpt
@@ -427,38 +495,49 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
             <div
               key={f.icao + f.callsign}
               className={clsx(
-                'px-2 py-1 border-b cursor-pointer active:bg-bg2',
-                anomaly
-                  ? 'bg-red/8 border-b-red/20 border-l-2 border-l-red'
+                'flight-record-row px-2 py-1 border-b cursor-pointer active:bg-bg2',
+                isSel
+                  ? 'flight-record-row--selected bg-fg/8 border-l-2 border-l-fg border-white/3'
+                  : anomaly
+                    ? 'flight-record-row--anomaly bg-red/8 border-b-red/20 border-l-2 border-l-red'
                   : isNew
-                    ? 'animate-row-arrive border-white/3'
-                    : isSel
-                      ? 'bg-acc/8 border-l-2 border-l-acc border-white/3'
-                      : 'border-white/3'
+                    ? 'flight-record-row--new animate-row-arrive border-white/3'
+                    : 'flight-record-row--plain border-white/3'
               )}
               onClick={() => onSelect(f)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onSelect(f)
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open ${f.callsign || f.icao} flight details`}
             >
-              {/* Single-line dense row: callsign type route | alt spd v/r phase */}
-              <div className="flex items-baseline gap-1 text-[9px] tabular-nums">
-                {anomaly && <span className="text-red">{anomaly.confirmed ? '!!' : '!'}</span>}
-                <span className="text-ylw text-[10px]">{f.callsign}</span>
-                {f.mil && <span className="text-red text-[7px]">mil</span>}
-                {acType && <span className="text-fg3">{acType}</span>}
-                {route && <span className="text-fg3/60">{route}</span>}
-                {squawkLabel(f.squawk) && <span className={clsx('text-[7px]', squawkColor(f.squawk))}>{squawkLabel(f.squawk)}</span>}
-                <span className="flex-1" />
-                <span className={f.grounded ? 'text-ylw' : 'text-cyn'}>{altFt != null ? altFt.toLocaleString() : ''}</span>
-                <span className="text-fg2">{spdKt ?? ''}</span>
-                {vr != null && <span className={clsx(Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg3')}>{vr > 0 ? '+' : ''}{vr}</span>}
-                <span className={clsx('font-bold', PHASE_COLOR[phase])}>{PHASE_LABEL[phase]}</span>
+              <div className="min-h-11 flex flex-col justify-center gap-0.5 text-[10px] tabular-nums">
+                <div className="min-w-0 flex items-baseline gap-1">
+                  {anomaly && <span className="text-red shrink-0">{anomaly.confirmed ? '!!' : '!'}</span>}
+                  <span className="text-fg shrink-0">{f.callsign || f.icao}</span>
+                  {showMilitary && f.mil && <span className="text-red text-[8px] shrink-0">MIL</span>}
+                  {acType && <span className="text-fg3 truncate">{acType}</span>}
+                  {route && <span className="text-fg3/60 truncate">{route}</span>}
+                  {squawkLabel(f.squawk) && <span className={clsx('text-[8px] shrink-0', squawkColor(f.squawk))}>{squawkLabel(f.squawk)}</span>}
+                </div>
+                <div className="flex items-baseline gap-2 text-[9px]">
+                  <span className={f.grounded ? 'text-fg3' : 'text-fg2'}>{altFt != null ? `${altFt.toLocaleString()} ft` : '—'}</span>
+                  <span className="text-fg2">{spdKt != null ? `${spdKt} kt` : '—'}</span>
+                  {vr != null && <span className={Math.abs(vr) > 2000 ? 'text-ylw' : 'text-fg3'}>{vr > 0 ? '+' : ''}{vr} fpm</span>}
+                  <span className={clsx('ml-auto font-bold', PHASE_COLOR[phase])}>{PHASE_LABEL[phase]}</span>
+                </div>
               </div>
             </div>
           )
         })}
       </div>
 
-      {/* ── Desktop table (≥ sm) — standard 8-column layout ──────────────── */}
-      <div className="overflow-auto flex-1 min-h-0 hidden sm:block">
+      {/* ── Desktop table (≥ lg) — standard 8-column layout ──────────────── */}
+      <div className="overflow-auto flex-1 min-h-0 hidden lg:block">
       <table className="w-full border-separate border-spacing-0">
         <thead className="sticky top-0 z-1">
           <tr>
@@ -468,17 +547,22 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
                 <th
                   key={col.key}
                   className={clsx(
-                    'group py-0.5 px-2.5 text-left font-normal text-[11px] cursor-pointer select-none whitespace-nowrap font-mono bg-bg2 border-b border-border',
+                    'group p-0 font-normal text-[11px] select-none whitespace-nowrap bg-bg2 border-b border-border',
+                    col.numeric ? 'text-right font-mono' : 'text-left',
                     isActive ? 'text-acc' : 'text-fg3 hover:text-fg2'
                   )}
-                  onClick={() => handleSort(col.key)}
+                  aria-sort={isActive ? (sortDir > 0 ? 'ascending' : 'descending') : 'none'}
                 >
-                  {col.label}
-                  {isActive ? (
-                    <span className="ml-1 text-[9px]">{sortDir > 0 ? '▲' : '▼'}</span>
-                  ) : (
-                    <span className="ml-1 text-[9px] opacity-0 group-hover:opacity-40">▲</span>
-                  )}
+                  <button
+                    className={clsx('w-full py-1 px-2.5 border-0 bg-transparent text-inherit text-[11px]', col.numeric ? 'text-right' : 'text-left')}
+                    onClick={() => handleSort(col.key)}
+                    aria-label={`Sort by ${col.label}${isActive ? (sortDir > 0 ? ', ascending' : ', descending') : ''}`}
+                  >
+                    {col.label}
+                    {isActive ? (
+                      <span className="ml-1 text-[9px]">{sortDir > 0 ? '▲' : '▼'}</span>
+                    ) : null}
+                  </button>
                 </th>
               )
             })}
@@ -488,9 +572,9 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
           {displayed.length === 0 && (
             <tr>
               <td colSpan={COLS.length} className="text-center py-8 text-fg3 text-[11px]">
-                {isFiltersActive(filters)
-                  ? 'no flights match current filters'
-                  : 'waiting for poller — first data arrives in ~45s'}
+                {hasActiveConstraints
+                  ? 'No records match the current search or filters.'
+                  : 'Loading flights.'}
               </td>
             </tr>
           )}
@@ -503,38 +587,28 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
             const phase = hist?.length >= 2 ? detectPhase(hist) : (f.grounded ? PHASE.GROUND : PHASE.UNKNOWN)
             const acType = enrich?.adsbfi?.type || enrich?.aircraft?.icao_type || f.acType || null
             const acReg = enrich?.adsbfi?.reg || enrich?.aircraft?.registration || f.acReg || null
-            const vr = f.vertRate != null ? Math.round(f.vertRate * 196.85) : (enrich?.adsbfi?.baroRate ?? null)
+            const vr = verticalRateFpm(f, enrichCache)
             const cat = f.category || enrich?.adsbfi?.category || enrich?.apl?.category || null
             return (
               <tr
                 key={f.icao + f.callsign}
                 className={clsx(
-                  'border-b cursor-pointer',
-                  anomaly
-                    ? 'bg-red/8 border-b-red/20 border-l-2 border-l-red'
-                    : trackedIcaos?.has(f.icao)
-                      ? 'border-l border-l-ylw/30 border-white/3'
-                      : isNew
-                        ? 'animate-row-arrive border-white/3'
-                        : isSel
-                          ? 'bg-acc/8 border-l-2 border-l-acc border-white/3'
-                          : 'hover:bg-bg2 border-white/3'
+                  'flight-table__row border-b cursor-pointer',
+                  isSel
+                    ? 'flight-table__row--selected bg-fg/8 border-l-2 border-l-fg border-white/3'
+                  : anomaly
+                      ? 'flight-table__row--anomaly bg-red/8 border-b-red/20 border-l-2 border-l-red'
+                    : isNew
+                        ? 'flight-table__row--new animate-row-arrive border-white/3'
+                        : 'flight-table__row--plain border-white/3'
                 )}
                 onClick={() => onSelect(f)}
+                title={`Open ${f.callsign || f.icao} flight details`}
               >
-                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg3 tabular-nums">
-                  {onToggleTrack && (
-                    <span
-                      className={clsx(
-                        'mr-1.5 cursor-pointer inline-block text-[10px] tracking-tight',
-                        trackedIcaos?.has(f.icao) ? 'text-ylw' : 'text-fg3/15 hover:text-fg3/40'
-                      )}
-                      title={trackedIcaos?.has(f.icao) ? 'Untrack from map' : 'Track on map'}
-                      onClick={(e) => { e.stopPropagation(); onToggleTrack(f.icao) }}
-                    >
-                      {trackedIcaos?.has(f.icao) ? '\u25CF' : '\u00b7'}
-                    </span>
-                  )}
+                <td
+                  className="py-1 px-2.5 whitespace-nowrap text-xs tabular-nums"
+                  title={[f.acOperator, acReg, f.country].filter(Boolean).join(' · ')}
+                >
                   {anomaly && (
                     <span
                       className="mr-1 text-red"
@@ -543,19 +617,21 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
                       {anomaly.confirmed ? '!!' : '!'}
                     </span>
                   )}
-                  {f.icao}
+                  <button
+                    className="border-0 bg-transparent p-0 text-left hover:text-acc focus-visible:outline focus-visible:outline-2 focus-visible:outline-acc"
+                    onClick={(event) => { event.stopPropagation(); onSelect(f) }}
+                    aria-label={`Open ${f.callsign || f.icao} flight details`}
+                    aria-current={isSel ? 'true' : undefined}
+                  >
+                    <span className="text-fg">{f.callsign || f.icao}</span>
+                    <span className="ml-1.5 text-[9px] text-fg3">{f.icao}</span>
+                  </button>
+                  {showMilitary && f.mil && <span className="text-red text-[9px] ml-1">MIL</span>}
                   {squawkLabel(f.squawk) && (
                     <span className={clsx('ml-1 text-[9px]', squawkColor(f.squawk))} title={`squawk ${f.squawk}`}>
                       {squawkLabel(f.squawk)}
                     </span>
                   )}
-                </td>
-                <td
-                  className="py-0.5 px-2.5 whitespace-nowrap text-xs text-ylw"
-                  title={[f.acOperator, acReg, f.country].filter(Boolean).join(' · ')}
-                >
-                  {f.callsign}
-                  {f.mil && <span className="text-red text-[9px] ml-1">[mil]</span>}
                 </td>
                 <td
                   className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg3"
@@ -593,18 +669,18 @@ export default function FlightTable({ flights, filter, onFilterChange, selectedI
                       <span className="text-fg3/30 mx-0.5">→</span>
                       {enrich.flightroute.destination?.icao_code?.replace(/^K/, '') || '?'}
                     </span>
-                  ) : null}
+                  ) : <span className="text-fg3/40">—</span>}
                 </td>
-                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs tabular-nums', f.grounded ? 'text-ylw' : 'text-cyn')}>
-                  {f.alt != null ? Math.round(f.alt * 3.281).toLocaleString() : ''}
+                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs text-right tabular-nums', f.grounded ? 'text-fg3' : 'text-fg2')}>
+                  {f.alt != null ? Math.round(f.alt * 3.281).toLocaleString() : <span className="text-fg3/40">—</span>}
                 </td>
-                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-fg2 tabular-nums">
-                  {f.vel != null ? Math.round(f.vel * 1.944) : ''}
+                <td className="py-0.5 px-2.5 whitespace-nowrap text-xs text-right text-fg2 tabular-nums">
+                  {f.vel != null ? Math.round(f.vel * 1.944) : <span className="text-fg3/40">—</span>}
                 </td>
-                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs tabular-nums',
-                  vr == null ? 'text-fg3/40' : Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg3'
+                <td className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs text-right tabular-nums',
+                  vr == null ? 'text-fg3/40' : Math.abs(vr) > 2000 ? 'text-ylw' : 'text-fg3'
                 )}>
-                  {vr != null ? `${vr > 0 ? '+' : ''}${vr}` : ''}
+                  {vr != null ? `${vr > 0 ? '+' : ''}${vr}` : '—'}
                 </td>
                 <td
                   className={clsx('py-0.5 px-2.5 whitespace-nowrap text-xs', PHASE_COLOR[phase])}

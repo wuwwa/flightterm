@@ -13,7 +13,7 @@ const MIN_HEIGHT = 36
 const MAX_HEIGHT = 400
 const DEFAULT_HEIGHT = 104
 
-export default function LogPanel({ entries }) {
+export default function LogPanel({ entries, onClear }) {
   const ref = useRef(null)
   const [mountedAt] = useState(() => Date.now())
   const [collapsed, setCollapsed] = useState(true)
@@ -72,12 +72,12 @@ export default function LogPanel({ entries }) {
   // Collapsed: single thin bar showing last message + expand button
   if (collapsed) {
     return (
-      <div
-        className="bg-bg border-b border-border py-0.5 px-2.5 flex items-center gap-2 text-[10px] cursor-pointer hover:bg-bg1 transition-colors group"
+      <button
+        className="system-log system-log--collapsed group"
         onClick={() => setCollapsed(false)}
-        title="click to expand log"
+        aria-expanded="false"
       >
-        <span className="ft-chip ft-chip--muted">log</span>
+        <span className="system-log__label">System log</span>
         {errCount > 0 && (
           <span className="bg-red/15 text-red text-[8px] font-bold uppercase px-1 py-px rounded border border-red/30 shrink-0">
             {errCount} err
@@ -96,25 +96,25 @@ export default function LogPanel({ entries }) {
             </span>
           </>
         ) : (
-          <span className="text-fg3/40 italic">waiting…</span>
+          <span className="text-fg3/60">No messages yet</span>
         )}
-        <span className="ml-auto text-fg3/30 shrink-0 group-hover:text-fg3 transition-colors">▼</span>
-      </div>
+        <span className="ml-auto text-fg3 shrink-0">Open</span>
+      </button>
     )
   }
 
   // Expanded: full log panel with resize handle
   return (
     <div className="relative shrink-0">
-      <div
-        className="bg-bg border-b border-border py-0.5 px-2.5 flex items-center gap-2 text-[10px] cursor-pointer hover:bg-bg1 transition-colors"
-        onClick={() => setCollapsed(true)}
-      >
-        <span className="ft-chip ft-chip--muted">log</span>
-        <span className="text-fg3">{entries.length} messages</span>
+      <div className="system-log system-log--open">
+        <button className="system-log__toggle" onClick={() => setCollapsed(true)} aria-expanded="true">
+          <span className="system-log__label">System log</span>
+          <span className="text-fg3">{entries.length} messages</span>
+        </button>
         {errCount > 0 && <span className="text-red">{errCount} err</span>}
         {warnCount > 0 && <span className="text-ylw">{warnCount} warn</span>}
-        <span className="ml-auto text-fg3">▲</span>
+        {onClear && <button className="system-log__clear" onClick={onClear}>Clear</button>}
+        <button className="system-log__close" onClick={() => setCollapsed(true)}>Close</button>
       </div>
       <div
         className="bg-bg overflow-y-auto py-1 px-2.5 text-[11px]"

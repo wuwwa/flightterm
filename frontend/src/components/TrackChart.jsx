@@ -187,11 +187,11 @@ export default function TrackChart({ snapshots }) {
         <div className="px-2.5 py-1 border-t border-white/5">
           <div className="text-[8px] text-fg3/50 mb-0.5">ANOMALY TRIGGERS</div>
           {anomalies.slice(-5).map((a, i) => (
-            <div key={i} className="text-[9px] flex items-center gap-1 py-0.5">
+            <div key={i} className="anomaly-trigger-row">
               <span className="text-red">!</span>
-              <span className="text-fg3 tabular-nums w-6">[{a.score}]</span>
-              <span className="text-fg2">{a.reasons[0]}</span>
-              {a.reasons.length > 1 && <span className="text-fg3/40">+{a.reasons.length - 1}</span>}
+              <span className="text-fg3 tabular-nums">[{a.score}]</span>
+              <span className="text-fg2" title={a.reasons[0]}>{a.reasons[0]}</span>
+              {a.reasons.length > 1 && <span className="text-fg3/40 tabular-nums">+{a.reasons.length - 1}</span>}
             </div>
           ))}
         </div>

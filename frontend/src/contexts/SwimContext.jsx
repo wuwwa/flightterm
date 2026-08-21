@@ -21,6 +21,7 @@ export function SwimProvider({ backendOk, children }) {
   const [weather, setWeather] = useState([])
   const [oooi, setOooi] = useState([])
   const [nasSummary, setNasSummary] = useState(null)
+  const [availability, setAvailability] = useState({ fastUpdatedAt: null, mediumUpdatedAt: null, slowUpdatedAt: null, fastError: null, mediumError: null, slowError: null })
   const [wakeState, setWakeState] = useState({ state: 'idle' })
   const wakeInFlightRef = useRef(null)
   const autoWakeAttemptedRef = useRef(false)
@@ -35,11 +36,13 @@ export function SwimProvider({ backendOk, children }) {
       axios.get('/api/swim/nas/analytics'),
     ])
     const val = (i) => results[i].status === 'fulfilled' ? results[i].value.data : null
-    const arr = (i) => { const v = val(i); return Array.isArray(v) ? v : [] }
+    const arr = (i) => { const v = val(i); return Array.isArray(v) ? v : null }
     if (val(0)) setStatus(val(0))
-    setFlights(arr(1))
-    setOooi(arr(2))
+    if (arr(1)) setFlights(arr(1))
+    if (arr(2)) setOooi(arr(2))
     if (val(3)) setNasSummary(val(3))
+    const failed = results.filter(result => result.status === 'rejected').length
+    setAvailability(previous => ({ ...previous, fastUpdatedAt: failed < results.length ? Date.now() : previous.fastUpdatedAt, fastError: failed ? `${failed} live SWIM request${failed === 1 ? '' : 's'} failed` : null }))
   }, [backendOk])
 
   const wakeSwim = useCallback(async () => {
@@ -76,10 +79,12 @@ export function SwimProvider({ backendOk, children }) {
       axios.get('/api/swim/weather', { params: { limit: 50 } }),
       axios.get('/api/swim/tfrs'),
     ])
-    const arr = (i) => { const v = results[i].status === 'fulfilled' ? results[i].value.data : null; return Array.isArray(v) ? v : [] }
-    setFlowEvents(arr(0))
-    setWeather(arr(1))
-    setTfrs(arr(2))
+    const arr = (i) => { const v = results[i].status === 'fulfilled' ? results[i].value.data : null; return Array.isArray(v) ? v : null }
+    if (arr(0)) setFlowEvents(arr(0))
+    if (arr(1)) setWeather(arr(1))
+    if (arr(2)) setTfrs(arr(2))
+    const failed = results.filter(result => result.status === 'rejected').length
+    setAvailability(previous => ({ ...previous, mediumUpdatedAt: failed < results.length ? Date.now() : previous.mediumUpdatedAt, mediumError: failed ? `${failed} operational request${failed === 1 ? '' : 's'} failed` : null }))
   }, [backendOk])
 
   // Slow tier (60s): airport configs, NOTAM airports
@@ -89,9 +94,11 @@ export function SwimProvider({ backendOk, children }) {
       axios.get('/api/swim/airports'),
       axios.get('/api/swim/notams/airports', { params: { limit: 30 } }),
     ])
-    const arr = (i) => { const v = results[i].status === 'fulfilled' ? results[i].value.data : null; return Array.isArray(v) ? v : [] }
-    setAirportConfigs(arr(0))
-    setNotamAirports(arr(1))
+    const arr = (i) => { const v = results[i].status === 'fulfilled' ? results[i].value.data : null; return Array.isArray(v) ? v : null }
+    if (arr(0)) setAirportConfigs(arr(0))
+    if (arr(1)) setNotamAirports(arr(1))
+    const failed = results.filter(result => result.status === 'rejected').length
+    setAvailability(previous => ({ ...previous, slowUpdatedAt: failed < results.length ? Date.now() : previous.slowUpdatedAt, slowError: failed ? `${failed} reference request${failed === 1 ? '' : 's'} failed` : null }))
   }, [backendOk])
 
   useEffect(() => {
@@ -120,7 +127,7 @@ export function SwimProvider({ backendOk, children }) {
 
   return (
     <SwimContext.Provider value={{
-      status, flowEvents, flights, airportConfigs, tfrs, notamAirports, weather, oooi, nasSummary,
+      status, flowEvents, flights, airportConfigs, tfrs, notamAirports, weather, oooi, nasSummary, availability,
       wakeSwim, wakeState,
       // warm-up surface
       warming: warmup.phase !== 'live',

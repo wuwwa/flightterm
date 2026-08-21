@@ -1,70 +1,54 @@
-import { useState } from 'react'
-import clsx from 'clsx'
 import { useSwim } from '../contexts/SwimContext'
-import NasStatus from './dashboard/NasStatus'
-import NotamPanel from './dashboard/NotamPanel'
-import ItwsPanel from './dashboard/ItwsPanel'
-import LiveFeed from './dashboard/LiveFeed'
+import PulseMark from './PulseMark'
 
-export default function NasPanel({ backendOk, region }) {
-  const [collapsed, setCollapsed] = useState(false)
-  const { status, wakeSwim, wakeState } = useSwim()
-  const feeds = status?.feeds || {}
-  const connectedCount = Object.values(feeds).filter(f => f?.connected).length
-  const totalFeeds = Object.keys(feeds).length
+export default function NasPanel({ backendOk }) {
+  const { status, nasSummary, wakeSwim, wakeState, availability } = useSwim()
   const workerConnected = Boolean(status?.workerConnected)
   const wakeBusy = ['starting', 'cooldown'].includes(wakeState?.state)
-  const wakeLabel = wakeState?.state === 'cooldown' ? 'wake pending' : wakeBusy ? 'starting swim' : 'wake swim'
-  const showWake = backendOk && !workerConnected
+  const groundStops = nasSummary?.groundStops || status?.tfms?.active_gs || 0
+  const delayPrograms = nasSummary?.gdps || status?.tfms?.active_gdps || 0
+  const tfrs = status?.notams?.active_tfrs || 0
+  const congestion = nasSummary?.congestionBuilding || 0
+  const verified = Boolean(workerConnected && !availability?.fastError && (nasSummary || status?.tfms || status?.notams))
+  const shown = value => verified ? value : '—'
+  const feedState = availability?.fastError
+    ? 'Feeds delayed'
+    : workerConnected
+      ? null
+      : backendOk
+        ? 'Reconnecting'
+        : 'Backend unavailable'
+  const stateLabel = feedState || (!verified ? (backendOk ? 'Verification pending' : 'Data unavailable') : null)
 
   return (
-    <div className="bg-bg1 border-t-2 border-grn/40" data-testid="faa-swim-panel">
-      {/* Header */}
-      <div
-        className="bg-bg2 border-b border-border py-1 px-3 flex items-center gap-2 cursor-pointer select-none"
-        onClick={() => setCollapsed(c => !c)}
-      >
-        <span className="ft-chip ft-chip--green">faa swim</span>
-
-        {totalFeeds > 0 && (
-          <span className={clsx(
-            'text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border',
-            connectedCount === totalFeeds ? 'bg-grn/15 text-grn border-grn/40'
-              : connectedCount > 0 ? 'bg-ylw/15 text-ylw border-ylw/40'
-              : 'bg-red/15 text-red border-red/40'
-          )}>
-            {connectedCount}/{totalFeeds} feeds
-          </span>
-        )}
-
-        <span className="text-fg3 text-[9px]">NAS health · NOTAMs · live feed · terminal weather</span>
-        {showWake && (
-          <button
-            className={clsx(
-              'ml-auto text-[9px] uppercase tracking-wide px-2 py-0.5 border transition-colors',
-              wakeBusy ? 'text-ylw border-ylw/40 cursor-wait' : 'text-cyn border-cyn/40 hover:bg-cyn/10'
-            )}
-            onClick={(e) => {
-              e.stopPropagation()
-              if (!wakeBusy) wakeSwim().catch(() => {})
-            }}
-            disabled={wakeBusy}
-            title="Start the stopped SWIM worker machine"
-          >
-            {wakeLabel}
-          </button>
-        )}
-        <span className={clsx('text-fg3 text-[9px]', !showWake && 'ml-auto')}>{collapsed ? '▸' : '▾'}</span>
+    <section className="nas-impact-strip" aria-labelledby="nas-impact-title" data-testid="faa-swim-panel">
+      <div className="nas-impact-strip__title">
+        <PulseMark
+          state={workerConnected ? 'live' : backendOk ? 'loading' : 'offline'}
+          tone={workerConnected ? 'grn' : backendOk ? 'ylw' : 'red'}
+        />
+        <div>
+          <h1 id="nas-impact-title">National airspace</h1>
+          {stateLabel && <p>{stateLabel}</p>}
+        </div>
       </div>
 
-      {!collapsed && (
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1.5fr] md:grid-rows-1 auto-rows-[210px] md:auto-rows-auto gap-px bg-border h-[340px] md:h-48 overflow-y-auto md:overflow-hidden">
-          <NasStatus backendOk={backendOk} />
-          <NotamPanel backendOk={backendOk} />
-          <LiveFeed backendOk={backendOk} />
-          <ItwsPanel backendOk={backendOk} />
-        </div>
+      <dl className="nas-impact-strip__counts">
+        <div className={groundStops > 0 ? 'is-critical' : ''}><dt>Ground stops</dt><dd>{shown(groundStops)}</dd></div>
+        <div className={delayPrograms > 0 ? 'is-caution' : ''}><dt>Delay programs</dt><dd>{shown(delayPrograms)}</dd></div>
+        <div className={tfrs > 0 ? 'is-critical' : ''}><dt>Active TFRs</dt><dd>{shown(tfrs)}</dd></div>
+        <div className={congestion > 0 ? 'is-caution' : ''}><dt>Congestion</dt><dd>{shown(congestion)}</dd></div>
+      </dl>
+
+      {backendOk && !workerConnected && (
+        <button
+          className="nas-impact-strip__action"
+          onClick={() => { if (!wakeBusy) wakeSwim().catch(() => {}) }}
+          disabled={wakeBusy}
+        >
+          {wakeBusy ? 'Connecting…' : 'Reconnect'}
+        </button>
       )}
-    </div>
+    </section>
   )
 }

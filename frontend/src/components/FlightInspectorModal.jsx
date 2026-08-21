@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { fetchFlight } from '../services/aeroapi'
 import { squawkLabel, squawkColor } from '../utils/squawk'
@@ -20,26 +20,71 @@ function fmtTime(s) {
   try { return new Date(s).toISOString().substring(11, 16) + 'utc' } catch { return s }
 }
 
+function fmtSampleTime(value) {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? `${date.toISOString().substring(11, 19)}z` : '—'
+}
+
 // Compact row inside a tile
 function Row({ label, value, color = 'text-fg2', mono = true }) {
+  const semanticColor = ['text-red', 'text-ylw', 'text-grn'].includes(color) ? color : 'text-fg2'
   return (
-    <div className="flex items-baseline justify-between gap-2 py-0.5 text-[10px] border-b border-white/3 last:border-b-0">
-      <span className="text-fg3 text-[9px] uppercase tracking-wide shrink-0">{label}</span>
-      <span className={clsx('text-right truncate', mono && 'tabular-nums', color)}>
+    <div className="inspector-record-row">
+      <span>{label}</span>
+      <strong className={clsx(mono && 'tabular-nums', semanticColor)}>
         {value ?? <span className="text-fg3/30">—</span>}
-      </span>
+      </strong>
     </div>
   )
 }
 
-function Tile({ title, accent, children, className }) {
+function Tile({ title, children, className }) {
   return (
-    <div className={clsx('bg-bg2/40 border border-border rounded p-2 flex flex-col min-h-0', className)}>
-      <div className={clsx('text-[9px] uppercase tracking-wide mb-1 pb-1 border-b border-border', accent || 'text-fg2')}>
-        {title}
-      </div>
-      <div className="flex-1 min-h-0">
+    <section className={clsx('inspector-record-section', className)}>
+      <h3>{title}</h3>
+      <div>
         {children}
+      </div>
+    </section>
+  )
+}
+
+const REGION_LABELS = {
+  usa: 'US',
+  global: 'Global',
+  europe: 'Europe',
+  asia: 'Asia',
+  atlantic: 'Atlantic',
+}
+
+function sourceLabel(flights = []) {
+  const sources = [...new Set(flights.map(flight => flight.src).filter(Boolean))]
+  if (sources.length !== 1) return sources.length > 1 ? 'Mixed' : '—'
+  return {
+    opensky: 'OpenSky',
+    apl: 'Airplanes.live',
+    'airplanes.live': 'Airplanes.live',
+    adsbx: 'ADSBexchange',
+    'adsb.fi': 'ADS-B.fi',
+  }[sources[0]] || sources[0]
+}
+
+function EmptyFlightInspector({ flights, region, lastUpdatedAt }) {
+  return (
+    <div className="h-full flex flex-col bg-bg1 min-h-0">
+      <header className="flight-inspector__header">
+        <h2>Flight index</h2>
+      </header>
+
+      <dl className="flight-inspector__vector" aria-label="Flight index context">
+        <div><dt>Scope</dt><dd>{REGION_LABELS[region] || 'US'}</dd></div>
+        <div><dt>Source</dt><dd>{sourceLabel(flights)}</dd></div>
+        <div><dt>Sample</dt><dd>{fmtSampleTime(lastUpdatedAt)}</dd></div>
+      </dl>
+
+      <div className="flight-inspector__empty">
+        <p>No flight selected</p>
       </div>
     </div>
   )
@@ -56,11 +101,16 @@ export default function FlightInspectorModal({
   onClose,
   onAeroFetched,
   backendOk,
+  lastUpdatedAt,
+  region,
+  showMilitary = false,
 }) {
   const [aeroLoading, setAeroLoading] = useState(false)
   const [aeroError, setAeroError] = useState(null)
   const [lazyAircraft, setLazyAircraft] = useState(null)
   const [lazyLoading, setLazyLoading] = useState(false)
+  const aircraftRequestRef = useRef(0)
+  const aeroRequestRef = useRef(0)
   // v5.6.2 — satellite lazy-load (same pattern as the aircraft detail page).
   const [satLoaded, setSatLoaded] = useState(false)
   useEffect(() => { setSatLoaded(false) }, [flight?.icao])
@@ -73,49 +123,51 @@ export default function FlightInspectorModal({
 
   // Reset lazy-loaded aircraft info when the selected flight changes.
   useEffect(() => {
+    aircraftRequestRef.current += 1
+    aeroRequestRef.current += 1
     setLazyAircraft(null)
+    setLazyLoading(false)
+    setAeroLoading(false)
+    setAeroError(null)
   }, [flight?.icao])
 
   const loadAircraftInfo = async () => {
     if (!flight?.icao || lazyLoading) return
+    const requestId = ++aircraftRequestRef.current
     setLazyLoading(true)
     try {
       const ac = await fetchAircraftInfo(flight.icao)
-      setLazyAircraft(ac)
+      if (aircraftRequestRef.current === requestId) setLazyAircraft(ac)
     } catch { /* silent — 404 is common */ }
-    finally { setLazyLoading(false) }
+    finally { if (aircraftRequestRef.current === requestId) setLazyLoading(false) }
   }
   const aeroData = flight ? aeroCache[flight.icao] : null
 
-  // Escape closes
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  if (!flight) return null
+  if (!flight) return <EmptyFlightInspector flights={flights} region={region} lastUpdatedAt={lastUpdatedAt} />
 
   // Source tag
   const srcTag = ['apl', 'airplanes.live', 'adsb.fi'].includes(flight.src)
-    ? { label: flight.src === 'adsb.fi' ? 'adsb.fi' : 'community ADS-B', color: 'text-mag' }
+    ? { label: flight.src === 'adsb.fi' ? 'adsb.fi' : 'community ADS-B', color: 'text-fg3' }
     : flight.src === 'adsbx'
-    ? { label: 'adsbx', color: 'text-acc' }
-    : { label: 'opensky', color: 'text-grn' }
+    ? { label: 'adsbx', color: 'text-fg3' }
+    : { label: 'opensky', color: 'text-fg3' }
 
   // Try aeroapi
   const handleAeroQuery = async () => {
     if (!flight || aeroLoading || !flight.callsign || flight.callsign === '—') return
     if (aeroSpend?.cap_reached) return
+    const icao = flight.icao
+    const callsign = flight.callsign
+    const requestId = ++aeroRequestRef.current
     setAeroLoading(true)
     setAeroError(null)
     try {
-      const data = await fetchFlight(flight.callsign, userAeroKey)
-      onAeroFetched(flight.icao, data)
+      const data = await fetchFlight(callsign, userAeroKey)
+      if (aeroRequestRef.current === requestId) onAeroFetched(icao, data)
     } catch (err) {
-      setAeroError(err.response?.data?.error || err.message)
+      if (aeroRequestRef.current === requestId) setAeroError(err.response?.data?.error || err.message)
     } finally {
-      setAeroLoading(false)
+      if (aeroRequestRef.current === requestId) setAeroLoading(false)
     }
   }
 
@@ -133,18 +185,19 @@ export default function FlightInspectorModal({
   return (
     <div className="h-full flex flex-col bg-bg1 min-h-0">
       {/* ── Header strip ─────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1.5 px-2.5 py-1 lg:py-0.5 bg-bg2 border-b border-border shrink-0">
+      <header className="flight-inspector__header">
         <button
           onClick={onClose}
-          className="text-fg3 hover:text-fg shrink-0 cursor-pointer pr-1"
+          className="flight-inspector__close"
           title="close inspector (esc)"
+          aria-label="Close flight details"
         >
           <span className="lg:hidden text-[16px] leading-none">‹ back</span>
           <span className="hidden lg:inline text-[11px]">✕</span>
         </button>
         <span className="lg:hidden text-border2">|</span>
-        <span className="text-ylw text-[11px] tabular-nums">{flight.callsign}</span>
-        {flight.mil && <span className="text-red text-[9px] uppercase">MIL</span>}
+        <h2>{flight.callsign || flight.icao}</h2>
+        {showMilitary && flight.mil && <span className="text-red text-[9px] uppercase">MIL</span>}
         {headerRoute && (
           <span className="text-fg2 text-[11px] tabular-nums">{headerRoute}</span>
         )}
@@ -154,7 +207,16 @@ export default function FlightInspectorModal({
         <span className="text-fg3/40 text-[9px] tracking-wide hidden sm:inline">{flight.icao}</span>
         <span className="flex-1" />
         <span className={clsx('text-[9px]', srcTag.color)}>{srcTag.label}</span>
-      </div>
+      </header>
+
+      <dl className="flight-inspector__vector" aria-label="Current flight vector">
+        <div><dt>Altitude</dt><dd>{flight.alt != null ? `${Math.round(flight.alt * 3.281).toLocaleString()} ft` : '—'}</dd></div>
+        <div><dt>Speed</dt><dd>{flight.vel != null ? `${Math.round(flight.vel * 1.944)} kt` : '—'}</dd></div>
+        <div><dt>Vertical rate</dt><dd className={Math.abs(vr || 0) > 2000 ? 'text-ylw' : ''}>{vr != null ? `${vr > 0 ? '+' : ''}${vr} fpm` : '—'}</dd></div>
+        <div><dt>Heading</dt><dd>{flight.hdg != null ? `${flight.hdg}°` : '—'}</dd></div>
+        <div><dt>Squawk</dt><dd className={squawkColor(flight.squawk)}>{squawkLabel(flight.squawk)}</dd></div>
+        <div><dt>Status</dt><dd className={flight.grounded ? 'text-ylw' : 'text-grn'}>{flight.grounded ? 'Ground' : 'Airborne'}</dd></div>
+      </dl>
 
       {/* ── Main: scrollable single column. Map → sparklines → tiles. ── */}
       <div className="flex-1 min-h-0 overflow-y-auto">
@@ -165,7 +227,6 @@ export default function FlightInspectorModal({
             flight={flight}
             flights={flights}
             fullscreen={false}
-            onToggleFullscreen={() => {}}
             fill
           />
         </div>
@@ -179,7 +240,7 @@ export default function FlightInspectorModal({
 
         {/* Data tiles — 1 column on narrow, 2 columns when there's room */}
         <div className="border-t border-border p-2">
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 auto-rows-min">
+          <div className="grid grid-cols-1 gap-0 auto-rows-min">
 
               {/* AIRCRAFT */}
               <Tile title="Aircraft" accent="text-acc">
@@ -189,17 +250,6 @@ export default function FlightInspectorModal({
                 <Row label="reg" value={aircraft?.registration || flight.acReg} color="text-ylw" />
                 <Row label="owner" value={aircraft?.registered_owner} mono={false} />
                 <Row label="ctry" value={aircraft?.registered_owner_country_name || flight.country} color="text-fg3" mono={false} />
-              </Tile>
-
-              {/* LIVE VECTOR */}
-              <Tile title="Live Vector" accent="text-cyn">
-                <Row label="alt" value={flight.alt != null ? `${Math.round(flight.alt * 3.281).toLocaleString()} ft` : null} color="text-cyn" />
-                <Row label="spd" value={flight.vel != null ? `${Math.round(flight.vel * 1.944)} kt` : null} />
-                <Row label="vr" value={vr != null ? `${vr > 0 ? '+' : ''}${vr} fpm` : null}
-                  color={vr != null && Math.abs(vr) > 2000 ? 'text-ylw' : vr > 0 ? 'text-grn' : vr < 0 ? 'text-cyn' : 'text-fg2'} />
-                <Row label="hdg" value={flight.hdg != null ? `${flight.hdg}°` : null} color="text-fg3" />
-                <Row label="squawk" value={squawkLabel(flight.squawk)} color={squawkColor(flight.squawk)} />
-                <Row label="status" value={flight.grounded ? 'ground' : 'airborne'} color={flight.grounded ? 'text-ylw' : 'text-grn'} />
               </Tile>
 
               {/* ROUTE */}
@@ -234,8 +284,19 @@ export default function FlightInspectorModal({
                 )}
               </Tile>
 
+              <details className="inspector-disclosure xl:col-span-2">
+                <summary>Data details</summary>
+                <Tile title="Observation">
+                  <Row label="vector" value={srcTag.label} mono={false} />
+                  <Row label="sample" value={fmtSampleTime(lastUpdatedAt)} />
+                  {tfms && <Row label="route" value="FAA TFMS" mono={false} />}
+                </Tile>
+              </details>
+
               {/* TELEMETRY (deep — combined adsb.fi + apl) */}
-              <Tile title="Telemetry" accent="text-mag">
+              <details className="inspector-disclosure xl:col-span-2">
+                <summary>Additional telemetry</summary>
+                <Tile title="Navigation and air data">
                 {(adsbfi || apl) ? (
                   <>
                     {adsbfi?.emergency && <Row label="emerg" value={adsbfi.emergency} color="text-red" />}
@@ -252,7 +313,8 @@ export default function FlightInspectorModal({
                 ) : (
                   <div className="text-[9px] text-fg3/40 text-center py-2">enrichment pending</div>
                 )}
-              </Tile>
+                </Tile>
+              </details>
 
               {/* v5.6.2 — SATELLITE tile (click-to-load; spans both columns).
                   GOES-16/18 GEOCOLOR of the aircraft's current sector with
@@ -262,7 +324,9 @@ export default function FlightInspectorModal({
                 const sector = pickSector(flight.lat, flight.lon)
                 const pos = latLonToSectorPct(sector, flight.lat, flight.lon)
                 return (
-                  <Tile title={`Satellite · ${sector.sat}/${sector.sector} · ${sector.name}`} accent="text-cyn" className="xl:col-span-2">
+                  <details className="inspector-disclosure xl:col-span-2">
+                    <summary>Satellite context · {sector.name}</summary>
+                    <Tile title={`${sector.sat}/${sector.sector} · ${sector.name}`}>
                     <div className="relative w-full" style={{ aspectRatio: '4 / 3', maxHeight: '10rem' }}>
                       {!satLoaded ? (
                         <button
@@ -298,8 +362,8 @@ export default function FlightInspectorModal({
                               style={{ left: `${pos.xPct}%`, top: `${pos.yPct}%`, transform: 'translate(-50%, -50%)' }}
                             >
                               <span className="block relative">
-                                <span className="absolute inset-0 rounded-full bg-ylw/50 animate-ping" style={{ width: 12, height: 12, margin: -2 }} />
-                                <span className="block rounded-full border-2 border-ylw shadow-lg" style={{ width: 8, height: 8, background: '#f0c674' }} />
+                                <span className="absolute inset-0 border border-ylw/60" style={{ width: 12, height: 12, margin: -2 }} />
+                                <span className="block border-2 border-ylw" style={{ width: 8, height: 8, background: '#e2b45e' }} />
                               </span>
                             </span>
                           )}
@@ -309,16 +373,20 @@ export default function FlightInspectorModal({
                         </a>
                       )}
                     </div>
-                  </Tile>
+                    </Tile>
+                  </details>
                 )
               })()}
 
               {/* AEROAPI section — spans both columns when data is loaded */}
               {/* Correlation Layer (v2.0.0) — external-source join */}
               <ContextPanel flight={flight} />
+              <details className="inspector-disclosure xl:col-span-2">
+                <summary>Flight lifecycle</summary>
+                <div className="inspector-disclosure__body">
 
               {aeroData ? (
-                <Tile title="FlightAware AeroAPI" accent="text-mag" className="xl:col-span-2">
+                <Tile title="FlightAware AeroAPI">
                   <div className="grid grid-cols-2 gap-x-3 gap-y-0">
                     <Row label="ident" value={aeroData.ident} color="text-ylw" />
                     <Row label="status" value={aeroData.status}
@@ -352,15 +420,19 @@ export default function FlightInspectorModal({
                     onClick={handleAeroQuery}
                     disabled={aeroLoading || flight.callsign === '—' || aeroSpend?.cap_reached}
                   >
-                    <span>{aeroLoading ? 'querying flightaware…' : aeroSpend?.cap_reached ? 'aeroapi cap reached' : '❯ query aeroapi for full lifecycle'}</span>
+                    <span>{aeroLoading ? 'Loading FlightAware…' : aeroSpend?.cap_reached ? 'FlightAware limit reached' : 'Get FlightAware lifecycle'}</span>
                     <span className="text-ylw text-[10px]">~$0.005</span>
                   </button>
                   {aeroError && <div className="text-red text-[9px] mt-1 px-1">{aeroError}</div>}
                 </div>
               )}
+                </div>
+              </details>
           </div>
 
           {/* v5.3.1 — Lazy aircraft photo. Only fetches adsbdb on explicit click. */}
+          <details className="inspector-disclosure mt-2">
+            <summary>Aircraft image</summary>
           {aircraft?.url_photo_thumbnail ? (
             <div className="mt-2">
               <img
@@ -381,21 +453,18 @@ export default function FlightInspectorModal({
                 )}
               >
                 {lazyLoading
-                  ? 'loading aircraft info…'
+                  ? 'Loading aircraft information…'
                   : lazyAircraft !== null
-                    ? (lazyAircraft?.url_photo_thumbnail ? '' : 'no photo available for this aircraft')
-                    : 'show photo + aircraft details (fetches adsbdb)'}
+                    ? (lazyAircraft?.url_photo_thumbnail ? '' : 'No image available')
+                    : 'Load aircraft image'}
               </button>
             </div>
           )}
+          </details>
         </div>
       </div>
 
-      {/* ── Footer hint ─────────────────────────────────────────────── */}
-      <div className="px-3 py-1 bg-bg2 border-t border-border shrink-0 text-[8px] text-fg3/60 flex justify-between">
-        <span>esc to close</span>
-        {!backendOk && <span className="text-red">backend offline</span>}
-      </div>
+      {!backendOk && <div className="flight-inspector__offline">Backend offline</div>}
     </div>
   )
 }

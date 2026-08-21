@@ -6,6 +6,7 @@ require('dotenv').config({
 const express = require('express')
 const axios = require('axios')
 const cors = require('cors')
+const helmet = require('helmet')
 const {
   db: rawDb,
   recordSightings, getAircraftHistory, getAircraftTrack, getUniqueSeen,
@@ -30,6 +31,7 @@ const poller = require('./poller')
 const businessJetTracker = require('./businessJetTracker')
 const swim = require('./swim')
 const app = express()
+app.disable('x-powered-by')
 // Fly Proxy terminates TLS and supplies the client address in X-Forwarded-For.
 // Trust exactly that first proxy hop so express-rate-limit keys real clients
 // without emitting ERR_ERL_UNEXPECTED_X_FORWARDED_FOR in production.
@@ -41,10 +43,34 @@ const OS_BASE   = 'https://opensky-network.org/api'
 const OS_TOKEN_URL = 'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
 const FAA_NOTAM_BASE = 'https://external-api.faa.gov/notamapi/v1/notams'
 
-const corsOrigin = process.env.CORS_ORIGIN
+const configuredCorsOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
-  : '*'
-app.use(cors({ origin: corsOrigin }))
+  : null
+// A deployment must opt in to each browser origin. Local Vite is the only
+// fallback; production never widens to every origin when configuration is
+// missing.
+const corsOrigin = configuredCorsOrigins || (process.env.NODE_ENV === 'production'
+  ? false
+  : ['http://localhost:5173', 'http://127.0.0.1:5173'])
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      baseUri: ["'self'"],
+      connectSrc: ["'self'", 'https://api.adsbdb.com', 'https://adsbexchange-com1.p.rapidapi.com'],
+      fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+      objectSrc: ["'none'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
+    },
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+}))
+app.use(cors({ origin: corsOrigin, credentials: false }))
 app.use(express.json({ limit: '10mb' }))
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
@@ -2425,14 +2451,16 @@ const ctx = {
   mapillary:   require('./context/mapillary'),
   swpc:        require('./context/swpc'),
   usgsEvents:  require('./context/usgsEvents'),
-  sentinel:    require('./context/sentinel'),
   correlation: require('./context/correlation'),
 }
 
 function ctxWrap(handler) {
   return async (req, res) => {
     try { await handler(req, res) }
-    catch (err) { res.status(502).json({ error: err.message }) }
+    catch (err) {
+      console.warn(`context request failed (${req.path}):`, err.message)
+      res.status(502).json({ error: 'context provider unavailable' })
+    }
   }
 }
 
@@ -2527,12 +2555,6 @@ app.get('/api/context/quakes', ctxWrap(async (req, res) => {
 app.get('/api/context/volcanoes', ctxWrap(async (_req, res) => {
   cachePublic(res, 600)
   res.json(await ctx.usgsEvents.fetchVolcanoAlerts())
-}))
-
-// GET /api/context/sentinel — issue a Sentinel Hub bearer token for the frontend
-app.get('/api/context/sentinel', ctxWrap(async (_req, res) => {
-  cachePrivate(res, 900)
-  res.json(await ctx.sentinel.fetchAccess())
 }))
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -2670,7 +2692,8 @@ if (require('fs').existsSync(STATIC_DIR)) {
 // ── Centralized error handler (catches unhandled route errors) ───────────────
 app.use((err, _req, res, _next) => {
   console.error('unhandled route error:', err.stack || err.message)
-  res.status(err.status || 500).json({ error: err.message || 'internal server error' })
+  const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 500 ? err.status : 500
+  res.status(status).json({ error: status === 500 ? 'internal server error' : 'request rejected' })
 })
 
 // Skip listening when imported by vitest (tests use supertest directly)

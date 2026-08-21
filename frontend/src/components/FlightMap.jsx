@@ -21,10 +21,10 @@ const kmToNm = (km) => Math.round(km * 0.539957)
 
 // Track phase colors — match FlightTable PHASE_COLOR for consistency
 const TRACK_PHASE_COLOR = {
-  CLIMB:    '#b5bd68',  // green
-  CRUISE:   '#81a2be',  // blue
-  DESCENT:  '#8abeb7',  // cyan
-  GROUND:   '#666',     // gray
+  CLIMB:    '#91b37d',
+  CRUISE:   '#d7d4c8',
+  DESCENT:  '#ef5a3c',
+  GROUND:   '#70756f',
 }
 
 // Split snapshot list into colored segments by vertical phase.
@@ -175,7 +175,7 @@ function planeIcon(hdg = 0, large = false) {
   return makeIcon(
     `<svg width="${s}" height="${s}" viewBox="0 0 20 20" style="transform:rotate(${hdg}deg)">
       <path d="M10 2 L12.5 8 L18 9.5 L12.5 11 L13 17 L10 15 L7 17 L7.5 11 L2 9.5 L7.5 8 Z"
-            fill="#b5bd68" stroke="#1a1a1a" stroke-width="0.8"/>
+            fill="#91b37d" stroke="#1a1a1a" stroke-width="0.8"/>
     </svg>`,
     [s, s],
     [h, h]
@@ -240,9 +240,9 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, others, la
 
   // Color the planned line by current deviation severity
   const dev = flight?.routeDeviation || 0
-  const plannedColor = dev > 100 ? '#cc6666'    // red — major deviation
-    : dev > 25 ? '#f0c674'                       // yellow — moderate
-    : '#888'                                     // neutral gray — on track
+  const plannedColor = dev > 100 ? '#f06a50'
+    : dev > 25 ? '#e2b45e'
+    : '#858a82'
 
   return (
     <>
@@ -260,7 +260,7 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, others, la
       {/* Departure airport marker */}
       {depCoords && (
         <CircleMarker center={depCoords} radius={lg ? 5 : 4}
-          pathOptions={{ color: '#b5bd68', fillColor: '#b5bd68', fillOpacity: 0.8, weight: 1 }}>
+          pathOptions={{ color: '#91b37d', fillColor: '#91b37d', fillOpacity: 0.8, weight: 1 }}>
           <Tooltip direction="bottom" offset={[0, 4]} className="flight-map-tooltip">
             {(tfms?.dep_arpt || '').replace(/^K/, '')} (dep)
           </Tooltip>
@@ -270,7 +270,7 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, others, la
       {/* Arrival airport marker */}
       {arrCoords && (
         <CircleMarker center={arrCoords} radius={lg ? 5 : 4}
-          pathOptions={{ color: '#cc6666', fillColor: '#cc6666', fillOpacity: 0.8, weight: 1 }}>
+          pathOptions={{ color: '#f06a50', fillColor: '#f06a50', fillOpacity: 0.8, weight: 1 }}>
           <Tooltip direction="bottom" offset={[0, 4]} className="flight-map-tooltip">
             {(tfms?.arr_arpt || '').replace(/^K/, '')} (arr)
             {tfms?.eta && <><br />{new Date(tfms.eta).toISOString().substring(11, 16)}z</>}
@@ -293,7 +293,7 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, others, la
         ) : (
           <Polyline
             positions={fullPath}
-            pathOptions={{ color: '#81a2be', weight: lg ? 3.5 : 2.5, opacity: 0.85 }}
+            pathOptions={{ color: '#d7d4c8', weight: lg ? 3.5 : 2.5, opacity: 0.85 }}
           />
         )
       )}
@@ -600,18 +600,21 @@ export default function FlightMap({ snapshots, flight, flights, fullscreen, onTo
         <MapBtn active={viewMode === 'all'} onClick={() => toggle('all')}>
           all{viewMode === 'all' ? ` (${allOthers.length})` : ''}
         </MapBtn>
-        <button
-          className="bg-bg1/90 border border-border2 text-fg3 hover:text-fg cursor-pointer p-0.5"
-          onClick={onToggleFullscreen}
-          title="Expand map"
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <polyline points="6,1 1,1 1,6" />
-            <polyline points="10,1 15,1 15,6" />
-            <polyline points="6,15 1,15 1,10" />
-            <polyline points="10,15 15,15 15,10" />
-          </svg>
-        </button>
+        {onToggleFullscreen && (
+          <button
+            className="bg-bg1/90 border border-border2 text-fg3 hover:text-fg cursor-pointer p-0.5"
+            onClick={onToggleFullscreen}
+            title="Expand map"
+            aria-label="Expand map"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <polyline points="6,1 1,1 1,6" />
+              <polyline points="10,1 15,1 15,6" />
+              <polyline points="6,15 1,15 1,10" />
+              <polyline points="10,15 15,15 15,10" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <MapContainer

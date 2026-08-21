@@ -89,6 +89,7 @@ function getInterestingFlights({ limit = DEFAULT_LIMIT } = {}) {
 
   const out = {
     generatedAt: new Date().toISOString(),
+    region: flightBundle.region || null,
     totalFlights: all.length,
     candidatePool: candidates.length,
     ranked: scored.length,

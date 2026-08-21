@@ -346,6 +346,26 @@ function getTrackerState() {
   } : null
   const status = calibrationStatus(baseline)
   const cohortAudit = db.getBusinessJetCohortAudit()
+  const formatPosition = (p) => ({
+    icao: p.icao24_hex,
+    callsign: p.callsign,
+    registration: p.n_number,
+    owner: p.owner_name,
+    manufacturer: p.aircraft_mfr,
+    model: p.aircraft_model,
+    tier: p.cohort_tier,
+    ownerClass: p.owner_class,
+    wealthWeight: p.wealth_weight,
+    lat: p.lat,
+    lon: p.lon,
+    altitudeFt: p.altitude_ft,
+    speedKt: p.speed_kt,
+    heading: p.heading,
+    verticalRate: p.vertical_rate,
+    squawk: p.squawk,
+    category: p.category,
+    sampledAt: p.sampled_at,
+  })
   const baselineCurve = snap ? db.getBusinessJetBaselineCurve({
     sampledAt: snap.sampled_at,
     days: BASELINE_DAYS,
@@ -385,26 +405,18 @@ function getTrackerState() {
     } : null,
     baseline,
     baselineCurve,
-    positions: data.positions.map(p => ({
-      icao: p.icao24_hex,
-      callsign: p.callsign,
-      registration: p.n_number,
-      owner: p.owner_name,
-      manufacturer: p.aircraft_mfr,
-      model: p.aircraft_model,
-      tier: p.cohort_tier,
-      ownerClass: p.owner_class,
-      wealthWeight: p.wealth_weight,
-      lat: p.lat,
-      lon: p.lon,
-      altitudeFt: p.altitude_ft,
-      speedKt: p.speed_kt,
-      heading: p.heading,
-      verticalRate: p.vertical_rate,
-      squawk: p.squawk,
-      category: p.category,
-      sampledAt: p.sampled_at,
-    })),
+    positions: data.positions.map(formatPosition),
+    comparison: data.comparison ? {
+      previousSampledAt: data.comparison.previousSampledAt,
+      newlyObserved: data.comparison.newlyObserved,
+      continuedObserved: data.comparison.continuedObserved,
+      notObserved: data.comparison.notObserved,
+      records: data.comparison.records.map(p => ({
+        ...formatPosition(p),
+        change: p.change,
+        previousSampledAt: p.previous_sampled_at,
+      })),
+    } : null,
     history: data.history,
   }
 }

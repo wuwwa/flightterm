@@ -1,8 +1,7 @@
-// ── "Now Showing" feed (v5.2.0) ───────────────────────────────────────────
-// Primary surface — the single ranked list of what's worth looking at right
-// now. Correlation, anomalies, callsigns, orbits, route deviation, and mil
-// flag all feed into the backend score; this component just renders the
-// result and lets the user click through to the full inspector.
+// ── Ranked signal feed ──────────────────────────────────────────────────────
+// A focused secondary workspace for flights worth investigating. Correlation,
+// anomalies, callsigns, orbits, route deviation, and military status feed the
+// score; this component only presents the ranked result and opens the record.
 
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
@@ -11,83 +10,84 @@ import { fetchInterestingFeed } from '../services/feed'
 const REFRESH_MS = 20_000
 
 function scoreTone(score) {
-  if (score >= 100) return 'bg-red/30 text-red border-red/60'
-  if (score >= 60)  return 'bg-red/15 text-red border-red/40'
-  if (score >= 40)  return 'bg-ylw/15 text-ylw border-ylw/40'
-  if (score >= 25)  return 'bg-acc/15 text-acc border-acc/40'
-  return 'bg-bg2 text-fg3 border-border'
+  if (score >= 85) return 'text-red'
+  if (score >= 65) return 'text-ylw'
+  return 'text-fg2'
 }
 
-function tagTone(source) {
-  return source === 'squawk'   ? 'text-red'
-       : source === 'anomaly'  ? 'text-red'
-       : source === 'callsign' ? 'text-mag'
-       : source === 'orbit'    ? 'text-ylw'
-       : source === 'route'    ? 'text-cyn'
-       : source === 'mil'      ? 'text-grn'
-       : 'text-fg3'
+function signalLabel(value) {
+  if (!value) return 'No ranked reason retained'
+  return String(value)
+    .replace(/[_:-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\b\w/g, letter => letter.toUpperCase())
+    .trim()
 }
 
-function Row({ item, selected, onClick }) {
+function isMilitarySignal(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === 'military' || normalized === 'mil'
+}
+
+function Row({ item, selected, onClick, showMilitary }) {
+  const primary = signalLabel(item.primary)
+  const additionalSignals = new Set((item.tags || [])
+    .map(tag => signalLabel(tag.label))
+    .filter(label => label !== primary))
+    .size
   return (
     <button
       onClick={onClick}
       className={clsx(
-        'w-full flex items-center gap-2 px-2 py-1 border-b border-border text-left cursor-pointer transition-colors',
-        selected ? 'bg-acc/10' : 'hover:bg-bg2/60'
+        'priority-row',
+        selected && 'is-selected'
       )}
     >
       {/* Score badge */}
       <span className={clsx(
-        'shrink-0 inline-flex items-center justify-center w-9 h-6 text-[10px] tabular-nums border rounded font-mono',
+        'priority-score',
         scoreTone(item.score)
-      )}>
+      )} title={`Signal score ${item.score}`} aria-label={`Signal score ${item.score}`}>
         {item.score}
       </span>
 
       {/* Callsign + type */}
-      <span className="shrink-0 w-24 flex flex-col leading-tight">
-        <span className="text-ylw text-[11px] font-mono">{item.callsign || item.icao}</span>
-        <span className="text-fg3 text-[8px] tabular-nums">
-          {item.acType || ''}{item.mil ? ' · MIL' : ''}
+      <span className="priority-flight">
+        <span className="priority-callsign">{item.callsign || item.icao}</span>
+        <span className="priority-type">
+          {item.acType || ''}{showMilitary && item.mil ? ' · MIL' : ''}
         </span>
       </span>
 
       {/* Primary reason + tags */}
       <span className="flex-1 min-w-0 flex flex-col leading-tight">
-        <span className="text-fg2 text-[11px] truncate" title={item.primary}>
-          {item.primary || '—'}
+        <span className="priority-reason" title={item.primary}>
+          {primary}
         </span>
-        <span className="text-[9px] flex gap-1.5 overflow-hidden whitespace-nowrap">
-          {(item.tags || []).slice(0, 4).map((t, i) => (
-            <span key={i} className={tagTone(t.source)} title={`+${t.weight} from ${t.source}`}>
-              {t.label}
-            </span>
-          ))}
-        </span>
+        {additionalSignals > 0 && <span className="priority-tag-count" title={`${additionalSignals} additional signal${additionalSignals === 1 ? '' : 's'}`}>+{additionalSignals}</span>}
       </span>
 
       {/* Altitude / speed */}
-      <span className="shrink-0 flex flex-col text-right leading-tight text-[9px] tabular-nums">
-        <span className="text-cyn">{item.altFt != null ? `${item.altFt.toLocaleString()}ft` : '—'}</span>
+      <span className="priority-vitals">
+        <span className="text-fg2">{item.altFt != null ? `${item.altFt.toLocaleString()}ft` : '—'}</span>
         <span className="text-fg3">{item.velKt != null ? `${item.velKt}kt` : '—'}</span>
       </span>
     </button>
   )
 }
 
-export default function InterestingFeed({ selectedIcao, onSelect, flights, backendOk }) {
+export default function InterestingFeed({ selectedIcao, onSelect, onClose, flights, backendOk, showMilitary = false }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
-  const [collapsed, setCollapsed] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState(null)
 
   useEffect(() => {
-    if (!backendOk) return
+    if (!backendOk) { setError('Backend unavailable'); return }
     let cancelled = false
     const refresh = async () => {
       try {
         const d = await fetchInterestingFeed({ limit: 20 })
-        if (!cancelled) { setData(d); setError(null) }
+        if (!cancelled) { setData(d); setError(null); setLastUpdated(d.generatedAt || Date.now()) }
       } catch (err) {
         if (!cancelled) setError(err.response?.data?.error || err.message)
       }
@@ -97,43 +97,46 @@ export default function InterestingFeed({ selectedIcao, onSelect, flights, backe
     return () => { cancelled = true; clearInterval(id) }
   }, [backendOk])
 
-  const items = data?.items || []
-  const visible = collapsed ? [] : items
+  const allItems = data?.items || []
+  const items = showMilitary ? allItems : allItems.filter(item => !isMilitarySignal(item.primary))
 
   return (
-    <div className="border-b border-border bg-bg1 shrink-0">
+    <div className="priority-panel">
       {/* Header strip */}
-      <div className="flex items-center gap-2 px-2.5 py-1 bg-bg2/60 border-b border-border">
-        <span className="ft-chip ft-chip--accent">now showing</span>
-        <span className="text-fg3 text-[9px] tabular-nums">
-          {data ? `${data.ranked} ranked · ${data.candidatePool} candidates · ${data.totalFlights} total` : 'loading…'}
+      <div className="section-heading">
+        <div>
+          <h2>Signals</h2>
+        </div>
+        <span className="section-heading__meta">
+          {error ? (data ? 'Delayed' : 'Unavailable') : data ? `${items.length} of ${data.ranked}` : 'Loading'}
         </span>
-        {error && <span className="text-red text-[9px]">{error}</span>}
-        <span className="flex-1" />
-        <button
-          className="text-fg3 hover:text-fg text-[10px] cursor-pointer"
-          onClick={() => setCollapsed(v => !v)}
-          title={collapsed ? 'expand' : 'collapse'}
-        >
-          {collapsed ? `▸ show ${items.length}` : '▾ hide'}
-        </button>
+        {lastUpdated && <span className="section-heading__meta">{new Date(lastUpdated).toISOString().substring(11, 16)}z</span>}
+        {onClose && <button className="section-heading__action" onClick={onClose} aria-label="Close signal queue">Close</button>}
+      </div>
+
+      <div className="priority-columns" aria-hidden="true">
+        <span>Score</span><span>Flight</span><span>Reason</span><span>Alt · speed</span>
       </div>
 
       {/* Feed rows */}
-      {!collapsed && (
-        <div className="max-h-36 lg:max-h-40 xl:max-h-44 overflow-y-auto">
-          {visible.length === 0 && data && (
-            <div className="text-fg3/50 text-[10px] py-3 text-center">
-              Nothing interesting right now — everything looks routine.
+      <div className="priority-list">
+          {error && (
+            <div className="priority-availability" role="status">
+              {data ? 'Ranking delayed' : 'Signals unavailable'}
             </div>
           )}
-          {visible.map(item => {
+          {items.length === 0 && data && !error && (
+            <div className="priority-empty">
+              No signals in the current ranking.
+            </div>
+          )}
+          {items.map(item => {
             // Click resolves to the full flight record from the primary flights list
             // (InterestingFeed items are a trimmed projection for display).
             const onRowClick = () => {
               const full = (flights || []).find(f => f.icao === item.icao)
-              if (full) onSelect?.(full)
-              else onSelect?.(item)  // fall back to the projection
+              if (full) onSelect?.(full, item)
+              else onSelect?.(item, item)  // fall back to the projection
             }
             return (
               <Row
@@ -141,11 +144,11 @@ export default function InterestingFeed({ selectedIcao, onSelect, flights, backe
                 item={item}
                 selected={selectedIcao === item.icao}
                 onClick={onRowClick}
+                showMilitary={showMilitary}
               />
             )
           })}
-        </div>
-      )}
+      </div>
     </div>
   )
 }

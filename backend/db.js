@@ -1861,12 +1861,23 @@ const _stmts = {
     WHERE cohort_version = ?
     ORDER BY sampled_at DESC, id DESC LIMIT 1
   `),
+  businessJetPreviousSnapshot: db.prepare(`
+    SELECT * FROM business_jet_snapshots
+    WHERE cohort_version = @cohortVersion
+      AND (sampled_at < @sampledAt OR (sampled_at = @sampledAt AND id < @snapshotId))
+    ORDER BY sampled_at DESC, id DESC LIMIT 1
+  `),
   businessJetSnapshotBySlot: db.prepare(`
     SELECT * FROM business_jet_snapshots
     WHERE sample_slot = ? AND cohort_version = ?
     LIMIT 1
   `),
   businessJetLatestPositions: db.prepare(`
+    SELECT * FROM business_jet_positions
+    WHERE snapshot_id = ?
+    ORDER BY altitude_ft DESC NULLS LAST, icao24_hex
+  `),
+  businessJetPositionsBySnapshot: db.prepare(`
     SELECT * FROM business_jet_positions
     WHERE snapshot_id = ?
     ORDER BY altitude_ft DESC NULLS LAST, icao24_hex
@@ -3273,6 +3284,32 @@ function recordBusinessJetSnapshot({ sampledAt = new Date(), source, cohortSize,
 function getBusinessJetLatest({ historyHours = 48 } = {}) {
   const snapshot = _stmts.businessJetLatestSnapshot.get(BUSINESS_JET_COHORT_VERSION) || null
   const positions = snapshot ? _stmts.businessJetLatestPositions.all(snapshot.id) : []
+  const previousSnapshot = snapshot
+    ? _stmts.businessJetPreviousSnapshot.get({
+      cohortVersion: snapshot.cohort_version,
+      sampledAt: snapshot.sampled_at,
+      snapshotId: snapshot.id,
+    }) || null
+    : null
+  const previousPositions = previousSnapshot
+    ? _stmts.businessJetPositionsBySnapshot.all(previousSnapshot.id)
+    : []
+  const priorByIcao = new Map(previousPositions.map(position => [position.icao24_hex, position]))
+  const currentIcaos = new Set(positions.map(position => position.icao24_hex))
+  const comparisonRecords = [
+    ...positions.map(position => ({
+      ...position,
+      change: priorByIcao.has(position.icao24_hex) ? 'continued' : 'newly_observed',
+      previous_sampled_at: previousSnapshot?.sampled_at || null,
+    })),
+    ...previousPositions
+      .filter(position => !currentIcaos.has(position.icao24_hex))
+      .map(position => ({
+        ...position,
+        change: 'not_observed',
+        previous_sampled_at: previousSnapshot.sampled_at,
+      })),
+  ]
   const history = _stmts.businessJetSnapshotHistory.all({
     hours: historyHours,
     cohortVersion: BUSINESS_JET_COHORT_VERSION,
@@ -3282,7 +3319,20 @@ function getBusinessJetLatest({ historyHours = 48 } = {}) {
     tiers: _stmts.businessJetCohortTierBreakdown.all(),
     owners: _stmts.businessJetCohortOwnerBreakdown.all(),
   }
-  return { snapshot, positions, history, cohortSize, cohortBreakdown }
+  return {
+    snapshot,
+    positions,
+    history,
+    cohortSize,
+    cohortBreakdown,
+    comparison: snapshot && previousSnapshot ? {
+      previousSampledAt: previousSnapshot.sampled_at,
+      newlyObserved: comparisonRecords.filter(record => record.change === 'newly_observed').length,
+      continuedObserved: comparisonRecords.filter(record => record.change === 'continued').length,
+      notObserved: comparisonRecords.filter(record => record.change === 'not_observed').length,
+      records: comparisonRecords,
+    } : null,
+  }
 }
 
 // ── Ingest state (v5.7) ─────────────────────────────────────────────────────

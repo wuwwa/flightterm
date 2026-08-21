@@ -2,14 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import clsx from 'clsx'
 
 import CommandBar from './components/CommandBar'
-import LogPanel from './components/LogPanel'
 import FlightTable from './components/FlightTable'
+import { emptyFilters } from './components/FilterBar'
 import InterestingFeed from './components/InterestingFeed'
 import FlightDossier from './components/FlightDossier'
 import GroupDossier from './components/GroupDossier'
-import SettingsModal from './components/SettingsModal'
-import UsagePanel from './components/UsagePanel'
-import NotamPanel from './components/NotamPanel'
+import DataAccountPanel from './components/DataAccountPanel'
 import NasPanel from './components/NasPanel'
 import TfmsPanel from './components/tfms/TfmsPanel'
 import BusinessJetTracker from './components/BusinessJetTracker'
@@ -49,6 +47,11 @@ function saveSettings(s) {
   } catch {}
 }
 
+function isMilitarySignal(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === 'military' || normalized === 'mil'
+}
+
 // ── log helper ────────────────────────────────────────────────────────────────
 function makeEntry(msg, type = '') {
   return {
@@ -62,37 +65,180 @@ function makeEntry(msg, type = '') {
 export default function App() {
   // ── core state ──────────────────────────────────────────────────────────────
   const [flights, setFlights] = useState([])
-  const [logEntries, setLogEntries] = useState([])
+  const [, setLogEntries] = useState([])
   const [settings, setSettings] = useState(loadSettings)
   const [region, setRegion] = useState('usa')
   const [filter, setFilter] = useState('')
+  const [tableFilters, setTableFilters] = useState(emptyFilters)
+  const [showMilitary, setShowMilitary] = useState(false)
   const [fetching, setFetching] = useState(false)
   const [backendOk, setBackendOk] = useState(false)
   const [lastFetchAt, setLastFetchAt] = useState(null)
+  const [flightDataStatus, setFlightDataStatus] = useState('loading')
+  const [flightDataError, setFlightDataError] = useState(null)
   const [openskyUsage, setOpenskyUsage] = useState(null)
   const [aeroSpend, setAeroSpend] = useState(null)
 
   // ── UI overlay state ────────────────────────────────────────────────────────
-  const [showSettings, setShowSettings] = useState(false)
-  const [showUsage, setShowUsage] = useState(false)
-  const [showNotams, setShowNotams] = useState(false)
+  const [showDataAccount, setShowDataAccount] = useState(false)
+  const closeDataAccount = useCallback(() => setShowDataAccount(false), [])
+  const [showSignalsDrawer, setShowSignalsDrawer] = useState(false)
+  const [isMobileLayout, setIsMobileLayout] = useState(() => window.matchMedia('(max-width: 1023px)').matches)
+  const [activeView, setActiveView] = useState(() => {
+    try {
+      const linked = new URL(window.location.href).searchParams.get('view')
+      if (linked === 'alerts') return 'flights'
+      if (['flights', 'airports', 'private'].includes(linked)) return linked
+      return 'flights'
+    } catch {
+      return 'flights'
+    }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('ft_view', activeView) } catch {}
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('view') !== activeView) {
+      url.searchParams.set('view', activeView)
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+    }
+  }, [activeView])
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 1023px)')
+    const update = () => {
+      setIsMobileLayout(query.matches)
+      if (!query.matches) setShowMobileInspector(false)
+    }
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
 
   // ── detail / enrichment state ───────────────────────────────────────────────
   const [selectedFlight, setSelectedFlight] = useState(null)
+  const [selectedAlert, setSelectedAlert] = useState(null)
+  const selectedAlertRef = useRef(selectedAlert)
+  selectedAlertRef.current = selectedAlert
+  const [showMobileInspector, setShowMobileInspector] = useState(false)
+  const mobileDialogRef = useRef(null)
+  const mobileReturnFocusRef = useRef(null)
+
+  const handleViewChange = useCallback((nextView, { replace = false } = {}) => {
+    if (!['flights', 'airports', 'private'].includes(nextView)) return
+    if (nextView === activeView) return
+    setShowMobileInspector(false)
+    setShowSignalsDrawer(false)
+    if (nextView !== 'flights') {
+      setSelectedFlight(null)
+      setSelectedAlert(null)
+    }
+    setActiveView(nextView)
+    const url = new URL(window.location.href)
+    url.searchParams.set('view', nextView)
+    window.history[replace ? 'replaceState' : 'pushState'](null, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [activeView])
+
+  useEffect(() => {
+    const onPopState = () => {
+      const url = new URL(window.location.href)
+      const rawView = url.searchParams.get('view')
+      const linked = rawView === 'alerts' ? 'flights' : rawView
+      if (!['flights', 'airports', 'private'].includes(linked)) return
+      if (rawView === 'alerts') {
+        url.searchParams.set('view', 'flights')
+        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+      }
+      setActiveView(linked)
+      setShowSignalsDrawer(false)
+      if (linked !== 'flights') {
+        setSelectedFlight(null)
+        setSelectedAlert(null)
+      }
+      setShowMobileInspector(false)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  const mobileInspectorOpen = Boolean(isMobileLayout && selectedFlight && showMobileInspector && activeView === 'flights')
+  const closeMobileInspector = useCallback(() => {
+    setShowMobileInspector(false)
+    if (activeView === 'flights') setSelectedFlight(null)
+  }, [activeView])
+
+  const clearSelectedFlight = useCallback(() => {
+    setSelectedFlight(null)
+    setSelectedAlert(null)
+    setShowMobileInspector(false)
+  }, [])
+
+  const handleMilitaryVisibility = useCallback((visible) => {
+    setShowMilitary(visible)
+    if (!visible && isMilitarySignal(selectedAlertRef.current?.primary)) {
+      clearSelectedFlight()
+    }
+  }, [clearSelectedFlight])
+
+  useEffect(() => {
+    if (!mobileInspectorOpen) return
+    mobileReturnFocusRef.current = document.activeElement
+    const dialog = mobileDialogRef.current
+    const selector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    const focusables = () => Array.from(dialog?.querySelectorAll(selector) || [])
+    const priorOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    requestAnimationFrame(() => focusables()[0]?.focus())
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeMobileInspector()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const items = focusables()
+      if (!items.length) { event.preventDefault(); dialog?.focus(); return }
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      document.body.style.overflow = priorOverflow
+      mobileReturnFocusRef.current?.focus?.()
+    }
+  }, [mobileInspectorOpen, closeMobileInspector])
 
   // v5.3.0 — hash-based routing for the full-page FlightDossier.
   // #flight=<icao> (optionally with &cs=<callsign>) opens the dossier overlay.
   // v5.7.0 — #group=<kind>:<id> opens the group dossier.
-  const [dossier, setDossier] = useState(null)  // { icao, callsign } | null
+  const [dossier, setDossier] = useState(null)  // { icao, callsign, returnGroup? } | null
   const [groupDossier, setGroupDossier] = useState(null)  // string groupId or null
+  const overlayReturnFocusRef = useRef(null)
   useEffect(() => {
+    const openOverlay = (hash) => {
+      if (!/^#(?:flight|group)=/.test(hash) || hash === window.location.hash) return
+      const state = { ...(window.history.state || {}), flighttermOverlay: true }
+      window.history.pushState(state, '', `${window.location.pathname}${window.location.search}${hash}`)
+      window.dispatchEvent(new Event('hashchange'))
+    }
     const parseHash = () => {
       const h = window.location.hash.slice(1)  // strip leading #
       if (h.startsWith('flight=')) {
         const params = new URLSearchParams(h)
         const icao = (params.get('flight') || '').toLowerCase()
         if (!icao) return { flight: null, group: null }
-        return { flight: { icao, callsign: params.get('cs') || null }, group: null }
+        return {
+          flight: {
+            icao,
+            callsign: params.get('cs') || null,
+            returnGroup: params.get('fromGroup') || null,
+          },
+          group: null,
+        }
       }
       if (h.startsWith('group=')) {
         const params = new URLSearchParams(h)
@@ -102,23 +248,72 @@ export default function App() {
       }
       return { flight: null, group: null }
     }
+    const onOverlayLinkClick = (event) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      const anchor = event.target instanceof Element
+        ? event.target.closest('a[href^="#flight="], a[href^="#group="]')
+        : null
+      if (!anchor) return
+      const hash = anchor.getAttribute('href')
+      if (!hash) return
+      event.preventDefault()
+      openOverlay(hash)
+    }
+    const onOpenOverlay = (event) => openOverlay(event.detail?.hash || '')
     const apply = () => {
       const { flight, group } = parseHash()
+      if (flight || group) {
+        overlayReturnFocusRef.current = document.activeElement
+        setShowMobileInspector(false)
+        setShowDataAccount(false)
+      }
       setDossier(flight)
       setGroupDossier(group)
     }
     apply()
     window.addEventListener('hashchange', apply)
-    return () => window.removeEventListener('hashchange', apply)
+    window.addEventListener('popstate', apply)
+    document.addEventListener('click', onOverlayLinkClick)
+    window.addEventListener('flightterm:open-overlay', onOpenOverlay)
+    return () => {
+      window.removeEventListener('hashchange', apply)
+      window.removeEventListener('popstate', apply)
+      document.removeEventListener('click', onOverlayLinkClick)
+      window.removeEventListener('flightterm:open-overlay', onOpenOverlay)
+    }
   }, [])
   const closeDossier = () => {
+    if (window.history.state?.flighttermOverlay) {
+      window.history.back()
+      return
+    }
+    if (dossier?.returnGroup) {
+      const groupHash = `#group=${encodeURIComponent(dossier.returnGroup)}`
+      history.replaceState(null, '', `${window.location.pathname}${window.location.search}${groupHash}`)
+      setDossier(null)
+      setGroupDossier(dossier.returnGroup)
+      return
+    }
     if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search)
     setDossier(null)
   }
   const closeGroupDossier = () => {
+    if (window.history.state?.flighttermOverlay) {
+      window.history.back()
+      return
+    }
     if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search)
     setGroupDossier(null)
   }
+
+  useEffect(() => {
+    if (!selectedFlight || isMobileLayout || showDataAccount || dossier || groupDossier) return
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') clearSelectedFlight()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedFlight, isMobileLayout, showDataAccount, dossier, groupDossier, clearSelectedFlight])
   const [enrichCache, setEnrichCache] = useState({})
   const [aeroCache, setAeroCache] = useState({})
 
@@ -126,17 +321,6 @@ export default function App() {
   const [trackHistory, setTrackHistory] = useState({})
   const trackHistoryRef = useRef({})
   trackHistoryRef.current = trackHistory
-
-  // ── tracked flights: icaos user has pinned for map display ──────────────────
-  const [trackedIcaos, setTrackedIcaos] = useState(new Set())
-  const toggleTrackFlight = useCallback((icao) => {
-    setTrackedIcaos(prev => {
-      const next = new Set(prev)
-      if (next.has(icao)) next.delete(icao)
-      else next.add(icao)
-      return next
-    })
-  }, [])
 
   // ── anomalies: icaos with sudden alt/vel changes ──────────────────────────
   const [anomalies, setAnomalies] = useState({}) // { icao: { score, phase, reasons[], confirmed, label } }
@@ -204,10 +388,6 @@ export default function App() {
     setLogEntries((prev) => [...prev.slice(-199), makeEntry(msg, type)])
   }, [])
 
-  const clearLog = useCallback(() => {
-    setLogEntries([makeEntry('log cleared', 'info')])
-  }, [])
-
   // ── refresh usage from backend ───────────────────────────────────────────────
   const refreshAeroSpend = useCallback(() => {
     fetchAeroSpend()
@@ -223,10 +403,7 @@ export default function App() {
 
   // ── loading state for initial boot ──────────────────────────────────────────
   const [booting, setBooting] = useState(true)
-  const [bootMsg, setBootMsg] = useState('connecting to backend…')
-  const [bootStage, setBootStage] = useState('waking backend')
-  const [bootAttempt, setBootAttempt] = useState(1)
-  const [bootProgress, setBootProgress] = useState(8)
+  const [bootMsg, setBootMsg] = useState('Connecting')
 
   // ── backend health check → initial fetch → auto ────────────────────────────
   useEffect(() => {
@@ -241,15 +418,11 @@ export default function App() {
       for (let i = 0; i < retries; i++) {
         try {
           console.log(`[boot] health check attempt ${i + 1}/${retries}`)
-          setBootAttempt(i + 1)
-          setBootProgress(Math.min(42, 8 + i * 2))
-          setBootStage(i === 0 ? 'waking backend' : 'waiting for backend')
-          setBootMsg(i === 0 ? 'connecting to backend…' : `waiting for backend… (${i + 1}/${retries})`)
+          setBootMsg(i === 0 ? 'Connecting' : `Retrying (${i + 1}/${retries})`)
           if (i > 0) log(`backend: retrying… (${i + 1}/${retries})`, 'warn')
           const d = await checkHealth()
           if (cancelled) return null
-          setBootProgress(48)
-          setBootStage('backend online')
+          setBootMsg('Preparing live traffic')
           setBackendOk(true)
           log(`backend ok · opensky: ${d.opensky_configured ? '✓' : '✗'} · aeroapi: ${d.aeroapi_configured ? '✓' : '✗'} · notam: ${d.faa_notam_configured ? '✓' : '✗'}`, 'ok')
           console.log('[boot] backend ready:', {
@@ -267,8 +440,7 @@ export default function App() {
         }
       }
       setBackendOk(false)
-      setBootStage('backend unavailable')
-      setBootProgress(100)
+      setBootMsg('Live traffic unavailable')
       log('backend offline — start the Express server (cd backend && npm run dev)', 'warn')
       console.log('[boot] backend unreachable after retries')
       return null
@@ -281,9 +453,7 @@ export default function App() {
 
       if (health) {
         log('loading usage data…', 'info')
-        setBootStage('loading account signals')
-        setBootProgress(62)
-        setBootMsg('loading usage data…')
+        setBootMsg('Checking data access')
         console.log('[boot] refreshing usage data')
         await Promise.allSettled([refreshAeroSpend(), refreshOpenskyUsage()])
         log('usage data loaded', 'ok')
@@ -291,9 +461,7 @@ export default function App() {
 
       if (health) {
         log('fetching initial flight data…', 'info')
-        setBootStage('loading live aircraft')
-        setBootProgress(78)
-        setBootMsg('fetching flights…')
+        setBootMsg('Updating flight index')
         console.log('[boot] initial fetch')
         await Promise.race([
           fetchFlightsRef.current?.() || Promise.resolve(),
@@ -302,7 +470,6 @@ export default function App() {
         if (cancelled) return
         const intervalSec = pollInterval ? Math.round(pollInterval / 1000) : '?'
         log(`live sync enabled (${intervalSec}s)`, 'ok')
-        setBootProgress(96)
         console.log('[boot] live sync enabled')
       }
 
@@ -318,10 +485,30 @@ export default function App() {
 
   useEffect(() => {
     if (!booting || !backendOk || flights.length === 0) return
-    setBootProgress(100)
     setBootMsg('')
     setBooting(false)
   }, [booting, backendOk, flights.length])
+
+  // Backend health is live state, not a boot-time latch. This lets every
+  // workspace recover after an outage (and stop claiming live data during one).
+  useEffect(() => {
+    let cancelled = false
+    const refreshHealth = async () => {
+      try {
+        await axios.get('/api/health/live', { timeout: 5000 })
+        if (!cancelled) setBackendOk(true)
+      } catch {
+        if (!cancelled) {
+          setBackendOk(false)
+          setFlightDataError('Backend health check failed')
+          setFlightDataStatus(previous => previous === 'live' ? 'stale' : previous === 'loading' ? 'unavailable' : previous)
+        }
+      }
+    }
+    refreshHealth()
+    const id = setInterval(refreshHealth, 15_000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [])
 
   // ── fetch flights ─────────────────────────────────────────────────────────────
   // Primary path: read from backend poller cache (GET /api/flights).
@@ -329,34 +516,45 @@ export default function App() {
   // Fallback: direct OpenSky fetch if poller region doesn't match.
   const lastServerFetchRef = useRef(null) // tracks when poller last fetched (to detect new cycles)
   const fetchingRef = useRef(false)
+  const flightsRequestRef = useRef(0)
+  const regionRef = useRef(region)
   const [pollInterval, setPollInterval] = useState(null) // poll interval from backend (ms)
 
   const fetchFlights = useCallback(async () => {
     if (fetchingRef.current) return
 
+    const requestId = ++flightsRequestRef.current
+    const requestedRegion = region
+    const isCurrent = () => flightsRequestRef.current === requestId && regionRef.current === requestedRegion
     fetchingRef.current = true
     setFetching(true)
+    setFlightDataStatus(prev => flights.length ? prev : 'loading')
     const t0 = performance.now()
 
     let result = null
     let serverFetchedAt = null
+    let responsePollInterval = pollInterval || 45_000
 
     try {
       const resp = await axios.get('/api/flights')
       const pollerRegion = resp.data?.region
-      const pollerHasData = resp.data?.flights?.length > 0
+      const pollerFlights = Array.isArray(resp.data?.flights) ? resp.data.flights : null
+      const pollerHasData = (pollerFlights?.length || 0) > 0
       serverFetchedAt = resp.data?.fetchedAt || null
       console.log('[fetch] /api/flights →', { pollerRegion, pollerHasData, flightCount: resp.data?.flights?.length, serverFetchedAt, clientRegion: region })
-      if (resp.data?.pollInterval && resp.data.pollInterval !== pollInterval) setPollInterval(resp.data.pollInterval)
+      if (resp.data?.pollInterval) {
+        responsePollInterval = resp.data.pollInterval
+        if (resp.data.pollInterval !== pollInterval) setPollInterval(resp.data.pollInterval)
+      }
 
-      if (pollerHasData && pollerRegion === region) {
-        result = resp.data.flights
+      if (pollerFlights && pollerRegion === requestedRegion) {
+        result = pollerFlights
         for (const f of result) {
           if (!f.callsign) f.callsign = '—'
         }
-      } else if (pollerHasData && pollerRegion !== region) {
-        log(`flights: poller region is ${pollerRegion}, need ${region} — fetching direct`, 'info')
-        const direct = await fetchStates(region, {
+      } else if (pollerRegion && pollerRegion !== requestedRegion) {
+        log(`flights: poller region is ${pollerRegion}, need ${requestedRegion} — fetching direct`, 'info')
+        const direct = await fetchStates(requestedRegion, {
           osClientId: settings.userOsClientId,
           osClientSecret: settings.userOsClientSecret,
         })
@@ -370,19 +568,45 @@ export default function App() {
     } catch (err) {
       console.error('[fetch] backend error:', err.message)
       log(`flights: backend error (${err.message})`, 'err')
-      result = []
+      result = null
+      if (isCurrent()) {
+        setFlightDataError(err.message || 'Flight records unavailable')
+        setFlightDataStatus(flights.length ? 'stale' : 'unavailable')
+      }
     }
 
+    if (!isCurrent()) return
     console.log('[fetch] result:', result?.length ?? 0, 'flights')
-    if (result && result.length > 0) {
+    if (result !== null) {
+      const verifiedFetchMs = serverFetchedAt ? new Date(serverFetchedAt).getTime() : NaN
+      const hasVerifiedFetch = Number.isFinite(verifiedFetchMs)
+      const isStaleFetch = hasVerifiedFetch && Date.now() - verifiedFetchMs > Math.max(120_000, responsePollInterval * 2.5)
+
+      // A 200 response without a completed poller sample is not a verified
+      // empty result. Keep warming (or retain the last good data as stale).
+      if (!hasVerifiedFetch) {
+        setFlightDataError(flights.length ? 'Waiting for a new verified flight sample' : null)
+        setFlightDataStatus(flights.length ? 'stale' : 'loading')
+        fetchingRef.current = false
+        setFetching(false)
+        return
+      }
+
       setFlights(result)
-      setLastFetchAt(serverFetchedAt || Date.now())
+      setSelectedFlight(previous => {
+        if (!previous?.icao) return previous
+        const refreshed = result.find(flight => flight.icao === previous.icao)
+        return refreshed ? { ...previous, ...refreshed } : previous
+      })
+      setLastFetchAt(verifiedFetchMs)
+      setFlightDataError(isStaleFetch ? 'The flight feed has not completed a recent polling cycle' : null)
+      setFlightDataStatus(isStaleFetch ? 'stale' : 'live')
 
       // Detect new poller cycle (fetchedAt changed) vs enrichment refresh
       const isNewCycle = serverFetchedAt !== lastServerFetchRef.current
       lastServerFetchRef.current = serverFetchedAt
 
-      if (isNewCycle) {
+      if (isNewCycle && result.length > 0) {
         const ms = Math.round(performance.now() - t0)
         const age = serverFetchedAt ? Math.round((Date.now() - serverFetchedAt) / 1000) : '?'
         log(`flights: ${result.length} aircraft from poller (${ms}ms, ${age}s old)`, 'ok')
@@ -431,17 +655,31 @@ export default function App() {
         log(`  airborne: ${airborne.length} · grounded: ${grounded}`, 'info')
       }
       // else: silent refresh — just updates flight data (picks up new enrichment)
-    } else if (result !== null && !lastServerFetchRef.current) {
-      log('flights: no data yet — poller may still be starting', 'warn')
+      if (result.length === 0 && isNewCycle) {
+        log(`flights: successful ${requestedRegion} response contained no aircraft`, 'info')
+      }
     }
 
     fetchingRef.current = false
     setFetching(false)
-  }, [settings, region, log, pollInterval, refreshOpenskyUsage])
+  }, [settings, region, log, pollInterval, refreshOpenskyUsage, flights.length])
 
   useEffect(() => {
     fetchFlightsRef.current = fetchFlights
   }, [fetchFlights])
+
+  useEffect(() => {
+    if (backendOk && (flightDataStatus === 'unavailable' || flightDataStatus === 'stale')) {
+      fetchFlightsRef.current?.()
+    }
+  }, [backendOk, flightDataStatus])
+
+  const previousRegionRef = useRef(region)
+  useEffect(() => {
+    if (previousRegionRef.current === region) return
+    previousRegionRef.current = region
+    fetchFlightsRef.current?.()
+  }, [region])
 
   // ── SSE: receive anomalies from backend poller ──────────────────────────────
   useEffect(() => {
@@ -504,14 +742,39 @@ export default function App() {
 
   // ── region change ─────────────────────────────────────────────────────────────
   const handleRegionChange = (r) => {
+    if (r === region) return
+    regionRef.current = r
+    flightsRequestRef.current += 1
+    fetchingRef.current = false
+    setFetching(false)
+    setFlights([])
+    setLastFetchAt(null)
+    setFlightDataError(null)
+    setFlightDataStatus('loading')
+    lastServerFetchRef.current = null
+    setSelectedFlight(null)
+    setSelectedAlert(null)
+    setShowMobileInspector(false)
+    setShowSignalsDrawer(false)
+    setTableFilters(emptyFilters())
+    setFilter('')
     setRegion(r)
     log(`region → ${r}`, 'info')
   }
 
   // ── row selection + adsbdb enrichment + backend track pre-fill ───────────────
   const handleSelectFlight = useCallback(
-    async (flight) => {
+    async (flight, alert = null) => {
+      if (!flight) {
+        setSelectedFlight(null)
+        setSelectedAlert(null)
+        setShowMobileInspector(false)
+        return
+      }
       setSelectedFlight(flight)
+      setSelectedAlert(alert)
+      setShowMobileInspector(false)
+      setShowSignalsDrawer(false)
 
       // Pre-fill track history from backend if we don't have much in-memory
       // Backend rows lack lat/lon, so only use them for chart data — never overwrite
@@ -610,183 +873,118 @@ export default function App() {
     setSettings(newSettings)
     saveSettings(newSettings)
     log('settings saved', 'ok')
-    setShowSettings(false)
+    setShowDataAccount(false)
   }
-
-  // ── derived stats ─────────────────────────────────────────────────────────────
-  const stats = {
-    total: flights.length || null,
-    airborne: flights.filter((f) => !f.grounded).length || null,
-    grounded: flights.filter((f) => f.grounded).length || null,
-    region,
-    enriched: Object.keys(enrichCache).length + Object.keys(aeroCache).length,
-    lastUpdate: flights.length
-      ? new Date().toISOString().substring(11, 19) + ' utc'
-      : null,
-  }
-  const bootPipeline = [
-    { label: 'backend', state: backendOk ? 'online' : 'waking', ready: backendOk, active: bootProgress < 62 },
-    { label: 'usage', state: bootProgress >= 62 ? 'checked' : 'queued', ready: bootProgress >= 72, active: bootProgress >= 62 && bootProgress < 78 },
-    { label: 'feed', state: flights.length ? 'live' : 'warming', ready: flights.length > 0, active: bootProgress >= 78 },
-  ]
 
   // ── render ────────────────────────────────────────────────────────────────────
   return (
     <SwimProvider backendOk={backendOk}>
     <>
-      {/* Boot loading bar — shared across both layouts */}
-      {booting && (
-        <div className="fixed inset-0 z-[100] bg-bg/84 backdrop-blur-[2px] flex items-center justify-center px-4">
-          <div className="w-full max-w-lg border border-border2/80 bg-bg1/90 shadow-[0_14px_60px_rgba(0,0,0,0.32)]">
-            <div className="px-4 py-3 border-b border-border/80 bg-bg1/70 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-fg text-[13px] font-semibold leading-none">flightterm</div>
-                <div className="text-fg3 text-[10px] mt-1">bringing the live feed online</div>
-              </div>
-              <div className="text-right shrink-0 tabular-nums">
-                <div className="text-fg2 text-[11px] leading-none">{Math.round(bootProgress)}%</div>
-                <div className="text-fg3 text-[9px] mt-1">try {bootAttempt}</div>
-              </div>
-            </div>
-            <div className="p-4">
-              <div className="flex items-baseline justify-between gap-3 mb-3">
-                <span className="text-fg text-[11px]">{bootStage}</span>
-                <span className="text-fg3 text-[10px] tabular-nums truncate">{bootMsg}</span>
-              </div>
-              <div className="boot-pipeline-track" aria-hidden="true">
-                <div
-                  className="boot-pipeline-fill"
-                  style={{ width: `${Math.max(6, Math.min(100, bootProgress))}%` }}
+      <div className="app-shell flex flex-col min-h-screen" inert={mobileInspectorOpen || showDataAccount || dossier || groupDossier ? true : undefined} aria-hidden={mobileInspectorOpen || showDataAccount || dossier || groupDossier ? 'true' : undefined}>
+        <CommandBar
+          activeView={activeView}
+          onViewChange={handleViewChange}
+        />
+
+        {activeView === 'flights' && (
+          <main className="view-frame view-frame--flights" aria-label="Flights workspace">
+            <div className="flight-record-shell relative min-h-0 flex">
+              <section className="traffic-surface flex-1 min-w-0" aria-label="All flight records">
+                <FlightTable
+                  key={`flights-${region}`}
+                  flights={flights}
+                  filter={filter}
+                  onFilterChange={setFilter}
+                  filters={tableFilters}
+                  onFiltersChange={setTableFilters}
+                  selectedIcao={selectedFlight?.icao}
+                  enrichCache={enrichCache}
+                  anomalies={anomalies}
+                  trackHistory={trackHistory}
+                  onSelect={(flight) => { handleSelectFlight(flight); if (flight && isMobileLayout) setShowMobileInspector(true) }}
+                  onArrived={handleArrived}
+                  onDeparted={handleDeparted}
+                  onSync={fetchFlights}
+                  isSyncing={fetching}
+                  dataStatus={flightDataStatus}
+                  dataError={flightDataError}
+                  lastUpdatedAt={lastFetchAt}
+                  region={region}
+                  onRegionChange={handleRegionChange}
+                  showMilitary={showMilitary}
+                  onShowMilitaryChange={handleMilitaryVisibility}
+                  signalsOpen={showSignalsDrawer}
+                  onToggleSignals={() => setShowSignalsDrawer(open => !open)}
                 />
-                <div
-                  className="boot-pipeline-packet"
-                  style={{ left: `${Math.max(6, Math.min(96, bootProgress))}%` }}
+              </section>
+              <aside className="inspector-surface hidden lg:block" aria-label="Flight details">
+                <FlightInspectorModal
+                  flight={selectedFlight}
+                  flights={flights}
+                  enrichData={selectedFlight ? enrichCache[selectedFlight.icao] : null}
+                  aeroCache={aeroCache}
+                  aeroSpend={aeroSpend}
+                  userAeroKey={settings.userAeroKey}
+                  trackHistory={selectedFlight ? trackHistory[selectedFlight.icao] : null}
+                  onClose={clearSelectedFlight}
+                  onAeroFetched={handleAeroFetched}
+                  backendOk={backendOk}
+                  lastUpdatedAt={lastFetchAt}
+                  region={region}
+                  showMilitary={showMilitary}
                 />
-              </div>
-              <div className="grid grid-cols-3 gap-3 mt-3 text-[10px]">
-                {bootPipeline.map((step) => (
-                  <div key={step.label} className="boot-pipeline-step">
-                    <span className={`boot-pipeline-dot ${step.ready ? 'is-ready' : step.active ? 'is-active' : ''}`} />
-                    <span className="text-fg3">{step.label}</span>
-                    <span className={step.ready ? 'text-grn' : step.active ? 'text-ylw' : 'text-fg3'}>{step.state}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-fg3 leading-relaxed">
-                <span>Cold starts can take a moment before the cache is warm.</span>
-                <span className="text-cyn tabular-nums shrink-0">{flights.length ? flights.length.toLocaleString() : 'no'} aircraft</span>
-              </div>
+              </aside>
+              {showSignalsDrawer && (
+                <aside className="flight-signals-drawer" aria-label="Ranked signal queue">
+                  <InterestingFeed
+                    flights={flights}
+                    selectedIcao={selectedFlight?.icao}
+                    onSelect={(flight, alert) => {
+                      handleSelectFlight(flight, alert)
+                      if (flight && isMobileLayout) setShowMobileInspector(true)
+                    }}
+                    onClose={() => setShowSignalsDrawer(false)}
+                    backendOk={backendOk}
+                    showMilitary={showMilitary}
+                  />
+                </aside>
+              )}
             </div>
-          </div>
-        </div>
-      )}
+          </main>
+        )}
 
-      {/* ═══════════════════════════════════════════════════════════════════════
-          UNIFIED LAYOUT — same structure for all screen sizes.
-          Desktop and mobile: one scrollable page.
-          Flight inspector: inline sidebar on lg+, slide-up overlay on mobile.
-          ═══════════════════════════════════════════════════════════════════════ */}
-      <div className="app-shell flex flex-col min-h-screen">
-        {/* CommandBar */}
-        <div className="col-span-full">
-          <CommandBar
-            stats={stats}
-            backendOk={backendOk}
-            lastFetchAt={lastFetchAt}
-            pollInterval={pollInterval}
-            onClearLog={clearLog}
-            onOpenSettings={() => setShowSettings(true)}
-            onOpenUsage={() => setShowUsage(true)}
-            region={region}
-            onRegionChange={handleRegionChange}
-          />
-        </div>
+        {activeView === 'airports' && (
+          <main className="view-frame operations-workspace" aria-label="Airport and national airspace operations">
+            <NasPanel backendOk={backendOk} />
+            <TfmsPanel backendOk={backendOk} />
+          </main>
+        )}
 
-        {/* LogPanel */}
-        <div className="col-span-full">
-          <LogPanel entries={logEntries} />
-        </div>
+        {activeView === 'private' && (
+          <main className="view-frame private-jet-workspace" aria-label="Private jet activity workspace">
+            <BusinessJetTracker backendOk={backendOk} />
+          </main>
+        )}
 
-        <div className="business-jet-shell col-span-full min-h-0">
-          <BusinessJetTracker backendOk={backendOk} />
-        </div>
-
-        {/* Flight table + inspector */}
-        <div className="flight-record-shell min-h-0 flex flex-col lg:flex-row">
-          <div className="flex-1 min-h-0 flex flex-col">
-            {/* v5.2.0 "Now Showing" — ranked feed of interesting flights */}
-            <InterestingFeed
-              flights={flights}
-              selectedIcao={selectedFlight?.icao}
-              onSelect={handleSelectFlight}
-              backendOk={backendOk}
-            />
-            <FlightTable
-              flights={flights}
-              filter={filter}
-              onFilterChange={setFilter}
-              selectedIcao={selectedFlight?.icao}
-              enrichCache={enrichCache}
-              anomalies={anomalies}
-              trackHistory={trackHistory}
-              openskyUsage={openskyUsage}
-              aeroSpend={aeroSpend}
-              trackedIcaos={trackedIcaos}
-              onToggleTrack={toggleTrackFlight}
-              onSelect={handleSelectFlight}
-              onArrived={handleArrived}
-              onDeparted={handleDeparted}
-              onSync={fetchFlights}
-              isSyncing={fetching}
-            />
-          </div>
-          {/* Desktop: inline sidebar. Mobile: slide-up overlay (below). */}
-          {selectedFlight && (
-            <div className="hidden lg:block w-full lg:w-110 xl:w-130 min-h-0 border-t lg:border-t-0 lg:border-l border-border">
-              <FlightInspectorModal
-                flight={selectedFlight}
-                flights={flights}
-                enrichData={enrichCache[selectedFlight.icao]}
-                aeroCache={aeroCache}
-                aeroSpend={aeroSpend}
-                userAeroKey={settings.userAeroKey}
-                trackHistory={trackHistory[selectedFlight.icao]}
-                onClose={() => setSelectedFlight(null)}
-                onAeroFetched={handleAeroFetched}
-                backendOk={backendOk}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* TFMS / Airport Ops */}
-        <div className="col-span-full">
-          <TfmsPanel backendOk={backendOk} />
-        </div>
-
-        {/* FAA SWIM / NAS */}
-        <div className="col-span-full">
-          <NasPanel backendOk={backendOk} region={region} />
-        </div>
       </div>
 
       {/* U.S. airspace map is shelved for now.
           DashboardPanel/NasMap remain in the codebase if we need to bring it back. */}
 
       {/* Mobile flight inspector — bottom sheet with backdrop */}
-      {selectedFlight && (
-        <div className="lg:hidden fixed inset-0 z-50 flex flex-col">
+      {mobileInspectorOpen && (
+        <div ref={mobileDialogRef} className="lg:hidden fixed inset-0 z-[1200] flex flex-col" role="dialog" aria-modal="true" aria-label="Selected flight details" tabIndex={-1}>
           {/* Backdrop — tap to close */}
-          <div
-            className="shrink-0 bg-black/50 backdrop-blur-[2px]"
+          <button
+            className="shrink-0 bg-black/70"
             style={{ height: '48px' }}
-            onClick={() => setSelectedFlight(null)}
+            onClick={closeMobileInspector}
+            aria-label="Close selected flight details"
           >
             <div className="flex items-center justify-center h-full gap-2">
-              <span className="text-fg/60 text-[11px]">tap to close</span>
-              <span className="text-fg/40 text-[10px]">✕</span>
+              <span className="text-fg/60 text-[11px]">Close flight detail</span>
             </div>
-          </div>
+          </button>
           {/* Sheet */}
           <div className="flex-1 min-h-0 animate-slide-up rounded-t-lg overflow-hidden border-t border-acc/30">
             <FlightInspectorModal
@@ -797,25 +995,23 @@ export default function App() {
               aeroSpend={aeroSpend}
               userAeroKey={settings.userAeroKey}
               trackHistory={trackHistory[selectedFlight.icao]}
-              onClose={() => setSelectedFlight(null)}
+              onClose={closeMobileInspector}
               onAeroFetched={handleAeroFetched}
               backendOk={backendOk}
+              lastUpdatedAt={lastFetchAt}
+              showMilitary={showMilitary}
             />
           </div>
         </div>
       )}
 
-      {/* Shared modal overlays */}
-      {showSettings && (
-        <SettingsModal
+      {showDataAccount && (
+        <DataAccountPanel
           settings={settings}
+          backendOk={backendOk}
           onSave={handleSaveSettings}
-          onClose={() => setShowSettings(false)}
+          onClose={closeDataAccount}
         />
-      )}
-
-      {showUsage && (
-        <UsagePanel onClose={() => setShowUsage(false)} backendOk={backendOk} />
       )}
 
       {/* v5.3.0 Flight Dossier — URL-addressable at #flight=<icao> */}
@@ -824,7 +1020,10 @@ export default function App() {
           icao={dossier.icao}
           callsign={dossier.callsign}
           flights={flights}
+          returnGroup={dossier.returnGroup}
+          returnFocusTarget={overlayReturnFocusRef.current}
           onClose={closeDossier}
+          showMilitary={showMilitary}
         />
       )}
 
@@ -832,13 +1031,11 @@ export default function App() {
       {groupDossier && (
         <GroupDossier
           groupId={groupDossier}
+          returnFocusTarget={overlayReturnFocusRef.current}
           onClose={closeGroupDossier}
         />
       )}
 
-      {showNotams && (
-        <NotamPanel region={region} onClose={() => setShowNotams(false)} />
-      )}
     </>
     </SwimProvider>
   )

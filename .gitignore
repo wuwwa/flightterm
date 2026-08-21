@@ -23,7 +23,9 @@ backend/*.db-shm
 
 # Playwright MCP artifacts
 .playwright-mcp/
+.codex-logs/
 *.png
+!frontend/public/og.png
 
 # OS
 .DS_Store

@@ -1,32 +1,62 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { searchAircraft } from '../services/search'
 
-export default function AircraftSearchBox({ filter, onFilterChange, className }) {
+export default function AircraftSearchBox({ filter, onFilterChange, onLiveSelect, className }) {
   const [suggestions, setSuggestions] = useState([])
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [highlighted, setHighlighted] = useState(0)
+  const [searchState, setSearchState] = useState('idle')
   const inputRef = useRef(null)
   const dropdownRef = useRef(null)
   const debounceTimerRef = useRef(null)
+  const requestRef = useRef(0)
+  const resultQueryRef = useRef('')
+  const listboxId = useId()
 
   const openAircraftDetails = (icao, callsign) => {
     const suffix = callsign ? `&cs=${encodeURIComponent(callsign)}` : ''
-    window.location.hash = `flight=${icao}${suffix}`
+    window.dispatchEvent(new CustomEvent('flightterm:open-overlay', { detail: { hash: `#flight=${icao}${suffix}` } }))
     setDropdownOpen(false)
-    inputRef.current?.blur()
+  }
+
+  const chooseResult = (result) => {
+    if (result.live && onLiveSelect?.(result)) {
+      setDropdownOpen(false)
+      return
+    }
+    openAircraftDetails(result.icao, result.callsign)
   }
 
   useEffect(() => {
+    const requestId = ++requestRef.current
+    const query = filter.trim()
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
-    if (!filter || filter.trim().length < 2) {
+    if (query.length < 2) {
       setSuggestions([])
+      setSearchState('idle')
+      resultQueryRef.current = ''
       return
     }
+    setSuggestions([])
+    setHighlighted(0)
+    setSearchState('searching')
     debounceTimerRef.current = setTimeout(() => {
-      searchAircraft(filter, { limit: 10 })
-        .then(d => { setSuggestions(d.results || []); setHighlighted(0) })
-        .catch(() => setSuggestions([]))
+      searchAircraft(query, { limit: 10 })
+        .then(d => {
+          if (requestRef.current !== requestId) return
+          const results = d.results || []
+          resultQueryRef.current = query
+          setSuggestions(results)
+          setHighlighted(0)
+          setSearchState(results.length ? 'ready' : 'empty')
+        })
+        .catch(() => {
+          if (requestRef.current !== requestId) return
+          setSuggestions([])
+          resultQueryRef.current = ''
+          setSearchState('error')
+        })
     }, 180)
     return () => { if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current) }
   }, [filter])
@@ -46,6 +76,7 @@ export default function AircraftSearchBox({ filter, onFilterChange, className })
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        if (document.querySelector('[aria-modal="true"]')) return
         e.preventDefault()
         inputRef.current?.focus()
       }
@@ -57,26 +88,34 @@ export default function AircraftSearchBox({ filter, onFilterChange, className })
   const onSearchKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault()
+      const query = filter.trim()
+      if (query.length < 2) return
       const s = suggestions[highlighted]
-      if (s) { openAircraftDetails(s.icao, s.callsign); return }
-      const q = (filter || '').trim().toLowerCase()
-      if (/^[0-9a-f]{6}$/.test(q)) { openAircraftDetails(q); return }
-      searchAircraft(filter, { limit: 1 }).then(d => {
-        const top = d.results?.[0]
-        if (top) openAircraftDetails(top.icao, top.callsign)
-      })
+      if (s && resultQueryRef.current === query) { chooseResult(s); return }
+      const requestId = ++requestRef.current
+      setSearchState('searching')
+      searchAircraft(query, { limit: 1 })
+        .then(d => {
+          if (requestRef.current !== requestId) return
+          const top = d.results?.[0]
+          if (top) chooseResult(top)
+          else setSearchState('empty')
+        })
+        .catch(() => { if (requestRef.current === requestId) setSearchState('error') })
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
       if (!dropdownOpen) setDropdownOpen(true)
-      setHighlighted(h => Math.min(h + 1, suggestions.length - 1))
+      if (suggestions.length) setHighlighted(h => Math.min(h + 1, suggestions.length - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setHighlighted(h => Math.max(h - 1, 0))
+      if (suggestions.length) setHighlighted(h => Math.max(h - 1, 0))
     } else if (e.key === 'Escape') {
       setDropdownOpen(false)
-      inputRef.current?.blur()
     }
   }
+
+  const query = filter.trim()
+  const popupOpen = dropdownOpen && query.length >= 2
 
   return (
     <div className={clsx(
@@ -91,57 +130,74 @@ export default function AircraftSearchBox({ filter, onFilterChange, className })
       </svg>
       <input
         ref={inputRef}
-        className="bg-transparent border-none outline-none text-fg text-[11px] flex-1 caret-acc font-mono min-w-0 placeholder:text-fg3/50 leading-none"
+        className="bg-transparent border-none outline-none text-fg text-[10px] flex-1 caret-acc font-mono min-w-0 placeholder:text-fg3/50 leading-none"
         value={filter}
         onChange={e => { onFilterChange(e.target.value); setDropdownOpen(true) }}
-        onFocus={() => filter && setDropdownOpen(true)}
+        onFocus={() => query && setDropdownOpen(true)}
         onKeyDown={onSearchKeyDown}
-        placeholder="Search aircraft — callsign, ICAO, operator, type..."
+        placeholder="Search live flights or aircraft records…"
+        role="combobox"
+        aria-label="Search live flights or aircraft records"
+        aria-expanded={popupOpen}
+        aria-controls={listboxId}
+        aria-activedescendant={popupOpen && suggestions[highlighted] && resultQueryRef.current === query ? `${listboxId}-${highlighted}` : undefined}
+        aria-autocomplete="list"
       />
       {filter ? (
         <button
-          onClick={() => { onFilterChange(''); setDropdownOpen(false); inputRef.current?.focus() }}
+          onClick={() => { onFilterChange(''); setDropdownOpen(false); setSearchState('idle'); inputRef.current?.focus() }}
           className="text-fg3 hover:text-fg text-[11px] cursor-pointer shrink-0 leading-none"
           title="clear"
+          aria-label="Clear flight filter"
         >x</button>
       ) : (
-        <kbd className="hidden sm:inline-block text-[8px] text-fg3 border border-border px-1 py-px bg-bg2/60 shrink-0 pointer-events-none leading-none"
+        <kbd className="hidden sm:inline-block text-[9px] text-fg3 border border-border px-1 py-px bg-bg2/60 shrink-0 pointer-events-none leading-none"
              title="press / to focus search">/</kbd>
       )}
-      {dropdownOpen && suggestions.length > 0 && (
+      {popupOpen && (
         <div
           ref={dropdownRef}
+          id={listboxId}
+          role="listbox"
+          aria-label="Aircraft records"
           className="absolute top-full left-0 right-0 mt-0.5 z-50 bg-bg1 border border-border2 shadow-lg max-h-80 overflow-y-auto"
         >
-          {suggestions.map((s, i) => {
+          {searchState === 'searching' && <div className="px-2 py-2 text-[10px] text-fg3" role="status">Searching…</div>}
+          {searchState === 'empty' && <div className="px-2 py-2 text-[10px] text-fg3" role="status">No results</div>}
+          {searchState === 'error' && <div className="px-2 py-2 text-[10px] text-ylw" role="status">Search unavailable</div>}
+          {searchState === 'ready' && suggestions.map((s, i) => {
             const active = i === highlighted
             return (
-              <button
+              <div
                 key={s.icao}
+                id={`${listboxId}-${i}`}
+                role="option"
+                tabIndex={-1}
+                aria-selected={active}
                 onMouseEnter={() => setHighlighted(i)}
-                onClick={() => openAircraftDetails(s.icao, s.callsign)}
+                onMouseDown={(event) => { event.preventDefault(); chooseResult(s) }}
                 className={clsx(
-                  'w-full text-left px-2 py-1 border-b border-white/3 last:border-b-0 cursor-pointer flex items-center gap-2 text-[11px]',
+                  'w-full text-left px-2 py-1 border-b border-white/3 last:border-b-0 cursor-pointer flex items-start gap-2 text-[11px]',
                   active ? 'bg-acc/15' : 'hover:bg-bg2/60'
                 )}
               >
-                <span className={clsx('text-[9px] px-1 py-[1px] border tabular-nums shrink-0',
-                  s.live ? 'border-grn/50 text-grn bg-grn/5' : 'border-border text-fg3 bg-bg2/60')}>
-                  {s.live ? 'live' : 'db'}
+                <span className={clsx('text-[9px] px-1 py-[1px] border tabular-nums shrink-0 mt-px',
+                  s.live ? 'border-grn/50 text-grn' : 'border-border text-fg3')}>
+                  {s.live ? 'select live' : 'open record'}
                 </span>
-                <span className="text-ylw font-mono w-20 shrink-0 truncate">{s.callsign || s.icao}</span>
-                <span className="text-fg3 font-mono text-[10px] shrink-0">{s.icao}</span>
-                <span className="text-acc text-[10px] shrink-0">{s.acType}</span>
-                {s.acReg && <span className="text-cyn text-[10px] shrink-0">{s.acReg}</span>}
-                <span className="text-fg3 truncate text-[10px]">{s.acOperator}</span>
+                <div className="min-w-0 flex-1 flex flex-col sm:contents">
+                  <span className="text-fg font-mono w-auto sm:w-20 shrink-0 truncate">{s.callsign || s.icao}</span>
+                  <span className="sm:hidden text-fg3 text-[10px] truncate">{[s.acType, s.acReg, s.acOperator].filter(Boolean).join(' · ')}</span>
+                </div>
+                <span className="hidden sm:inline text-fg3 font-mono text-[10px] shrink-0">{s.icao}</span>
+                <span className="hidden sm:inline text-fg2 text-[10px] shrink-0">{s.acType}</span>
+                {s.acReg && <span className="hidden sm:inline text-fg3 text-[10px] shrink-0">{s.acReg}</span>}
+                <span className="hidden sm:inline text-fg3 truncate text-[10px]">{s.acOperator}</span>
                 {s.altFt != null && <span className="text-fg3 text-[9px] tabular-nums shrink-0 ml-auto">{s.altFt.toLocaleString()}ft</span>}
-                <span className="text-fg3/40 text-[8px] shrink-0">{s.match}</span>
-              </button>
+                <span className="hidden sm:inline text-fg3/40 text-[8px] shrink-0">{s.match}</span>
+              </div>
             )
           })}
-          <div className="text-fg3/40 text-[9px] px-2 py-0.5 border-t border-border bg-bg2/30">
-            up/down navigate · enter opens aircraft · esc closes
-          </div>
         </div>
       )}
     </div>

@@ -4,6 +4,8 @@ import 'leaflet/dist/leaflet.css'
 import clsx from 'clsx'
 import axios from 'axios'
 import AIRPORTS from '../../data/airports'
+import Loading from '../Loading'
+import DataLinkMark from '../DataLinkMark'
 
 // ── AirportPicker v3 — pill trigger + map modal ─────────────────────────────
 // The current selection shows as a compact pill. Clicking opens a modal with:
@@ -14,12 +16,49 @@ import AIRPORTS from '../../data/airports'
 
 function AirportPicker({ value, onChange }) {
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const triggerRef = useRef(null)
+  const pickerRef = useRef(null)
+  const inputRef = useRef(null)
   const [recents, setRecents] = useState(() => {
     try { return JSON.parse(localStorage.getItem('flightterm:recent_airports') || '[]') } catch { return [] }
   })
 
   const selected = value ? AIRPORTS[value] : null
   const code = value ? value.replace(/^K/, '') : ''
+  const airportRows = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    const all = Object.entries(AIRPORTS)
+    if (!needle) {
+      const recentRows = recents.map(icao => [icao, AIRPORTS[icao]]).filter(([, airport]) => airport)
+      const recentSet = new Set(recents)
+      return [...recentRows, ...all.filter(([icao]) => !recentSet.has(icao))].slice(0, 24)
+    }
+    return all.filter(([icao, airport]) => {
+      const haystack = `${icao} ${icao.replace(/^K/, '')} ${airport.city || ''} ${airport.state || ''}`.toLowerCase()
+      return haystack.includes(needle)
+    }).slice(0, 24)
+  }, [query, recents])
+
+  useEffect(() => {
+    if (!open) return
+    inputRef.current?.focus()
+    const onPointerDown = event => {
+      if (!pickerRef.current?.contains(event.target)) setOpen(false)
+    }
+    const onKeyDown = event => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
 
   const handleSelect = (icao) => {
     onChange(icao)
@@ -28,16 +67,21 @@ function AirportPicker({ value, onChange }) {
       try { localStorage.setItem('flightterm:recent_airports', JSON.stringify(next)) } catch {}
       return next
     })
+    setQuery('')
     setOpen(false)
+    triggerRef.current?.focus()
   }
 
   return (
-    <>
-      {/* Compact pill trigger */}
+    <div ref={pickerRef} className="relative min-w-0">
       <button
+        ref={triggerRef}
         onClick={() => setOpen(true)}
-        className="flex items-baseline gap-1.5 bg-bg1 border border-border hover:border-acc rounded px-2 py-0.5 cursor-pointer transition-colors text-left min-w-0"
-        title="click to change airport"
+        className="flex items-baseline gap-1.5 bg-transparent border-0 border-b border-border2 hover:border-acc px-0 py-0.5 cursor-pointer transition-colors text-left min-w-0"
+        title="Change airport"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls="airport-picker-list"
       >
         {selected ? (
           <>
@@ -51,31 +95,73 @@ function AirportPicker({ value, onChange }) {
       </button>
 
       {open && (
-        <AirportPickerModal
-          value={value}
-          recents={recents}
-          onSelect={handleSelect}
-          onClose={() => setOpen(false)}
-        />
+        <div className="absolute left-0 top-full z-[1000] mt-1 w-[min(320px,82vw)] border border-border2 bg-bg1 shadow-lg">
+          <div className="border-b border-border p-1.5">
+            <label htmlFor="airport-picker-search" className="sr-only">Search airports</label>
+            <input
+              ref={inputRef}
+              id="airport-picker-search"
+              value={query}
+              onChange={event => setQuery(event.target.value)}
+              placeholder="Code, city, or state"
+              className="w-full border border-border bg-bg px-2 py-1 text-[11px] text-fg outline-none focus:border-acc"
+            />
+          </div>
+          <div id="airport-picker-list" role="listbox" aria-label="Airports" className="max-h-72 overflow-y-auto py-1">
+            {!query && recents.length > 0 && <div className="px-2 py-1 text-[10px] text-fg3">Recent airports</div>}
+            {airportRows.map(([icao, airport]) => (
+              <button
+                key={icao}
+                role="option"
+                aria-selected={icao === value}
+                onClick={() => handleSelect(icao)}
+                className={clsx(
+                  'flex w-full items-baseline gap-2 px-2 py-1 text-left text-[11px] hover:bg-bg2',
+                  icao === value && 'border-l-2 border-acc bg-acc/8'
+                )}
+              >
+                <span className="w-9 shrink-0 font-mono text-fg">{icao.replace(/^K/, '')}</span>
+                <span className="min-w-0 flex-1 truncate text-fg2">{airport.city}</span>
+                <span className="text-fg3">{airport.state}</span>
+              </button>
+            ))}
+            {airportRows.length === 0 && <div className="px-2 py-3 text-[11px] text-fg3">No matching airport</div>}
+          </div>
+        </div>
       )}
-    </>
+    </div>
   )
 }
 
-function AirportPickerModal({ value, recents, onSelect, onClose }) {
+function AirportPickerModal({ value, recents, onSelect, onClose, returnFocusRef }) {
   const [query, setQuery] = useState('')
   const [hoverIcao, setHoverIcao] = useState(null)
   const inputRef = useRef(null)
+  const dialogRef = useRef(null)
 
   // Focus search input on mount
   useEffect(() => { inputRef.current?.focus() }, [])
 
-  // Escape closes
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    const priorOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); return }
+      if (e.key !== 'Tab') return
+      const items = Array.from(dialogRef.current?.querySelectorAll('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])
+      if (!items.length) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = priorOverflow
+      returnFocusRef?.current?.focus?.()
+    }
+  }, [onClose, returnFocusRef])
 
   // Filtered airports — used to dim non-matching dots and to populate the side list
   const matches = useMemo(() => {
@@ -101,26 +187,31 @@ function AirportPickerModal({ value, recents, onSelect, onClose }) {
     <div className="fixed inset-0 z-[10000] flex items-center justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70" />
       <div
+        ref={dialogRef}
         className="relative bg-bg1 border border-border rounded-lg shadow-2xl w-[90vw] max-w-3xl max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="airport-picker-title"
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-3 py-2 bg-bg2 border-b border-border rounded-t-lg shrink-0">
-          <span className="text-acc font-bold text-[11px] uppercase tracking-wide">select airport</span>
+          <h2 id="airport-picker-title" className="text-fg font-semibold text-[12px]">Select airport</h2>
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="search by code, city, or state…"
+            aria-label="Search airports by code, city, or state"
             className="flex-1 bg-bg1 border border-border text-fg text-[11px] font-mono px-2 py-1 rounded outline-none focus:border-acc placeholder:text-fg3/40"
           />
-          <button onClick={onClose} className="text-fg3 hover:text-fg text-sm px-2 cursor-pointer">✕</button>
+          <button onClick={onClose} className="text-fg3 hover:text-fg text-sm px-2 cursor-pointer" aria-label="Close airport picker">✕</button>
         </div>
 
         {/* Map + side panel */}
         <div className="flex-1 min-h-0 grid grid-cols-1 sm:grid-cols-[1fr_200px] gap-px bg-border">
           {/* Map */}
-          <div className="bg-bg1 relative" style={{ minHeight: 300 }}>
+          <div className="hidden sm:block bg-bg1 relative" style={{ minHeight: 300 }}>
             <MapContainer
               center={[39, -96]}
               zoom={4}
@@ -142,8 +233,8 @@ function AirportPickerModal({ value, recents, onSelect, onClose }) {
                     center={[ap.lat, ap.lon]}
                     radius={isSelected ? 7 : isHover ? 6 : 4}
                     pathOptions={{
-                      color: isSelected ? '#81a2be' : isMatch ? '#b5bd68' : '#444',
-                      fillColor: isSelected ? '#81a2be' : isMatch ? '#b5bd68' : '#444',
+                      color: isSelected ? '#ef5a3c' : isMatch ? '#d7d4c8' : '#444',
+                      fillColor: isSelected ? '#ef5a3c' : isMatch ? '#d7d4c8' : '#444',
                       fillOpacity: isMatch ? 0.7 : 0.2,
                       weight: isSelected ? 2 : 1,
                     }}
@@ -154,7 +245,7 @@ function AirportPickerModal({ value, recents, onSelect, onClose }) {
                     }}
                   >
                     <LeafletTooltip direction="top" offset={[0, -4]} className="leaflet-airport-tooltip">
-                      <span style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                      <span style={{ fontFamily: 'Azeret Mono, monospace', fontSize: 11 }}>
                         <b>{code}</b> · {ap.city}, {ap.state}
                       </span>
                     </LeafletTooltip>
@@ -230,9 +321,9 @@ function SideRow({ icao, ap, selected, onClick, onHover }) {
 }
 
 const STATUS_COLORS = {
-  ACTIVE: 'text-grn', ASCENDING: 'text-cyn', CRUISING: 'text-acc',
-  DESCENDING: 'text-ylw', COMPLETED: 'text-fg3', FILED: 'text-mag', CANCELLED: 'text-red',
-  PLANNED: 'text-mag',
+  ACTIVE: 'text-fg2', ASCENDING: 'text-fg2', CRUISING: 'text-fg2',
+  DESCENDING: 'text-fg2', COMPLETED: 'text-grn', FILED: 'text-fg3', CANCELLED: 'text-red',
+  PLANNED: 'text-fg3',
 }
 
 const STATUS_SHORT = {
@@ -251,11 +342,16 @@ function fmtTime(ts) {
 function LoadingDots() {
   return (
     <div className="flex-1 flex items-center justify-center">
-      <div className="flex gap-1">
-        <div className="w-1.5 h-1.5 rounded-full bg-acc animate-bounce" style={{ animationDelay: '0ms' }} />
-        <div className="w-1.5 h-1.5 rounded-full bg-acc animate-bounce" style={{ animationDelay: '150ms' }} />
-        <div className="w-1.5 h-1.5 rounded-full bg-acc animate-bounce" style={{ animationDelay: '300ms' }} />
-      </div>
+      <Loading label="Loading airport data" />
+    </div>
+  )
+}
+
+function DataFailure({ message, onRetry }) {
+  return (
+    <div className="flex min-h-36 flex-col items-center justify-center gap-2 px-4 text-center text-[11px] text-fg3" role="status">
+      <span>{message}</span>
+      <button className="border border-border2 px-2 py-1 text-fg2 hover:border-acc hover:text-acc" onClick={onRetry}>Retry</button>
     </div>
   )
 }
@@ -274,6 +370,9 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
   const [selectedFlight, setSelectedFlight] = useState(null)
   const [lifecycle, setLifecycle] = useState(null)
   const [lcLoading, setLcLoading] = useState(false)
+  const [opsState, setOpsState] = useState({ error: null, lastUpdated: null })
+  const [refreshVersion, setRefreshVersion] = useState(0)
+  const airportRef = useRef(null)
 
   // Lazy-loaded tab data
   const [metar, setMetar] = useState(null)
@@ -281,87 +380,134 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
   const [surface, setSurface] = useState(null)
   const [flowDetail, setFlowDetail] = useState(null)
   const [tabLoading, setTabLoading] = useState(false)
+  const [tabError, setTabError] = useState({})
+  const [tabRetry, setTabRetry] = useState(0)
   const loadedTabsRef = useRef({})
+  const tabRequestRef = useRef(0)
+  const lifecycleRequestRef = useRef(0)
 
   // Fetch ops + surface flow + METAR (always, in parallel)
   useEffect(() => {
-    if (!airport || !backendOk) { setOps(null); setSurfaceFlow(null); setHeaderMetar(null); setLoading(false); return }
+    if (!airport) {
+      airportRef.current = null
+      setOps(null)
+      setSurfaceFlow(null)
+      setHeaderMetar(null)
+      setOpsState({ error: null, lastUpdated: null })
+      setLoading(false)
+      return
+    }
+    const airportChanged = airportRef.current !== airport
+    airportRef.current = airport
+    if (airportChanged) {
+      setOps(null)
+      setSurfaceFlow(null)
+      setHeaderMetar(null)
+      setOpsState({ error: null, lastUpdated: null })
+      setLoading(true)
+      setNewAcids(new Set())
+      prevArrRef.current = new Set()
+      prevDepRef.current = new Set()
+      setMetar(null); setNotams(null); setSurface(null); setFlowDetail(null)
+      setTabError({})
+      loadedTabsRef.current = {}
+      setTab('flights')
+    }
+    if (!backendOk) {
+      setOpsState(prev => ({
+        ...prev,
+        error: prev.lastUpdated ? 'Backend unavailable — showing last received movements.' : 'Backend unavailable — live airport movements cannot be loaded.',
+      }))
+      setLoading(false)
+      return
+    }
     let cancelled = false
-    setOps(null)
-    setSurfaceFlow(null)
-    setHeaderMetar(null)
-    setLoading(true)
-    setNewAcids(new Set())
-    prevArrRef.current = new Set()
-    prevDepRef.current = new Set()
-    // Reset lazy tab data
-    setMetar(null); setNotams(null); setSurface(null); setFlowDetail(null)
-    loadedTabsRef.current = {}
-    setTab('flights')
 
+    let inFlight = false
     const refresh = () => {
+      if (inFlight) return
+      inFlight = true
       Promise.allSettled([
         axios.get(`/api/swim/airport/${airport}/ops`),
         axios.get(`/api/swim/airport/${airport}/surface-flow`),
         axios.get('/api/weather/metar', { params: { ids: airport } }),
       ]).then(([opsRes, flowRes, metarRes]) => {
         if (cancelled) return
-        if (opsRes.status === 'fulfilled') setOps(opsRes.value.data)
+        if (opsRes.status === 'fulfilled') {
+          setOps(opsRes.value.data)
+          setOpsState({ error: null, lastUpdated: Date.now() })
+        } else {
+          setOpsState(prev => ({
+            ...prev,
+            error: prev.lastUpdated ? 'Update failed — showing last received movements.' : 'Live airport movements are unavailable.',
+          }))
+        }
         if (flowRes.status === 'fulfilled') setSurfaceFlow(flowRes.value.data)
         if (metarRes.status === 'fulfilled') {
           const m = Array.isArray(metarRes.value.data) ? metarRes.value.data[0] : metarRes.value.data
           setHeaderMetar(m || null)
         }
         setLoading(false)
-      })
+      }).finally(() => { inFlight = false })
     }
     refresh()
     const id = setInterval(refresh, 15_000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [airport, backendOk])
+  }, [airport, backendOk, refreshVersion])
 
   // Lazy-load tab data when tab changes
   useEffect(() => {
     if (!airport || tab === 'flights' || loadedTabsRef.current[tab]) return
-    loadedTabsRef.current[tab] = true
+    const requestId = ++tabRequestRef.current
+    const isCurrent = () => tabRequestRef.current === requestId
     setTabLoading(true)
+    setTabError(prev => ({ ...prev, [tab]: null }))
 
     if (tab === 'weather') {
       axios.get('/api/weather/metar', { params: { ids: airport } })
-        .then(r => setMetar(Array.isArray(r.data) ? r.data[0] : null))
-        .catch(() => {})
-        .finally(() => setTabLoading(false))
+        .then(r => { if (isCurrent()) { setMetar(Array.isArray(r.data) ? r.data[0] : null); loadedTabsRef.current.weather = true } })
+        .catch(() => { if (isCurrent()) setTabError(prev => ({ ...prev, weather: 'Weather data is unavailable.' })) })
+        .finally(() => { if (isCurrent()) setTabLoading(false) })
     } else if (tab === 'notams') {
       axios.get(`/api/swim/notams/${airport}`)
-        .then(r => setNotams(r.data))
-        .catch(() => setNotams([]))
-        .finally(() => setTabLoading(false))
+        .then(r => { if (isCurrent()) { setNotams(r.data); loadedTabsRef.current.notams = true } })
+        .catch(() => { if (isCurrent()) setTabError(prev => ({ ...prev, notams: 'NOTAM data is unavailable.' })) })
+        .finally(() => { if (isCurrent()) setTabLoading(false) })
     } else if (tab === 'surface') {
       Promise.allSettled([
         axios.get(`/api/swim/surface/${airport}`, { params: { limit: 30 } }),
         axios.get(`/api/swim/airport/${airport}/surface-flow`),
       ]).then(([movRes, flowRes]) => {
+        if (!isCurrent()) return
+        if (movRes.status === 'rejected' && flowRes.status === 'rejected') {
+          setTabError(prev => ({ ...prev, surface: 'Surface data is unavailable.' }))
+          return
+        }
         setSurface({
           events: movRes.status === 'fulfilled' ? movRes.value.data : [],
           flow: flowRes.status === 'fulfilled' ? flowRes.value.data : null,
         })
-      }).finally(() => setTabLoading(false))
+        loadedTabsRef.current.surface = true
+      }).finally(() => { if (isCurrent()) setTabLoading(false) })
     } else if (tab === 'flow') {
       axios.get(`/api/swim/flow/${airport}`, { params: { limit: 20 } })
-        .then(r => setFlowDetail(r.data))
-        .catch(() => setFlowDetail([]))
-        .finally(() => setTabLoading(false))
+        .then(r => { if (isCurrent()) { setFlowDetail(r.data); loadedTabsRef.current.flow = true } })
+        .catch(() => { if (isCurrent()) setTabError(prev => ({ ...prev, flow: 'Flow data is unavailable.' })) })
+        .finally(() => { if (isCurrent()) setTabLoading(false) })
     }
-  }, [tab, airport])
+    return () => { if (tabRequestRef.current === requestId) tabRequestRef.current += 1 }
+  }, [tab, airport, tabRetry])
 
   // Fetch lifecycle when a flight is selected
   useEffect(() => {
-    if (!selectedFlight) { setLifecycle(null); return }
+    const requestId = ++lifecycleRequestRef.current
+    if (!selectedFlight) { setLifecycle(null); setLcLoading(false); return }
     setLcLoading(true)
     axios.get(`/api/swim/flight/${selectedFlight}/lifecycle`)
-      .then(r => setLifecycle(r.data))
-      .catch(() => setLifecycle(null))
-      .finally(() => setLcLoading(false))
+      .then(r => { if (lifecycleRequestRef.current === requestId) setLifecycle(r.data) })
+      .catch(() => { if (lifecycleRequestRef.current === requestId) setLifecycle(null) })
+      .finally(() => { if (lifecycleRequestRef.current === requestId) setLcLoading(false) })
+    return () => { if (lifecycleRequestRef.current === requestId) lifecycleRequestRef.current += 1 }
   }, [selectedFlight])
 
   useEffect(() => { setSelectedFlight(null) }, [airport])
@@ -436,29 +582,22 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
   return (
     <div className="h-full flex flex-col bg-bg1">
       {/* Header — airport identity + key context */}
-      <div className="flex items-center gap-2 px-2 py-1 bg-bg2 border-b border-border shrink-0">
+      <div className="airport-record-header">
         <AirportPicker value={airport} onChange={onAirportChange} />
 
         {airport && meta && (
           <span className="text-fg3 text-[9px] truncate hidden md:inline">{meta.state}</span>
         )}
 
-        {/* Quick traffic summary inline so it's visible at a glance */}
-        {airport && ops && (
-          <span className="hidden sm:flex items-center gap-2 text-[9px] tabular-nums ml-2">
-            <span className="text-cyn"><span className="font-bold">{cap?.inbound || 0}</span> in</span>
-            <span className="text-grn"><span className="font-bold">{cap?.outbound || 0}</span> out</span>
-          </span>
-        )}
-
         {/* Right side: METAR snippet (always available) + runways from config when present */}
-        <div className="ml-auto flex items-center gap-3 text-[9px] text-fg3 shrink-0 tabular-nums">
+        <div className="airport-record-header__conditions">
+          {opsState.lastUpdated && <span>Updated {fmtTime(new Date(opsState.lastUpdated).toISOString())}</span>}
           {cfg && (
             <>
-              <span>Arr <span className="text-cyn font-bold">{cfg.arr_runway || '—'}</span></span>
-              <span>Dep <span className="text-grn font-bold">{cfg.dep_runway || '—'}</span></span>
+              <span>Arr <span className="text-fg2 font-semibold">{cfg.arr_runway || '—'}</span></span>
+              <span>Dep <span className="text-fg2 font-semibold">{cfg.dep_runway || '—'}</span></span>
               {cfg.weather && (
-                <span className={clsx('font-bold', cfg.weather === 'IMC' ? 'text-ylw' : 'text-grn')}>
+                <span className={clsx('font-semibold', cfg.weather === 'IMC' ? 'text-ylw' : 'text-fg2')}>
                   {cfg.weather}
                 </span>
               )}
@@ -470,17 +609,22 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
 
       {/* Status banner — only renders when there's something to report */}
       {airport && banners.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 px-2 py-0.5 border-b border-white/5 bg-bg2/40 shrink-0">
+        <div className="airport-impact-row">
           {banners.map((b, i) => (
             <span key={i} className={clsx(
-              'flex items-center gap-1 text-[9px] px-1.5 py-0 rounded border',
-              b.kind === 'critical' ? 'bg-red/15 text-red border-red/40 animate-pulse'
-                : 'bg-ylw/15 text-ylw border-ylw/40'
+              b.kind === 'critical' ? 'is-critical' : 'is-caution'
             )}>
-              <span className="font-bold uppercase">{b.label}</span>
-              <span className="text-fg3 normal-case font-normal">{b.detail}</span>
+              <strong>{b.label}</strong>
+              <span>{b.detail}</span>
             </span>
           ))}
+        </div>
+      )}
+
+      {airport && opsState.error && (
+        <div className="airport-data-status" role="status">
+          <span>{opsState.error}</span>
+          <button disabled={!backendOk} onClick={() => setRefreshVersion(version => version + 1)}>{backendOk ? 'Retry' : 'Waiting for backend'}</button>
         </div>
       )}
 
@@ -509,17 +653,7 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
             />
           )}
 
-          {/* Airport context strip — surfaces airport-wide stats inline so they're
-              always visible (was previously hidden in the right sidebar). */}
-          {ops && (
-            <AirportContextStrip
-              arrivals={arrivals}
-              departures={departures}
-              recentArrivals={recentArrivals}
-            />
-          )}
-
-          {/* Tabs */}
+          {/* Secondary evidence controls. Movements remain visible underneath. */}
           <div className="flex gap-0 border-b border-border shrink-0 bg-bg2/50 px-1 overflow-x-auto no-scrollbar">
             {TABS.map(t => (
               <button
@@ -529,6 +663,7 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
                   tab === t.id ? 'text-acc border-acc' : 'text-fg3 border-transparent hover:text-fg2'
                 )}
                 onClick={() => setTab(t.id)}
+                aria-pressed={tab === t.id}
               >
                 {t.label}
                 {t.count > 0 && <span className="text-fg3/40 ml-0.5">{t.count}</span>}
@@ -536,19 +671,25 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
             ))}
           </div>
 
-          {/* Tab content */}
+          {/* Persistent movement index + selected record or secondary evidence. */}
           <div className="flex-1 min-h-0 flex flex-col">
-            {tab === 'flights' && (
-              <FlightsTab
-                arrivals={arrivals} departures={departures} recentArrivals={recentArrivals}
-                newAcids={newAcids} selectedFlight={selectedFlight} setSelectedFlight={setSelectedFlight}
-                lifecycle={lifecycle} lcLoading={lcLoading} taxi={taxi} loading={loading}
-              />
-            )}
-            {tab === 'weather' && (tabLoading && !metar ? <LoadingDots /> : <WeatherTab metar={metar} opsWeather={ops?.weather} />)}
-            {tab === 'notams' && (tabLoading && !notams ? <LoadingDots /> : <NotamsTab notams={notams} />)}
-            {tab === 'surface' && (tabLoading && !surface ? <LoadingDots /> : <SurfaceTab surface={surface} />)}
-            {tab === 'flow' && (tabLoading && !flowDetail ? <LoadingDots /> : <FlowTab flow={flowDetail} />)}
+            <FlightsTab
+              arrivals={arrivals} departures={departures} recentArrivals={recentArrivals}
+              newAcids={newAcids} selectedFlight={selectedFlight}
+              setSelectedFlight={updater => { setTab('flights'); setSelectedFlight(updater) }}
+              lifecycle={lifecycle} lcLoading={lcLoading} taxi={taxi} loading={loading}
+              evidenceLabel={tab !== 'flights' ? TABS.find(item => item.id === tab)?.label : null}
+              evidenceContent={tab === 'weather'
+                ? (tabLoading && !metar ? <LoadingDots /> : tabError.weather && !metar ? <DataFailure message={tabError.weather} onRetry={() => setTabRetry(value => value + 1)} /> : <WeatherTab metar={metar} opsWeather={ops?.weather} />)
+                : tab === 'notams'
+                  ? (tabLoading && !notams ? <LoadingDots /> : tabError.notams && !notams ? <DataFailure message={tabError.notams} onRetry={() => setTabRetry(value => value + 1)} /> : <NotamsTab notams={notams} />)
+                  : tab === 'surface'
+                    ? (tabLoading && !surface ? <LoadingDots /> : tabError.surface && !surface ? <DataFailure message={tabError.surface} onRetry={() => setTabRetry(value => value + 1)} /> : <SurfaceTab surface={surface} />)
+                    : tab === 'flow'
+                      ? (tabLoading && !flowDetail ? <LoadingDots /> : tabError.flow && !flowDetail ? <DataFailure message={tabError.flow} onRetry={() => setTabRetry(value => value + 1)} /> : <FlowTab flow={flowDetail} />)
+                      : null}
+              onCloseEvidence={() => setTab('flights')}
+            />
           </div>
         </>
       )}
@@ -585,7 +726,13 @@ function fmtFL(alt) {
   if (alt == null || alt === '') return null
   const num = parseInt(String(alt).replace(/[^\d]/g, ''))
   if (isNaN(num) || num <= 0) return null
-  return `FL${num}`
+  return `FL${String(num).padStart(3, '0')}`
+}
+
+function fmtAltitudeFtAsFL(feet) {
+  const value = Number(feet)
+  if (!Number.isFinite(value) || value <= 0) return null
+  return `FL${String(Math.round(value / 100)).padStart(3, '0')}`
 }
 
 function FlightRow({ f, onClick, isNew, isSelected, accent, originField, timeField }) {
@@ -593,11 +740,12 @@ function FlightRow({ f, onClick, isNew, isSelected, accent, originField, timeFie
   const abs = fmtTime(f[timeField])
   const fl = fmtFL(f.reported_alt || f.altitude)
   return (
-    <div
+    <button
       onClick={onClick}
+      type="button"
       title={`${f.acid} · ${f.dep_arpt}→${f.arr_arpt} · ${abs}${rel ? ` (${rel})` : ''}`}
       className={clsx(
-        'flex items-center gap-1.5 py-0.5 px-2 text-[9px] border-b border-white/3 cursor-pointer hover:bg-bg2 transition-colors tabular-nums',
+        'w-full flex items-center gap-1.5 py-0.5 px-2 text-[9px] text-left border-0 border-b border-white/3 cursor-pointer hover:bg-bg2 transition-colors tabular-nums',
         isNew && 'animate-row-arrive',
         isSelected && 'bg-acc/10 border-l-2 border-l-acc'
       )}
@@ -619,26 +767,62 @@ function FlightRow({ f, onClick, isNew, isSelected, accent, originField, timeFie
           <span className={clsx('text-[9px]', accent)}>{abs}</span>
         )}
       </span>
-    </div>
+    </button>
   )
 }
 
-function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFlight, setSelectedFlight, lifecycle, lcLoading, taxi, loading }) {
+function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFlight, setSelectedFlight, lifecycle, lcLoading, taxi, loading, evidenceLabel, evidenceContent, onCloseEvidence }) {
+  const [isCompactDetail, setIsCompactDetail] = useState(() => window.matchMedia('(max-width: 859px)').matches)
+  const detailRef = useRef(null)
+  const returnFocusRef = useRef(null)
+  const detailKey = evidenceContent ? `evidence:${evidenceLabel}` : selectedFlight
+  const closeDetail = () => evidenceContent ? onCloseEvidence?.() : setSelectedFlight(null)
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 859px)')
+    const update = () => setIsCompactDetail(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+
+  useEffect(() => {
+    if (!detailKey || !isCompactDetail) return
+    returnFocusRef.current = document.activeElement
+    const priorOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    requestAnimationFrame(() => detailRef.current?.querySelector('button')?.focus())
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeDetail(); return }
+      if (event.key !== 'Tab') return
+      const items = Array.from(detailRef.current?.querySelectorAll('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') || [])
+      if (!items.length) return
+      if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items[items.length - 1].focus() }
+      else if (!event.shiftKey && document.activeElement === items[items.length - 1]) { event.preventDefault(); items[0].focus() }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      document.body.style.overflow = priorOverflow
+      returnFocusRef.current?.focus?.()
+    }
+  }, [detailKey, isCompactDetail])
+
   // Adaptive grid: 2-column when no flight selected (Arrivals + Departures get full width).
   // When a flight is clicked, the 240px lifecycle column slides in.
   return (
     <div
       className={clsx(
         'flex-1 min-h-0 grid gap-px bg-border auto-rows-[minmax(170px,1fr)] sm:auto-rows-auto overflow-y-auto sm:overflow-hidden',
-        selectedFlight
-          ? 'grid-cols-1 sm:grid-cols-[1fr_1fr_240px]'
+        detailKey
+          ? 'grid-cols-1 sm:grid-cols-[1fr_1fr] md:grid-cols-[1fr_1fr_280px]'
           : 'grid-cols-1 sm:grid-cols-[1fr_1fr]'
       )}
     >
       {/* Arrivals */}
       <div className="bg-bg1 flex flex-col min-h-0">
         <div className="px-2 py-0.5 text-[8px] bg-bg2 border-b border-border shrink-0 flex justify-between">
-          <span className="text-cyn font-bold text-[10px]">ARRIVALS</span>
+          <span className="text-fg font-semibold text-[10px]">Arrivals</span>
           <span className="text-fg3">{arrivals.length} inbound{recentArrivals.length > 0 ? ` · ${recentArrivals.length} landed` : ''}</span>
         </div>
         <div className="flex items-center gap-1.5 py-0 px-2 text-[7px] text-fg3/40 border-b border-white/3 shrink-0 uppercase tracking-wide">
@@ -656,7 +840,7 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
               onClick={() => setSelectedFlight(prev => prev === f.acid ? null : f.acid)}
               isNew={newAcids.has(f.acid)}
               isSelected={selectedFlight === f.acid}
-              accent="text-cyn"
+              accent="text-fg2"
               originField="dep_arpt"
               timeField="eta"
             />
@@ -665,13 +849,13 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
             <>
               <div className="px-2 py-0.5 text-[7px] text-fg3/50 bg-bg2/50 border-t border-border uppercase tracking-wide">Landed</div>
               {recentArrivals.map(f => (
-                <div key={f.acid} onClick={() => setSelectedFlight(prev => prev === f.acid ? null : f.acid)}
-                  className={clsx('flex items-center gap-1.5 py-0.5 px-2 text-[9px] border-b border-white/3 opacity-50 cursor-pointer hover:opacity-80 tabular-nums', selectedFlight === f.acid && 'bg-acc/10 opacity-100!')}>
+                <button key={f.acid} type="button" onClick={() => setSelectedFlight(prev => prev === f.acid ? null : f.acid)}
+                  className={clsx('w-full flex items-center gap-1.5 py-0.5 px-2 text-[9px] text-left border-0 border-b border-white/3 opacity-50 cursor-pointer hover:opacity-80 tabular-nums', selectedFlight === f.acid && 'bg-acc/10 opacity-100!')}>
                   <span className="text-fg3 font-bold w-14 shrink-0 truncate">{f.acid}</span>
                   <span className="text-fg3 w-8 shrink-0">{f.dep_arpt?.replace(/^K/, '') || '?'}</span>
                   <span className="text-fg3 w-10 shrink-0">Done</span>
                   <span className="ml-auto shrink-0 text-fg3/60">{fmtTime(f.ata)}</span>
-                </div>
+                </button>
               ))}
             </>
           )}
@@ -681,7 +865,7 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
       {/* Departures */}
       <div className="bg-bg1 flex flex-col min-h-0">
         <div className="px-2 py-0.5 text-[8px] bg-bg2 border-b border-border shrink-0 flex justify-between">
-          <span className="text-grn font-bold text-[10px]">DEPARTURES</span>
+          <span className="text-fg font-semibold text-[10px]">Departures</span>
           <span className="text-fg3">{departures.length} outbound</span>
         </div>
         <div className="flex items-center gap-1.5 py-0 px-2 text-[7px] text-fg3/40 border-b border-white/3 shrink-0 uppercase tracking-wide">
@@ -699,7 +883,7 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
               onClick={() => setSelectedFlight(prev => prev === f.acid ? null : f.acid)}
               isNew={newAcids.has(f.acid)}
               isSelected={selectedFlight === f.acid}
-              accent="text-grn"
+              accent="text-fg2"
               originField="arr_arpt"
               timeField="etd"
             />
@@ -709,13 +893,24 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
 
       {/* Lifecycle sidebar — only renders when a flight is selected. The airport
           stats live in the horizontal context strip above the tabs now. */}
-      {selectedFlight && (
-      <div className="bg-bg1 flex flex-col min-h-0">
+      {detailKey && isCompactDetail && (
+        <button className="fixed inset-0 z-40 bg-black/65 border-0" onClick={closeDetail} aria-label={`Close ${evidenceContent ? evidenceLabel : 'flight detail'}`} />
+      )}
+      {detailKey && (
+      <div
+        ref={detailRef}
+        className={clsx('bg-bg1 flex flex-col min-h-0', isCompactDetail && 'fixed inset-x-0 bottom-0 z-50 h-[68dvh] border-t border-acc')}
+        role={isCompactDetail ? 'dialog' : undefined}
+        aria-modal={isCompactDetail ? 'true' : undefined}
+        aria-label={isCompactDetail ? (evidenceContent ? `${evidenceLabel} evidence` : `Flight detail for ${selectedFlight}`) : undefined}
+      >
         <div className="px-2 py-0.5 text-[8px] bg-bg2 border-b border-border shrink-0 flex justify-between items-center">
-          <span className="text-fg2 font-bold text-[10px]">FLIGHT DETAIL</span>
-          <button onClick={() => setSelectedFlight(null)} className="text-fg3 hover:text-fg2 px-1 cursor-pointer">✕</button>
+          <span className="text-fg2 font-semibold text-[10px]">{evidenceContent ? evidenceLabel : 'Flight detail'}</span>
+          <button onClick={closeDetail} className="text-fg3 hover:text-fg2 px-1 cursor-pointer" aria-label={`Close ${evidenceContent ? evidenceLabel : 'flight detail'}`}>✕</button>
         </div>
-        {lcLoading ? <LoadingDots /> : lifecycle ? (
+        {evidenceContent ? (
+          <div className="flex-1 min-h-0 overflow-y-auto">{evidenceContent}</div>
+        ) : lcLoading ? <LoadingDots /> : lifecycle ? (
           <div className="flex-1 min-h-0 overflow-y-auto">
             {lifecycle.plan && (
               <div className="px-2 py-1 border-b border-white/5 flex items-center gap-1.5">
@@ -728,10 +923,10 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
             <div className="px-2 relative">
               <div className="absolute left-[11px] top-1 bottom-1 w-px bg-border2" />
               <div className="space-y-1.5">
-                <Milestone label="GATE OUT" data={lifecycle.milestones?.gateOut} color="ylw" planned={lifecycle.plan?.etd} />
-                <Milestone label="WHEELS UP" data={lifecycle.milestones?.wheelsOff} color="grn" />
-                <Milestone label="WHEELS DN" data={lifecycle.milestones?.wheelsOn} color="cyn" />
-                <Milestone label="GATE IN" data={lifecycle.milestones?.gateIn} color="acc" planned={lifecycle.plan?.eta} />
+                <Milestone label="Gate out" data={lifecycle.milestones?.gateOut} planned={lifecycle.plan?.etd} />
+                <Milestone label="Wheels up" data={lifecycle.milestones?.wheelsOff} />
+                <Milestone label="Wheels down" data={lifecycle.milestones?.wheelsOn} />
+                <Milestone label="Gate in" data={lifecycle.milestones?.gateIn} planned={lifecycle.plan?.eta} />
               </div>
             </div>
             <div className="px-2 mt-1.5 pt-1.5 border-t border-white/5 text-[8px] space-y-0.5">
@@ -739,8 +934,8 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
               {lifecycle.times?.flightTime != null && <div className="flex justify-between"><span className="text-fg3">airborne</span><span className="text-fg2">{lifecycle.times.flightTime}m</span></div>}
               {lifecycle.times?.taxiIn != null && <div className="flex justify-between"><span className="text-fg3">taxi in</span><span className="text-fg2">{lifecycle.times.taxiIn}m</span></div>}
               {lifecycle.times?.gateToGate != null && <div className="flex justify-between pt-0.5 border-t border-white/5"><span className="text-fg3">total</span><span className="text-acc font-bold">{lifecycle.times.gateToGate}m</span></div>}
-              {lifecycle.delays?.departure != null && <div className="flex justify-between"><span className="text-fg3">dep delay</span><span className={lifecycle.delays.departure > 15 ? 'text-red' : lifecycle.delays.departure > 5 ? 'text-ylw' : 'text-grn'}>{lifecycle.delays.departure > 0 ? '+' : ''}{lifecycle.delays.departure}m</span></div>}
-              {lifecycle.delays?.arrival != null && <div className="flex justify-between"><span className="text-fg3">arr delay</span><span className={lifecycle.delays.arrival > 15 ? 'text-red' : lifecycle.delays.arrival > 5 ? 'text-ylw' : 'text-grn'}>{lifecycle.delays.arrival > 0 ? '+' : ''}{lifecycle.delays.arrival}m</span></div>}
+              {lifecycle.delays?.departure != null && <div className="flex justify-between"><span className="text-fg3">dep delay</span><span className={lifecycle.delays.departure > 15 ? 'text-red' : lifecycle.delays.departure > 5 ? 'text-ylw' : 'text-fg2'}>{lifecycle.delays.departure > 0 ? '+' : ''}{lifecycle.delays.departure}m</span></div>}
+              {lifecycle.delays?.arrival != null && <div className="flex justify-between"><span className="text-fg3">arr delay</span><span className={lifecycle.delays.arrival > 15 ? 'text-red' : lifecycle.delays.arrival > 5 ? 'text-ylw' : 'text-fg2'}>{lifecycle.delays.arrival > 0 ? '+' : ''}{lifecycle.delays.arrival}m</span></div>}
             </div>
             {/* En-route phases */}
             {lifecycle.phases?.length > 0 && (
@@ -748,9 +943,9 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
                 <div className="text-[7px] text-fg3/50 uppercase">En-Route</div>
                 {lifecycle.phases.map((p, i) => (
                   <div key={i} className="flex justify-between">
-                    <span className={p.phase === 'CLIMB' ? 'text-grn' : p.phase === 'DESCENT' ? 'text-cyn' : 'text-fg3'}>{p.phase}</span>
+                    <span className="text-fg3">{p.phase}</span>
                     <span className="text-fg2 tabular-nums">
-                      {p.startAlt != null ? `FL${Math.round(p.startAlt)}→${Math.round(p.endAlt)}` : ''} {p.durationMin}m
+                      {p.startAlt != null ? `${fmtAltitudeFtAsFL(p.startAlt)}→${fmtAltitudeFtAsFL(p.endAlt)}` : ''} {p.durationMin}m
                     </span>
                   </div>
                 ))}
@@ -1135,15 +1330,15 @@ function MetricsRow({ ops, arrivals, departures, recentArrivals, cap, delays, ta
 
   return (
     <>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border shrink-0">
+      <div className="airport-local-metrics">
         {/* Tile 1 — Traffic */}
         <Tile label="Traffic">
-          <div className="flex gap-2 text-[14px] tabular-nums leading-none">
-            <span><span className="text-cyn font-bold">{cap?.inbound || 0}</span><span className="text-fg3 text-[9px]"> in</span></span>
-            <span><span className="text-grn font-bold">{cap?.outbound || 0}</span><span className="text-fg3 text-[9px]"> out</span></span>
+          <div className="flex gap-2 text-[12px] tabular-nums leading-none">
+            <span><span className="text-cyn font-medium">{cap?.inbound || 0}</span><span className="text-fg3 text-[10px]"> in</span></span>
+            <span><span className="text-grn font-medium">{cap?.outbound || 0}</span><span className="text-fg3 text-[10px]"> out</span></span>
           </div>
           {recentArrivals.length > 0 && (
-            <div className="text-[8px] text-fg3 mt-0.5">{recentArrivals.length} landed in last 30m</div>
+            <div className="text-[9px] text-fg3 mt-0.5">{recentArrivals.length} landed in last 30m</div>
           )}
         </Tile>
 
@@ -1151,15 +1346,15 @@ function MetricsRow({ ops, arrivals, departures, recentArrivals, cap, delays, ta
         <Tile label="Next">
           <div className="flex gap-3 text-[12px] tabular-nums leading-none">
             <span>
-              <span className="text-cyn font-bold">{nextInboundMin != null ? `${nextInboundMin}m` : '—'}</span>
-              <span className="text-fg3 text-[9px]"> in</span>
+              <span className="text-cyn font-medium">{nextInboundMin != null ? `${nextInboundMin}m` : '—'}</span>
+              <span className="text-fg3 text-[10px]"> in</span>
             </span>
             <span>
-              <span className="text-grn font-bold">{nextOutboundMin != null ? `${nextOutboundMin}m` : '—'}</span>
-              <span className="text-fg3 text-[9px]"> out</span>
+              <span className="text-grn font-medium">{nextOutboundMin != null ? `${nextOutboundMin}m` : '—'}</span>
+              <span className="text-fg3 text-[10px]"> out</span>
             </span>
           </div>
-          <div className="text-[8px] text-fg3/60 mt-0.5 truncate">
+          <div className="text-[9px] text-fg3/60 mt-0.5 truncate">
             {nextInbound ? <span>{nextInbound.acid}</span> : null}
             {nextInbound && nextOutbound && <span className="text-fg3/30"> · </span>}
             {nextOutbound ? <span>{nextOutbound.acid}</span> : null}
@@ -1169,80 +1364,80 @@ function MetricsRow({ ops, arrivals, departures, recentArrivals, cap, delays, ta
         {/* Tile 3 — Avg Delay (STDDS) ▸ Queue (surface flow) ▸ Inbound Wave (TFMS only) */}
         {hasStdds ? (
           <Tile label="Avg Delay">
-            <div className="flex gap-3 text-[14px] tabular-nums leading-none">
+            <div className="flex gap-3 text-[12px] tabular-nums leading-none">
               <span>
-                <span className={clsx('font-bold', delayColor(delays?.departures?.avg))}>
+                <span className={clsx('font-medium', delayColor(delays?.departures?.avg))}>
                   {delays?.departures?.avg != null ? `${delays.departures.avg > 0 ? '+' : ''}${delays.departures.avg}m` : '—'}
                 </span>
-                <span className="text-fg3 text-[9px]"> dep</span>
+                <span className="text-fg3 text-[10px]"> dep</span>
               </span>
               <span>
-                <span className={clsx('font-bold', delayColor(delays?.arrivals?.avg))}>
+                <span className={clsx('font-medium', delayColor(delays?.arrivals?.avg))}>
                   {delays?.arrivals?.avg != null ? `${delays.arrivals.avg > 0 ? '+' : ''}${delays.arrivals.avg}m` : '—'}
                 </span>
-                <span className="text-fg3 text-[9px]"> arr</span>
+                <span className="text-fg3 text-[10px]"> arr</span>
               </span>
             </div>
             {(delays?.departures?.count || 0) + (delays?.arrivals?.count || 0) > 0 && (
-              <div className="text-[8px] text-fg3 mt-0.5">{(delays?.departures?.count || 0) + (delays?.arrivals?.count || 0)} samples</div>
+              <div className="text-[9px] text-fg3 mt-0.5">{(delays?.departures?.count || 0) + (delays?.arrivals?.count || 0)} samples</div>
             )}
           </Tile>
         ) : hasSurfaceFlow ? (
           <Tile label="Dep Queue">
-            <div className="flex items-baseline gap-2 text-[14px] tabular-nums leading-none">
-              <span className={clsx('font-bold', (surfaceFlow.depQueue?.count || 0) > 5 ? 'text-red' : (surfaceFlow.depQueue?.count || 0) > 0 ? 'text-ylw' : 'text-grn')}>
+            <div className="flex items-baseline gap-2 text-[12px] tabular-nums leading-none">
+              <span className={clsx('font-medium', (surfaceFlow.depQueue?.count || 0) > 5 ? 'text-red' : (surfaceFlow.depQueue?.count || 0) > 0 ? 'text-ylw' : 'text-grn')}>
                 {surfaceFlow.depQueue?.count || 0}
               </span>
-              <span className="text-fg3 text-[9px]">waiting</span>
+              <span className="text-fg3 text-[10px]">waiting</span>
             </div>
-            <div className="text-[8px] text-fg3/60 mt-0.5">
+            <div className="text-[9px] text-fg3/60 mt-0.5">
               {surfaceFlow.depQueue?.flights?.[0] ? `${Math.round(surfaceFlow.depQueue.flights[0].wait_min)}m max wait` : 'queue clear'}
             </div>
           </Tile>
         ) : (
           <Tile label="Inbound Wave">
-            <div className="flex gap-3 text-[14px] tabular-nums leading-none">
+            <div className="flex gap-3 text-[12px] tabular-nums leading-none">
               <span>
-                <span className={clsx('font-bold', arrSoon > 6 ? 'text-ylw' : 'text-cyn')}>{arrSoon}</span>
-                <span className="text-fg3 text-[9px]"> ≤30m</span>
+                <span className={clsx('font-medium', arrSoon > 6 ? 'text-ylw' : 'text-cyn')}>{arrSoon}</span>
+                <span className="text-fg3 text-[10px]"> ≤30m</span>
               </span>
               <span>
-                <span className="text-fg2 font-bold">{arrNext}</span>
-                <span className="text-fg3 text-[9px]"> 30-60m</span>
+                <span className="text-fg2 font-medium">{arrNext}</span>
+                <span className="text-fg3 text-[10px]"> 30-60m</span>
               </span>
             </div>
-            <div className="text-[8px] text-fg3/60 mt-0.5">arrival pressure window</div>
+            <div className="text-[9px] text-fg3/60 mt-0.5">arrival pressure window</div>
           </Tile>
         )}
 
         {/* Tile 4 — Taxi Time (STDDS) ▸ Ground Movements (surface flow) ▸ Origins (TFMS only) */}
         {hasStdds ? (
           <Tile label="Taxi Time">
-            <div className="flex gap-3 text-[14px] tabular-nums leading-none">
-              <span><span className={clsx('font-bold', taxi?.out?.avg > 20 ? 'text-ylw' : taxi?.out?.avg != null ? 'text-fg2' : 'text-fg3/40')}>{taxi?.out?.avg != null ? `${taxi.out.avg}m` : '—'}</span><span className="text-fg3 text-[9px]"> out</span></span>
-              <span><span className={clsx('font-bold', taxi?.in?.avg > 15 ? 'text-ylw' : taxi?.in?.avg != null ? 'text-fg2' : 'text-fg3/40')}>{taxi?.in?.avg != null ? `${taxi.in.avg}m` : '—'}</span><span className="text-fg3 text-[9px]"> in</span></span>
+            <div className="flex gap-3 text-[12px] tabular-nums leading-none">
+              <span><span className={clsx('font-medium', taxi?.out?.avg > 20 ? 'text-ylw' : taxi?.out?.avg != null ? 'text-fg2' : 'text-fg3/40')}>{taxi?.out?.avg != null ? `${taxi.out.avg}m` : '—'}</span><span className="text-fg3 text-[10px]"> out</span></span>
+              <span><span className={clsx('font-medium', taxi?.in?.avg > 15 ? 'text-ylw' : taxi?.in?.avg != null ? 'text-fg2' : 'text-fg3/40')}>{taxi?.in?.avg != null ? `${taxi.in.avg}m` : '—'}</span><span className="text-fg3 text-[10px]"> in</span></span>
             </div>
             {(taxi?.out?.count || 0) + (taxi?.in?.count || 0) > 0 && (
-              <div className="text-[8px] text-fg3 mt-0.5">{(taxi?.out?.count || 0) + (taxi?.in?.count || 0)} samples</div>
+              <div className="text-[9px] text-fg3 mt-0.5">{(taxi?.out?.count || 0) + (taxi?.in?.count || 0)} samples</div>
             )}
           </Tile>
         ) : hasSurfaceFlow ? (
           <Tile label="Ground Mvmt">
-            <div className="flex items-baseline gap-2 text-[14px] tabular-nums leading-none">
-              <span className="text-fg2 font-bold">{surfaceFlow.activeGroundMovements || 0}</span>
-              <span className="text-fg3 text-[9px]">active</span>
+            <div className="flex items-baseline gap-2 text-[12px] tabular-nums leading-none">
+              <span className="text-fg2 font-medium">{surfaceFlow.activeGroundMovements || 0}</span>
+              <span className="text-fg3 text-[10px]">active</span>
             </div>
-            <div className="text-[8px] text-fg3/60 mt-0.5">
+            <div className="text-[9px] text-fg3/60 mt-0.5">
               {surfaceFlow.runways?.length || 0} active rwy{surfaceFlow.runways?.length === 1 ? '' : 's'}
             </div>
           </Tile>
         ) : (
           <Tile label="Origins">
-            <div className="flex items-baseline gap-2 text-[14px] tabular-nums leading-none">
-              <span className="text-fg2 font-bold">{uniqueOrigins.size}</span>
-              <span className="text-fg3 text-[9px]">unique</span>
+            <div className="flex items-baseline gap-2 text-[12px] tabular-nums leading-none">
+              <span className="text-fg2 font-medium">{uniqueOrigins.size}</span>
+              <span className="text-fg3 text-[10px]">unique</span>
             </div>
-            <div className="text-[8px] text-fg3/60 mt-0.5 truncate">
+            <div className="text-[9px] text-fg3/60 mt-0.5 truncate">
               {topOrigin ? `top: ${topOrigin[0].replace(/^K/, '')} (${topOrigin[1]})` : '—'}
             </div>
           </Tile>
@@ -1252,13 +1447,13 @@ function MetricsRow({ ops, arrivals, departures, recentArrivals, cap, delays, ta
       {/* Coverage strip — only shown when something is missing, so users know
           the empty fields aren't a bug — they're a data coverage gap. */}
       {!(hasStdds && hasSurfaceFlow && hasItws && hasConfig) && (
-        <div className="flex items-center gap-2 px-2 py-0.5 border-b border-white/5 bg-bg2/30 text-[8px] shrink-0">
+        <div className="min-h-5 flex items-center gap-2 px-2 border-b border-white/5 bg-bg2/30 text-[9px] font-mono shrink-0">
           <span className="text-fg3/50 uppercase tracking-wide">data coverage</span>
-          <CoverageDot label="TFMS" on={true} />
-          <CoverageDot label="STDDS" on={hasStdds || hasSurfaceFlow} />
-          <CoverageDot label="ITWS" on={hasItws} />
-          <CoverageDot label="cfg" on={hasConfig} />
-          <CoverageDot label="flow" on={hasFlow} />
+          <CoverageLink label="TFMS" on={true} />
+          <CoverageLink label="STDDS" on={hasStdds || hasSurfaceFlow} />
+          <CoverageLink label="ITWS" on={hasItws} />
+          <CoverageLink label="CFG" on={hasConfig} />
+          <CoverageLink label="FLOW" on={hasFlow} />
         </div>
       )}
     </>
@@ -1267,8 +1462,8 @@ function MetricsRow({ ops, arrivals, departures, recentArrivals, cap, delays, ta
 
 function Tile({ label, children }) {
   return (
-    <div className="bg-bg1 px-2 py-0.5">
-      <div className="text-[8px] text-fg3 uppercase tracking-wide leading-none mb-0.5">{label}</div>
+    <div className="airport-local-metric">
+      <div>{label}</div>
       {children}
     </div>
   )
@@ -1309,11 +1504,13 @@ function MetarSnippet({ m }) {
   )
 }
 
-function CoverageDot({ label, on }) {
+function CoverageLink({ label, on }) {
   return (
-    <span className="flex items-center gap-0.5">
-      <span className={clsx('inline-block w-1.5 h-1.5 rounded-full', on ? 'bg-grn' : 'bg-fg3/20')} />
-      <span className={on ? 'text-fg3' : 'text-fg3/30'}>{label}</span>
+    <span className="flex items-center gap-1" title={`${label} ${on ? 'available' : 'unavailable'}`}>
+      <DataLinkMark state={on ? 'available' : 'unavailable'} />
+      <span className={on ? 'text-fg2' : 'text-fg3/30'}>
+        {label}<span className="sr-only"> {on ? 'available' : 'unavailable'}</span>
+      </span>
     </span>
   )
 }
@@ -1329,10 +1526,10 @@ function delayColor(v) {
 
 function PhaseBar({ milestones }) {
   const phases = [
-    { key: 'gateOut', label: 'PUSH', color: 'bg-ylw' },
-    { key: 'wheelsOff', label: 'OFF', color: 'bg-grn' },
-    { key: 'wheelsOn', label: 'ON', color: 'bg-cyn' },
-    { key: 'gateIn', label: 'GATE', color: 'bg-acc' },
+    { key: 'gateOut', label: 'Out' },
+    { key: 'wheelsOff', label: 'Off' },
+    { key: 'wheelsOn', label: 'On' },
+    { key: 'gateIn', label: 'In' },
   ]
   return (
     <div className="flex gap-0.5">
@@ -1340,7 +1537,7 @@ function PhaseBar({ milestones }) {
         const done = !!milestones?.[p.key]
         return (
           <div key={p.key} className="flex-1 flex flex-col items-center gap-0.5">
-            <div className={clsx('w-full h-1 rounded-full', done ? p.color : 'bg-border2')} />
+            <div className={clsx('w-full h-1', done ? 'bg-grn' : 'bg-border2')} />
             <span className={clsx('text-[7px]', done ? 'text-fg2' : 'text-fg3/30')}>{p.label}</span>
           </div>
         )
@@ -1357,24 +1554,24 @@ function AltMini({ trail }) {
   return (
     <div className="bg-bg2 rounded px-1 py-0.5">
       <svg viewBox="0 0 200 26" className="w-full" style={{ height: 22 }}>
-        <polyline points={pts} fill="none" stroke="#81a2be" strokeWidth="1" strokeLinejoin="round" />
+        <polyline points={pts} fill="none" stroke="#bbb9ae" strokeWidth="1" strokeLinejoin="round" />
       </svg>
       <div className="flex justify-between text-[6px] text-fg3/40 tabular-nums">
-        <span>FL{Math.round(minA)}</span>
-        <span>FL{Math.round(maxA)}</span>
+        <span>{fmtAltitudeFtAsFL(minA)}</span>
+        <span>{fmtAltitudeFtAsFL(maxA)}</span>
       </div>
     </div>
   )
 }
 
-function Milestone({ label, data, color, planned }) {
+function Milestone({ label, data, planned }) {
   const time = data?.time?.substring(11, 16)
   const plannedStr = planned ? (() => { try { const d = new Date(planned); return !isNaN(d) ? d.toISOString().substring(11, 16) : null } catch { return null } })() : null
 
   return (
     <div className="flex items-center gap-1.5 text-[8px] relative z-10">
-      <span className={clsx('w-2 h-2 rounded-full shrink-0 border', data ? `bg-${color} border-${color}` : 'bg-bg1 border-border2')} />
-      <span className={clsx('w-14 shrink-0 font-bold', data ? `text-${color}` : 'text-fg3/30')}>{label}</span>
+      <span className={clsx('w-2 h-2 shrink-0 border', data ? 'bg-grn border-grn' : 'bg-bg1 border-border2')} />
+      <span className={clsx('w-16 shrink-0 font-semibold', data ? 'text-fg2' : 'text-fg3/30')}>{label}</span>
       {data ? (
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
           <span className="text-fg2 tabular-nums font-medium">{time}z</span>

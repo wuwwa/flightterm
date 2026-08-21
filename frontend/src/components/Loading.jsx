@@ -1,29 +1,17 @@
 import clsx from 'clsx'
+import PulseMark from './PulseMark'
 
-// Cold-start loading affordance in the terminal's own idiom: a blinking block
-// cursor (▮) — the same pattern HeatMap already uses ("▮ searching…") — instead
-// of a generic bouncing-dot spinner. Keeps copy terse and lowercase to match the
-// rest of the UI.
+// Loading uses the same telemetry pulse as feed state, instead of a generic
+// spinner or a text cursor. Keeps copy terse and motion local to active work.
 //
 //   <Loading label="warming up" />   // centered, fills its container
-//   <Loading inline />               // cursor only, for header chips
+//   <Loading inline />               // pulse only, for header chips
 //
-// `color` tints the cursor via a theme text token.
-const CURSOR = {
-  acc: 'text-acc',
-  grn: 'text-grn',
-  ylw: 'text-ylw',
-  red: 'text-red',
-  mag: 'text-mag',
-  fg3: 'text-fg3',
-}
-
 export default function Loading({ label = 'loading', inline = false, color = 'fg3', className }) {
-  const tint = CURSOR[color] || CURSOR.fg3
-  const cursor = <span className={clsx('animate-blink', tint)}>▮</span>
+  const mark = <PulseMark state="loading" tone={color} />
 
   if (inline) {
-    return <span className={clsx('inline-flex items-center', className)} aria-label={label}>{cursor}</span>
+    return <span className={clsx('inline-flex items-center', className)} aria-label={label}>{mark}</span>
   }
 
   return (
@@ -32,7 +20,7 @@ export default function Loading({ label = 'loading', inline = false, color = 'fg
       role="status"
       aria-live="polite"
     >
-      {cursor}
+      {mark}
       {label && <span>{label}…</span>}
     </div>
   )

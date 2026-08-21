@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Flightterm</title>
+  <rect x="8" y="44" width="12" height="12" fill="#f2f0e6"/>
+  <path d="M20 50 32 16h14" fill="none" stroke="#ef5a3c" stroke-linecap="square" stroke-linejoin="miter" stroke-width="6"/>
+  <rect x="46" y="10" width="12" height="12" fill="#91b37d"/>
+</svg>

@@ -23,6 +23,12 @@ export default function SettingsModal({ settings, onSave, onClose }) {
   }, [])
 
   const set = (key, val) => setLocal(prev => ({ ...prev, [key]: val }))
+  const setCredential = (key, value) => {
+    // Credentials can be rotated by replacing the complete value, but the UI
+    // must not allow a configured provider to be saved as blank.
+    if (settings[key] && !value.trim()) return
+    set(key, value)
+  }
 
   const handleTestAdsbfi = async () => {
     setTestingAdsbfi(true); setAdsbfiResult(null)
@@ -98,7 +104,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
           {/* User API keys — stored client-side in localStorage */}
           <div className="mb-4">
             <div className="text-fg3 text-[10px] tracking-widest border-b border-border pb-1 mb-2.5">your api keys</div>
-            <span className="text-fg3 text-[10px] block mb-2">paste your own keys to override the server defaults. stored in your browser only.</span>
+            <span className="text-fg3 text-[10px] block mb-2">paste your own keys to override the server defaults. stored in your browser only. configured keys can be replaced, not cleared.</span>
 
             <div className="flex flex-col gap-1 mb-2.5">
               <label className="text-fg3 text-[11px]">opensky client id</label>
@@ -106,7 +112,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 type="password"
                 className="bg-bg border border-border2 text-fg text-xs py-1.5 px-2 outline-none w-full font-mono"
                 value={local.userOsClientId}
-                onChange={e => set('userOsClientId', e.target.value)}
+                onChange={e => setCredential('userOsClientId', e.target.value)}
                 placeholder={local.userOsClientId ? '••••••• (set)' : 'optional'}
               />
             </div>
@@ -116,7 +122,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 type="password"
                 className="bg-bg border border-border2 text-fg text-xs py-1.5 px-2 outline-none w-full font-mono"
                 value={local.userOsClientSecret}
-                onChange={e => set('userOsClientSecret', e.target.value)}
+                onChange={e => setCredential('userOsClientSecret', e.target.value)}
                 placeholder={local.userOsClientSecret ? '••••••• (set)' : 'optional'}
               />
             </div>
@@ -126,7 +132,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 type="password"
                 className="bg-bg border border-border2 text-fg text-xs py-1.5 px-2 outline-none w-full font-mono"
                 value={local.userAeroKey}
-                onChange={e => set('userAeroKey', e.target.value)}
+                onChange={e => setCredential('userAeroKey', e.target.value)}
                 placeholder={local.userAeroKey ? '••••••• (set)' : 'optional — bypasses $5 cap'}
               />
             </div>

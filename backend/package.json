@@ -18,6 +18,7 @@
     "express": "^4.22.2",
     "express-rate-limit": "^8.6.2",
     "fast-xml-parser": "^5.10.1",
+    "helmet": "^8.3.0",
     "node-stream-zip": "^1.16.0",
     "solclientjs": "^10.18.3"
   },
