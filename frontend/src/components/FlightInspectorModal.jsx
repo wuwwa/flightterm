@@ -7,6 +7,7 @@ import FlightMap from './FlightMap'
 import ContextPanel from './ContextPanel'
 import { fetchAircraftInfo } from '../services/adsbdb'
 import { pickSector, goesImageUrl, goesLoopUrl, latLonToSectorPct } from '../utils/goes'
+import { formatLocalTime } from '../utils/time'
 
 // ── FlightInspectorPanel (file kept as ...Modal.jsx for import stability) ───
 // Inline panel mounted next to the FlightTable in the main page grid. No
@@ -17,13 +18,13 @@ import { pickSector, goesImageUrl, goesLoopUrl, latLonToSectorPct } from '../uti
 
 function fmtTime(s) {
   if (!s) return '—'
-  try { return new Date(s).toISOString().substring(11, 16) + 'utc' } catch { return s }
+  try { return formatLocalTime(s) } catch { return s }
 }
 
 function fmtSampleTime(value) {
   if (!value) return '—'
   const date = new Date(value)
-  return Number.isFinite(date.getTime()) ? `${date.toISOString().substring(11, 19)}z` : '—'
+  return Number.isFinite(date.getTime()) ? formatLocalTime(date, { seconds: true }) : '—'
 }
 
 // Compact row inside a tile
@@ -239,8 +240,8 @@ export default function FlightInspectorModal({
         )}
 
         {/* Data tiles — 1 column on narrow, 2 columns when there's room */}
-        <div className="border-t border-border p-2">
-          <div className="grid grid-cols-1 gap-0 auto-rows-min">
+        <div className="flight-inspector__records">
+          <div className="flight-inspector__record-grid">
 
               {/* AIRCRAFT */}
               <Tile title="Aircraft" accent="text-acc">
@@ -284,7 +285,7 @@ export default function FlightInspectorModal({
                 )}
               </Tile>
 
-              <details className="inspector-disclosure xl:col-span-2">
+              <details className="inspector-disclosure">
                 <summary>Data details</summary>
                 <Tile title="Observation">
                   <Row label="vector" value={srcTag.label} mono={false} />
@@ -294,7 +295,7 @@ export default function FlightInspectorModal({
               </details>
 
               {/* TELEMETRY (deep — combined adsb.fi + apl) */}
-              <details className="inspector-disclosure xl:col-span-2">
+              <details className="inspector-disclosure">
                 <summary>Additional telemetry</summary>
                 <Tile title="Navigation and air data">
                 {(adsbfi || apl) ? (
@@ -324,7 +325,7 @@ export default function FlightInspectorModal({
                 const sector = pickSector(flight.lat, flight.lon)
                 const pos = latLonToSectorPct(sector, flight.lat, flight.lon)
                 return (
-                  <details className="inspector-disclosure xl:col-span-2">
+                  <details className="inspector-disclosure">
                     <summary>Satellite context · {sector.name}</summary>
                     <Tile title={`${sector.sat}/${sector.sector} · ${sector.name}`}>
                     <div className="relative w-full" style={{ aspectRatio: '4 / 3', maxHeight: '10rem' }}>
@@ -381,7 +382,7 @@ export default function FlightInspectorModal({
               {/* AEROAPI section — spans both columns when data is loaded */}
               {/* Correlation Layer (v2.0.0) — external-source join */}
               <ContextPanel flight={flight} />
-              <details className="inspector-disclosure xl:col-span-2">
+              <details className="inspector-disclosure">
                 <summary>Flight lifecycle</summary>
                 <div className="inspector-disclosure__body">
 
@@ -411,7 +412,7 @@ export default function FlightInspectorModal({
                   )}
                 </Tile>
               ) : (
-                <div className="xl:col-span-2">
+                <div>
                   <button
                     className={clsx(
                       'w-full bg-bg2/40 border border-border hover:border-acc text-acc text-[11px] py-1.5 px-3 rounded cursor-pointer text-left font-mono flex justify-between items-center transition-colors',

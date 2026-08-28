@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { fetchCosts, fetchKeyStatus, fetchUsage } from '../services/aeroapi'
 import { testAdsbfi } from '../services/adsbfi'
+import { formatLocalDateTime, formatLocalTime, localTimeZone } from '../utils/time'
 import Loading from './Loading'
 
 const MONTHLY_CREDIT = 5
@@ -134,7 +135,7 @@ export default function DataAccountPanel({ settings, backendOk, onSave, onClose 
             <h1 id="data-account-title">Data &amp; account</h1>
           </div>
           <div className="data-account__header-actions">
-            {lastChecked && <span>Checked {new Date(lastChecked).toISOString().substring(11, 16)}z</span>}
+            {lastChecked && <span>Checked {formatLocalTime(lastChecked)}</span>}
             <button onClick={load} disabled={loading || !backendOk}>{loading ? 'Checking…' : 'Check now'}</button>
             <button className="data-account__close" onClick={requestClose} aria-label="Close Data and account">✕</button>
           </div>
@@ -212,6 +213,23 @@ export default function DataAccountPanel({ settings, backendOk, onSave, onClose 
             ) : loading ? <Loading label="Loading account usage" /> : <p className="data-account__empty">Usage has not been verified.</p>}
           </section>
 
+          <section className="data-account__section" aria-labelledby="time-display-title">
+            <div className="data-account__section-heading">
+              <h2 id="time-display-title">Time display</h2>
+              <span>Used across flight, airport, and NAS views</span>
+            </div>
+            <div className="time-preference">
+              <div>
+                <strong>{local.timeMode === 'utc' ? 'UTC' : 'Local time'}</strong>
+                <span>{local.timeMode === 'utc' ? 'Coordinated Universal Time' : localTimeZone()}</span>
+              </div>
+              <div className="time-preference__choices" role="group" aria-label="Time display preference">
+                <button className={clsx(local.timeMode !== 'utc' && 'is-selected')} onClick={() => set('timeMode', 'local')} aria-pressed={local.timeMode !== 'utc'}>Local time</button>
+                <button className={clsx(local.timeMode === 'utc' && 'is-selected')} onClick={() => set('timeMode', 'utc')} aria-pressed={local.timeMode === 'utc'}>UTC</button>
+              </div>
+            </div>
+          </section>
+
           <details className="data-account__disclosure data-account__section">
             <summary>Personal credentials <span>{personalOpenSky || personalAero ? 'Overrides active' : 'Using server defaults'}</span></summary>
             <div className="data-credentials">
@@ -229,7 +247,7 @@ export default function DataAccountPanel({ settings, backendOk, onSave, onClose 
             <summary>Archive &amp; diagnostics</summary>
             <dl className="data-diagnostics">
               <div><dt>Archive state</dt><dd>{!keys ? 'Not checked' : archive?.enabled ? 'Enabled' : 'Disabled'}</dd></div>
-              <div><dt>Last run</dt><dd>{!keys ? 'Not checked' : archive?.lastRun ? new Date(archive.lastRun).toLocaleString() : 'No completed run'}</dd></div>
+              <div><dt>Last run</dt><dd>{!keys ? 'Not checked' : archive?.lastRun ? formatLocalDateTime(archive.lastRun) : 'No completed run'}</dd></div>
               <div><dt>Rows archived</dt><dd>{archive?.totalArchived?.toLocaleString() ?? '—'}</dd></div>
               <div><dt>Failures</dt><dd>{archive?.totalFailures?.toLocaleString() ?? '—'}</dd></div>
               {archive?.lastError && <div className="is-error"><dt>Last error</dt><dd>{archive.lastError}</dd></div>}
@@ -239,7 +257,7 @@ export default function DataAccountPanel({ settings, backendOk, onSave, onClose 
         </div>
 
         <footer className="data-account__footer">
-          <span>{dirty ? 'Unsaved credential changes' : 'No unsaved changes'}</span>
+          <span>{dirty ? 'Unsaved changes' : 'No unsaved changes'}</span>
           <button onClick={requestClose}>Close</button>
           <button className="is-primary" disabled={!dirty} onClick={() => onSave(local)}>Save changes</button>
         </footer>

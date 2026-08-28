@@ -2,14 +2,11 @@ import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import axios from 'axios'
 import AIRPORTS from '../../data/airports'
+import { formatLocalTime, formatLocalDateTime } from '../../utils/time'
 
 function fmtTime(ts) {
   if (!ts) return '—'
-  try {
-    const d = new Date(ts)
-    if (isNaN(d)) return ts.substring?.(11, 16) || '—'
-    return d.toISOString().substring(11, 16) + 'z'
-  } catch { return '—' }
+  return formatLocalTime(ts)
 }
 
 function LoadingDots() {
@@ -333,8 +330,8 @@ function NotamsTab({ notams, airport }) {
               : <span className="text-fg3">General</span>}
             {n.classification && <span className="text-fg3/60 text-[9px]">{n.classification}</span>}
             <span className="ml-auto text-fg3/50 text-[9px]">
-              {n.effective && <span>eff {n.effective.substring(5, 16).replace('T', ' ')}z</span>}
-              {n.expiration ? <span> — exp {n.expiration.substring(5, 16).replace('T', ' ')}z</span> : n.permanent ? <span> — PERM</span> : null}
+              {n.effective && <span>eff {formatLocalDateTime(n.effective)}</span>}
+              {n.expiration ? <span> — exp {formatLocalDateTime(n.expiration)}</span> : n.permanent ? <span> — PERM</span> : null}
             </span>
           </div>
           <div className="text-[10px] text-fg2 font-mono leading-relaxed whitespace-pre-wrap">{n.text || n.full_text || '(no text)'}</div>
@@ -365,7 +362,7 @@ function SurfaceTab({ surface, airport }) {
               <span className={clsx('w-16 shrink-0', SCOLOR[e.event_type])}>{VERB[e.event_type]}</span>
               {e.runway && <span className="text-fg3">rwy {e.runway.split('/')[0]}</span>}
               {e.gate && <span className="text-fg3">gate {e.gate}</span>}
-              <span className="ml-auto text-fg3/50 tabular-nums shrink-0">{e.received_at?.substring(11, 19)}z</span>
+              <span className="ml-auto text-fg3/50 tabular-nums shrink-0">{formatLocalTime(e.received_at, { seconds: true })}</span>
             </div>
           ))}
         </Section>
@@ -377,7 +374,7 @@ function SurfaceTab({ surface, airport }) {
               <span className="text-fg2 w-24 shrink-0">{e.event_type?.replace(/_/g, ' ')}</span>
               {e.callsign && <span className="text-fg2">{e.callsign}</span>}
               <span className="truncate flex-1">{e.text?.substring(0, 60) || ''}</span>
-              <span className="ml-auto text-fg3/50 tabular-nums shrink-0">{e.received_at?.substring(11, 19)}z</span>
+              <span className="ml-auto text-fg3/50 tabular-nums shrink-0">{formatLocalTime(e.received_at, { seconds: true })}</span>
             </div>
           ))}
         </Section>
@@ -401,7 +398,7 @@ function FlowTab({ flow, airport }) {
           <div className="flex items-center gap-2 text-[10px]">
             <span className={clsx('font-bold', FCOLOR[e.event_type] || 'text-fg3')}>{FTYPE[e.event_type] || e.event_type}</span>
             {e.status && <span className="text-fg3 text-[9px]">{e.status}</span>}
-            <span className="ml-auto text-fg3/50 tabular-nums text-[9px]">{e.received_at?.substring(11, 19)}z</span>
+            <span className="ml-auto text-fg3/50 tabular-nums text-[9px]">{formatLocalTime(e.received_at, { seconds: true })}</span>
           </div>
           {e.reason && <div className="text-[9px] text-fg3 mt-0.5">Reason: {e.reason}</div>}
           {e.text && <div className="text-[9px] text-fg2 mt-0.5">{e.text}</div>}

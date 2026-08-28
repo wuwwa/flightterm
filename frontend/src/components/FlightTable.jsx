@@ -2,7 +2,8 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import clsx from 'clsx'
 import { squawkLabel, squawkColor } from '../utils/squawk'
 import { detectPhase, PHASE } from '../utils/anomaly'
-import FilterBar, { emptyFilters, isFiltersActive, applyFilters, computeFilterCounts } from './FilterBar'
+import { formatLocalTime } from '../utils/time'
+import FilterBar, { emptyFilters, isFiltersActive, applyFilters } from './FilterBar'
 import AircraftSearchBox from './AircraftSearchBox'
 import Loading from './Loading'
 import PulseMark from './PulseMark'
@@ -115,6 +116,23 @@ function SyncButton({ isSyncing, onSync }) {
   )
 }
 
+function FlightIndexSkeleton() {
+  return (
+    <div className="flight-index-skeleton" aria-hidden="true">
+      {[0, 1, 2, 3, 4, 5].map((row) => (
+        <div className="flight-index-skeleton__row" key={row}>
+          <i className="flight-index-skeleton__cell is-flight" />
+          <i className="flight-index-skeleton__cell is-type" />
+          <i className="flight-index-skeleton__cell is-route" />
+          <i className="flight-index-skeleton__cell is-number" />
+          <i className="flight-index-skeleton__cell is-number" />
+          <i className="flight-index-skeleton__cell is-phase" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function FlightTable({ flights, filter, onFilterChange, filters, onFiltersChange, selectedIcao, enrichCache, anomalies = {}, trackHistory = {}, onSelect, onArrived, onDeparted, onSync, isSyncing, dataStatus = 'loading', dataError, lastUpdatedAt, region = 'usa', onRegionChange, showMilitary = false, onShowMilitaryChange, signalsOpen = false, onToggleSignals }) {
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 1023px)').matches)
   const PAGE_SIZE = isMobile ? 25 : 50
@@ -199,12 +217,7 @@ export default function FlightTable({ flights, filter, onFilterChange, filters, 
 
   const q = filter.toLowerCase()
 
-  // ── compute filter counts for badges ──────────────────────────────────────
   const filterCtx = { anomalies, trackHistory, enrichCache, detectPhase, PHASE }
-  const filterCounts = useMemo(
-    () => computeFilterCounts(flights, filterCtx),
-    [flights, anomalies, trackHistory, enrichCache]
-  )
 
   // ── apply text filter + dimension filters ─────────────────────────────────
   const filtered = useMemo(() => {
@@ -292,7 +305,7 @@ export default function FlightTable({ flights, filter, onFilterChange, filters, 
   )
   const sampleTime = lastUpdatedAt ? new Date(lastUpdatedAt) : null
   const sampleTimestamp = sampleTime && Number.isFinite(sampleTime.getTime())
-    ? sampleTime.toISOString().substring(11, 19) + 'z'
+    ? formatLocalTime(sampleTime, { seconds: true })
     : null
 
   const selectedIndex = selectedIcao ? sorted.findIndex(f => f.icao === selectedIcao) : -1
@@ -364,8 +377,16 @@ export default function FlightTable({ flights, filter, onFilterChange, filters, 
           )}
           <SyncButton isSyncing={isSyncing} onSync={onSync} />
         </div>
-        <div className="p-8 flex flex-col items-center justify-center gap-2 text-center text-fg3">
-          {dataStatus === 'loading' || isSyncing ? <Loading label={isSyncing ? 'Updating index' : 'Loading index'} /> : <span className="text-[12px] text-fg2">{emptyMessage}</span>}
+        <div className="flight-empty-state">
+          {dataStatus === 'loading' || isSyncing ? (
+            <>
+              <div className="flight-empty-state__loading" role="status" aria-live="polite">
+                <Loading inline label={isSyncing ? 'Updating the flight index' : 'Loading'} />
+                <span>{isSyncing ? 'Updating the flight index' : 'Loading'}</span>
+              </div>
+              <FlightIndexSkeleton />
+            </>
+          ) : <span className="text-[12px] text-fg2">{emptyMessage}</span>}
           {dataError && <span className="text-[11px] text-ylw">{dataError}</span>}
           {(dataStatus === 'unavailable' || dataStatus === 'stale') && <button className="border border-border2 px-2 py-1 text-[11px] hover:border-acc hover:text-acc" onClick={onSync}>Retry</button>}
         </div>
@@ -444,9 +465,6 @@ export default function FlightTable({ flights, filter, onFilterChange, filters, 
         onChange={onFiltersChange}
         queryActive={Boolean(filter.trim())}
         onClearQuery={() => onFilterChange('')}
-        counts={filterCounts}
-        totalFiltered={filtered.length}
-        totalFlights={flights.length}
         showMilitary={showMilitary}
         onShowMilitaryChange={onShowMilitaryChange}
       />
@@ -654,7 +672,7 @@ export default function FlightTable({ flights, filter, onFilterChange, filters, 
                       <span className="text-fg2">{f.tfms.arr_arpt.replace(/^K/, '')}</span>
                       {f.tfms?.eta && (
                         <span className="text-fg3/60 text-[9px] ml-1.5">
-                          {new Date(f.tfms.eta).toISOString().substring(11, 16)}z
+                          {formatLocalTime(f.tfms.eta)}
                         </span>
                       )}
                       {f.routeDeviation > 50 && (

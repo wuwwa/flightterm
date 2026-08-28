@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import clsx from 'clsx'
 import AIRPORTS from '../../data/airports'
+import { formatLocalTime } from '../../utils/time'
 
 const EVENT_COLORS = {
   GS: 'text-red', GDP: 'text-ylw', AFP: 'text-ylw', REROUTE: 'text-mag',
@@ -13,10 +14,7 @@ const EVENT_LABELS = {
 }
 
 function fmtTime(ts) {
-  if (!ts) return '—'
-  const d = new Date(ts)
-  if (isNaN(d)) return ts.substring?.(11, 16) || '—'
-  return d.toISOString().substring(11, 16) + 'z'
+  return formatLocalTime(ts)
 }
 
 export default function DelayBoard({ flowEvents, flights, onSelectAirport }) {

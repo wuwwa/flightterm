@@ -9,14 +9,17 @@ export default function NasPanel({ backendOk }) {
   const delayPrograms = nasSummary?.gdps || status?.tfms?.active_gdps || 0
   const tfrs = status?.notams?.active_tfrs || 0
   const congestion = nasSummary?.congestionBuilding || 0
-  const verified = Boolean(workerConnected && !availability?.fastError && (nasSummary || status?.tfms || status?.notams))
+  // Keep the last verified NAS summary visible while a live feed reconnects.
+  // A worker reconnect is transient; hiding all known values makes it look
+  // like the NAS itself has gone offline.
+  const verified = Boolean(!availability?.fastError && (nasSummary || status?.tfms || status?.notams))
   const shown = value => verified ? value : '—'
   const feedState = availability?.fastError
     ? 'Feeds delayed'
     : workerConnected
       ? null
       : backendOk
-        ? 'Reconnecting'
+        ? 'Restoring live feeds'
         : 'Backend unavailable'
   const stateLabel = feedState || (!verified ? (backendOk ? 'Verification pending' : 'Data unavailable') : null)
 

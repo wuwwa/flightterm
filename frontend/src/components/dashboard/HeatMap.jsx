@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { MapContainer, TileLayer, Marker, Circle, Polygon, Rectangle, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, Marker, Circle, Polygon, Rectangle, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { fetchAnomalyFeed, fetchAnomalyHotspots } from '../../services/dashboard'
 import { fetchSigmets, fetchPireps } from '../../services/weather'
 import { REGIONS } from '../../services/opensky'
+import OpenFreeMapLayer from '../OpenFreeMapLayer'
 
 const REGION_CENTERS = {
   usa:      [38, -96],
@@ -242,13 +243,10 @@ export default function HeatMap({ backendOk, region = 'usa', lastFetchAt, onSele
           zoom={4}
           scrollWheelZoom={false}
           zoomControl={true}
-          attributionControl={false}
+          attributionControl
           style={{ height: '100%', width: '100%', background: '#0d0d0d' }}
         >
-          <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            opacity={0.6}
-          />
+          <OpenFreeMapLayer opacity={0.6} />
           <AutoBounds points={points} />
 
           {/* Search boundaries — rendered first (behind everything) */}

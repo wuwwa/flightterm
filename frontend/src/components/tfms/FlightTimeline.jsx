@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { formatLocalTime } from '../../utils/time'
 
 const STATUS_COLORS = {
   ACTIVE: 'bg-grn', ASCENDING: 'bg-cyn', CRUISING: 'bg-acc',
@@ -11,10 +12,7 @@ const STATUS_TEXT = {
 }
 
 function fmtTime(ts) {
-  if (!ts) return null
-  const d = new Date(ts)
-  if (isNaN(d)) return ts.substring?.(11, 16) || null
-  return d.toISOString().substring(11, 16) + 'z'
+  return formatLocalTime(ts)
 }
 
 function fmtAlt(alt) {

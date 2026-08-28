@@ -20,9 +20,29 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <style>
+      /* Visible as soon as HTML arrives, before the React bundle can take over. */
+      html, body { margin: 0; background: #121413; }
+      #root:has(.launch-shell) { min-height: 100dvh; background: #121413; color: #f2f0e6; font-family: "Segoe UI", sans-serif; }
+      .launch-shell { min-height: 100dvh; background: #121413; }
+      .launch-shell__bar { height: 56px; padding: 0 24px; display: flex; align-items: center; border-bottom: 1px solid #2a2b2b; background: #101111; font-size: 17px; font-weight: 700; letter-spacing: .08em; }
+      .launch-shell__status { min-height: 62px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #30342f; background: #20221f; color: #bbb9ae; font-size: 12px; }
+      .launch-shell__pulse { width: 9px; height: 9px; background: #ef5a3c; }
+      .launch-shell__body { padding: 14px; }
+      .launch-shell__line { height: 42px; margin-top: 1px; border: 1px solid #30342f; background: #171918; }
+      @media (max-width: 720px) { .launch-shell__bar { height: 52px; padding-inline: 12px; } .launch-shell__body { padding: 8px; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="launch-shell" role="status" aria-live="polite" aria-label="Starting Flightterm">
+        <div class="launch-shell__bar">FLIGHTTERM</div>
+        <div class="launch-shell__status"><i class="launch-shell__pulse"></i>Starting the live aviation workspace…</div>
+        <div class="launch-shell__body" aria-hidden="true">
+          <div class="launch-shell__line"></div><div class="launch-shell__line"></div><div class="launch-shell__line"></div><div class="launch-shell__line"></div><div class="launch-shell__line"></div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

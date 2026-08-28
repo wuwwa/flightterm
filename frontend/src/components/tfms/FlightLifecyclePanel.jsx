@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import clsx from 'clsx'
+import { formatLocalTime } from '../../utils/time'
 
 const PHASE_COLORS = {
   SPOT_OUT: { dot: 'bg-ylw', text: 'text-ylw', border: 'border-ylw' },
@@ -14,10 +15,7 @@ const PHASE_COLORS = {
 const DEFAULT_PHASE = { dot: 'bg-fg3', text: 'text-fg3', border: 'border-fg3' }
 
 function fmtTime(ts) {
-  if (!ts) return null
-  const d = new Date(ts)
-  if (isNaN(d)) return typeof ts === 'string' ? ts.substring(11, 16) : null
-  return d.toISOString().substring(11, 16) + 'z'
+  return formatLocalTime(ts)
 }
 
 function fmtDuration(min) {

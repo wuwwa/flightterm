@@ -57,7 +57,12 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       baseUri: ["'self'"],
-      connectSrc: ["'self'", 'https://api.adsbdb.com', 'https://adsbexchange-com1.p.rapidapi.com'],
+      connectSrc: [
+        "'self'",
+        'https://api.adsbdb.com',
+        'https://adsbexchange-com1.p.rapidapi.com',
+        'https://tiles.openfreemap.org',
+      ],
       fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
       formAction: ["'self'"],
       frameAncestors: ["'none'"],
@@ -65,6 +70,9 @@ app.use(helmet({
       objectSrc: ["'none'"],
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      // MapLibre creates its renderer worker from the bundled application via
+      // a blob URL. Keep the allowance scoped to workers rather than scripts.
+      workerSrc: ["'self'", 'blob:'],
       upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
     },
   },
@@ -192,6 +200,9 @@ async function wakeSwimWorker() {
 function kickSwimWake(reason) {
   if (!swimWakeConfigured()) return
   if (swimWakeInFlight) return
+  const now = Date.now()
+  if (now - swimWakeLastAttempt < SWIM_WAKE_COOLDOWN_MS) return
+  swimWakeLastAttempt = now
 
   wakeSwimWorker()
     .then(result => console.log(`swim wake (${reason}): ${result.state}`))
@@ -218,11 +229,14 @@ function markSwimActivity(reason, { wake = true } = {}) {
 
   const now = Date.now()
   const wasIdle = !swimLastActivityAt || (now - swimLastActivityAt) >= SWIM_IDLE_TIMEOUT_MS
+  const wasDisconnected = !swim.getStatus()?.workerConnected
   swimLastActivityAt = now
   swim.startAll()
   scheduleSwimIdleCheck()
 
-  if (wake && wasIdle) kickSwimWake(reason)
+  // Fly can auto-stop the worker even while this app is serving NAS requests.
+  // Restart it on a detected disconnect as well as after genuine inactivity.
+  if (wake && (wasIdle || wasDisconnected)) kickSwimWake(reason)
 }
 
 function getSwimActivityStatus() {

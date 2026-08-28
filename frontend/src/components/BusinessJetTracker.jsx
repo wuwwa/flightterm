@@ -1,44 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { MapContainer, TileLayer, Marker, Polyline, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, Marker, Polyline, Tooltip, useMap } from 'react-leaflet'
 import { divIcon } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import clsx from 'clsx'
 import { fetchBusinessJetTracker } from '../services/dashboard'
+import OpenFreeMapLayer from './OpenFreeMapLayer'
 import Loading from './Loading'
 
 const REFRESH_MS = 30_000
-
-function fmtAge(iso) {
-  if (!iso) return 'never'
-  const sec = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000))
-  if (sec < 90) return `${sec}s ago`
-  const min = Math.round(sec / 60)
-  if (min < 90) return `${min}m ago`
-  return `${Math.round(min / 60)}h ago`
-}
-
-const SIGNAL_STATES = [
-  { label: 'Within usual range', tone: 'text-fg2' },
-  { label: 'Elevated', tone: 'text-ylw' },
-  { label: 'Near upper range', tone: 'text-ylw' },
-  { label: 'Outside observed range', tone: 'text-red' },
-]
-
-const CALIBRATING = {
-  label: 'Building baseline',
-  tone: 'text-fg2',
-  calibrated: false,
-}
-
-function levelFromScore(score, baselineSamples) {
-  if (score == null || baselineSamples < 30) {
-    return { ...CALIBRATING, reason: `${baselineSamples || 0} of 30 comparable checkpoints` }
-  }
-  if (score >= 1) return { ...SIGNAL_STATES[3], calibrated: true, reason: 'above the observed range' }
-  if (score >= 0.75) return { ...SIGNAL_STATES[2], calibrated: true, reason: 'near the upper range' }
-  if (score >= 0.55) return { ...SIGNAL_STATES[1], calibrated: true, reason: 'above the usual range' }
-  return { ...SIGNAL_STATES[0], calibrated: true, reason: 'within the usual range' }
-}
 
 function AutoFit({ points }) {
   const map = useMap()
@@ -72,117 +41,132 @@ function planeIcon(p, selected = false) {
   const hdg = Number.isFinite(Number(p.heading)) ? Number(p.heading) : 0
   return divIcon({
     className: 'bj-plane-icon-wrap',
-    html: `<div class="bj-plane-icon${selected ? ' is-selected' : ''}" style="--hdg:${hdg}deg">✈</div>`,
+    html: `<div class="bj-plane-icon${selected ? ' is-selected' : ''}${p.change === 'newly_observed' ? ' is-new' : ''}" style="--hdg:${hdg}deg">✈</div>`,
     iconSize: [24, 24],
     iconAnchor: [12, 12],
   })
 }
 
-function projectedTrail(p) {
-  const lat = Number(p.lat)
-  const lon = Number(p.lon)
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return []
-  const hdg = Number.isFinite(Number(p.heading)) ? Number(p.heading) : 0
-  const speed = Number.isFinite(Number(p.speedKt)) ? Number(p.speedKt) : 420
-  const dist = Math.max(0.18, Math.min(0.9, speed / 650))
-  const back = (hdg + 180) * Math.PI / 180
-  const latScale = Math.cos(back) * dist
-  const lonScale = Math.sin(back) * dist / Math.max(0.25, Math.cos(lat * Math.PI / 180))
-  return [
-    [lat + latScale, lon + lonScale],
-    [lat + latScale * 0.55, lon + lonScale * 0.55],
-    [lat, lon],
-  ]
-}
-
 function trailForPlane(p, trailByIcao) {
   const trail = trailByIcao[p.icao] || []
   if (trail.length > 1) return trail.map(t => [t.lat, t.lon])
-  return projectedTrail(p)
+  return []
 }
 
-function fmtTrendTick(iso, spanMs) {
+function fmtTraceTick(iso, rangeHours) {
   if (!iso) return ''
   const d = new Date(iso)
   if (!Number.isFinite(d.getTime())) return ''
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  if (spanMs >= 24 * 3600_000) return `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`
-  return `${hh}:${mm}`
+  const hh = String(d.getUTCHours()).padStart(2, '0')
+  const mm = String(d.getUTCMinutes()).padStart(2, '0')
+  if (rangeHours >= 24) return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${hh}:${mm}z`
+  return `${hh}:${mm}z`
 }
 
-function TrendChart({ history, baselineCurve, current, mean, rangeHours = 12 }) {
-  const sampleCount = Math.max(6, rangeHours * 2)
-  const rows = (history || []).slice(-sampleCount)
-  const values = rows.map(r => Number(r.airborne_count) || 0)
-  const curve = (baselineCurve || []).slice(-sampleCount)
-  const meanValues = curve.map(r => Number(r.mean)).filter(Number.isFinite)
-  const meanLine = Number(mean)
-  const max = Math.max(
-    1,
-    current || 0,
-    ...values,
-    ...meanValues,
-    Number.isFinite(meanLine) ? meanLine : 0
-  )
-  const w = 520
-  const h = 142
-  const pad = { l: 8, r: 8, t: 8, b: 16 }
+function timeValue(iso) {
+  const value = new Date(iso).getTime()
+  return Number.isFinite(value) ? value : null
+}
+
+function segmentedPath(points, x, y, field, maxGapMs = 95 * 60_000) {
+  let previousAt = null
+  let path = ''
+  for (const point of points) {
+    const value = Number(point[field])
+    if (!Number.isFinite(point.at) || !Number.isFinite(value)) continue
+    const command = previousAt == null || point.at - previousAt > maxGapMs ? 'M' : 'L'
+    path += `${command}${x(point.at).toFixed(1)},${y(value).toFixed(1)} `
+    previousAt = point.at
+  }
+  return path.trim()
+}
+
+function referenceBandPath(points, x, y) {
+  const valid = points.filter(point => Number.isFinite(point.at) && Number.isFinite(Number(point.mean)) && Number.isFinite(Number(point.p90)))
+  if (valid.length < 2) return ''
+  const high = valid.map(point => `${x(point.at).toFixed(1)},${y(point.p90).toFixed(1)}`)
+  const mean = [...valid].reverse().map(point => `${x(point.at).toFixed(1)},${y(point.mean).toFixed(1)}`)
+  return `M${high.join(' L')} L${mean.join(' L')} Z`
+}
+
+function ActivityTrace({ history, baselineCurve, snapshot, rangeHours = 24 }) {
+  const endAt = timeValue(snapshot?.sampledAt) || Date.now()
+  const startAt = endAt - rangeHours * 3600_000
+  const observed = (history || [])
+    .map(row => ({ at: timeValue(row.sampled_at), airborne: Number(row.airborne_count) }))
+    .filter(row => Number.isFinite(row.at) && row.at >= startAt && row.at <= endAt && Number.isFinite(row.airborne))
+    .sort((a, b) => a.at - b.at)
+  const snapshotAt = timeValue(snapshot?.sampledAt)
+  const snapshotCount = Number(snapshot?.airborneCount)
+  if (Number.isFinite(snapshotAt) && snapshotAt >= startAt && snapshotAt <= endAt && Number.isFinite(snapshotCount) && !observed.some(row => row.at === snapshotAt)) {
+    observed.push({ at: snapshotAt, airborne: snapshotCount })
+  }
+  const reference = (baselineCurve || [])
+    .map(row => ({ at: timeValue(row.sampled_at), mean: Number(row.mean), p90: Number(row.p90) }))
+    .filter(row => Number.isFinite(row.at) && row.at >= startAt && row.at <= endAt)
+    .sort((a, b) => a.at - b.at)
+
+  const w = 620
+  const h = 210
+  const pad = { l: 35, r: 12, t: 18, b: 25 }
   const innerW = w - pad.l - pad.r
   const innerH = h - pad.t - pad.b
-  const x = i => pad.l + (rows.length <= 1 ? innerW : (i / (rows.length - 1)) * innerW)
-  const y = v => pad.t + innerH - ((Number(v) || 0) / max) * innerH
-  const path = rows.length
-    ? rows.map((r, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(r.airborne_count).toFixed(1)}`).join(' ')
-    : ''
-  const curveX = i => pad.l + (curve.length <= 1 ? innerW : (i / (curve.length - 1)) * innerW)
-  const meanPath = curve.length
-    ? curve.map((r, i) => Number.isFinite(Number(r.mean)) ? `${i === 0 ? 'M' : 'L'}${curveX(i).toFixed(1)},${y(r.mean).toFixed(1)}` : '').filter(Boolean).join(' ')
-    : ''
-  const currentX = rows.length ? x(rows.length - 1) : pad.l
-  const currentY = y(current || values[values.length - 1] || 0)
-
-  const tickRows = rows.length ? rows : curve
-  const firstAt = tickRows[0]?.sampled_at ? new Date(tickRows[0].sampled_at).getTime() : null
-  const lastAt = tickRows[tickRows.length - 1]?.sampled_at ? new Date(tickRows[tickRows.length - 1].sampled_at).getTime() : null
-  const spanMs = Number.isFinite(firstAt) && Number.isFinite(lastAt) ? Math.max(0, lastAt - firstAt) : 0
-  const tickIndexes = tickRows.length <= 1
-    ? [0]
-    : Array.from(new Set([0, Math.floor((tickRows.length - 1) / 2), tickRows.length - 1]))
-  const ticks = tickIndexes
-    .map(i => ({ i, label: fmtTrendTick(tickRows[i]?.sampled_at, spanMs) }))
-    .filter(t => t.label)
+  const maxValue = Math.max(5, ...observed.map(row => row.airborne), ...reference.map(row => row.p90).filter(Number.isFinite))
+  const axisMax = Math.ceil(maxValue / 5) * 5
+  const x = at => pad.l + ((at - startAt) / (endAt - startAt)) * innerW
+  const y = value => pad.t + innerH - (Math.max(0, Number(value) || 0) / axisMax) * innerH
+  const observedPath = segmentedPath(observed, x, y, 'airborne')
+  const meanPath = segmentedPath(reference, x, y, 'mean', Infinity)
+  const p90Path = segmentedPath(reference, x, y, 'p90', Infinity)
+  const referenceBand = referenceBandPath(reference, x, y)
+  const latestReference = reference[reference.length - 1] || null
+  const latestObserved = observed[observed.length - 1] || null
+  const latestCount = latestObserved?.airborne ?? snapshot?.airborneCount ?? null
+  const ticks = [startAt, startAt + (endAt - startAt) / 2, endAt]
+  const hasReference = reference.length > 0
+  const chartDescription = `${latestCount == null ? 'No current count is available' : `${fmtNumber(latestCount)} observed`}. ${observed.length} recorded sample${observed.length === 1 ? '' : 's'} in the selected window; lines do not cross missing intervals.`
 
   return (
-    <section className="private-trend" aria-label={`${rangeHours}-hour private aviation activity`}>
-      <div className="private-trend__header">
-        <span>Activity</span>
-        <span>{rangeHours} hours</span>
-      </div>
-      <div className="private-trend__legend" aria-hidden="true">
-        <span><i className="is-current" />current</span>
-        <span><i className="is-usual" />usual</span>
-      </div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="private-trend__chart" preserveAspectRatio="none">
-        <line x1={pad.l} y1={pad.t + innerH} x2={w - pad.r} y2={pad.t + innerH} stroke="#30342f" strokeWidth="1" />
-        {meanPath && (
-          <path d={meanPath} fill="none" stroke="#7d8179" strokeWidth="1.2" strokeDasharray="3 4" />
-        )}
-        {path && <path d={path} fill="none" stroke="#f2f0e6" strokeWidth="2" />}
-        {rows.length > 0 && <circle cx={currentX} cy={currentY} r="3.5" fill="#f2f0e6" stroke="#171918" strokeWidth="1" />}
-      </svg>
-      {ticks.length > 0 && (
-        <div className="private-trend__ticks" style={{ gridTemplateColumns: `repeat(${ticks.length}, minmax(0, 1fr))` }}>
-          {ticks.map((t, idx) => (
-            <span
-              key={`${t.i}-${t.label}`}
-              className={idx === 0 ? 'text-left' : idx === ticks.length - 1 ? 'text-right' : 'text-center'}
-            >
-              {t.label}
-            </span>
-          ))}
+    <section className="private-trace" aria-labelledby="private-trace-title">
+      <div className="private-trace__header">
+        <div>
+          <h2 id="private-trace-title">{hasReference ? 'Observed activity vs reference' : 'Observed activity'}</h2>
         </div>
-      )}
+        <span>{rangeHours}h · UTC</span>
+      </div>
+      <dl className={clsx('private-trace__readout', hasReference && 'has-reference')}>
+        <div><dt>Observed</dt><dd>{latestCount == null ? '—' : fmtNumber(latestCount)}</dd></div>
+        <div><dt>Recorded samples</dt><dd>{observed.length || '—'}</dd></div>
+        {hasReference && <>
+          <div><dt>Reference mean</dt><dd>{Number.isFinite(latestReference?.mean) ? latestReference.mean.toFixed(1) : '—'}</dd></div>
+          <div><dt>High reference (P90)</dt><dd>{Number.isFinite(latestReference?.p90) ? fmtNumber(latestReference.p90) : '—'}</dd></div>
+        </>}
+      </dl>
+      <figure className="private-trace__figure">
+        <figcaption>
+          <span><i className="is-observed" />Observed</span>
+          {hasReference && <>
+            <span><i className="is-mean" />Time-matched mean</span>
+            <span><i className="is-high" />Mean to P90 reference</span>
+          </>}
+        </figcaption>
+        <svg viewBox={`0 0 ${w} ${h}`} className="private-trace__chart" preserveAspectRatio="none" role="img" aria-label={`Observed aircraft count against a time-matched reference. ${chartDescription}`}>
+          <line x1={pad.l} y1={y(axisMax)} x2={w - pad.r} y2={y(axisMax)} stroke="#30342f" strokeWidth="1" />
+          <line x1={pad.l} y1={y(axisMax / 2)} x2={w - pad.r} y2={y(axisMax / 2)} stroke="#30342f" strokeWidth="1" strokeDasharray="2 5" />
+          <line x1={pad.l} y1={y(0)} x2={w - pad.r} y2={y(0)} stroke="#4b5049" strokeWidth="1" />
+          {referenceBand && <path d={referenceBand} fill="#e2b45e" fillOpacity="0.12" />}
+          {meanPath && <path d={meanPath} fill="none" stroke="#69a9b1" strokeWidth="1.5" strokeDasharray="4 4" />}
+          {p90Path && <path d={p90Path} fill="none" stroke="#e2b45e" strokeWidth="1" />}
+          {observedPath && <path d={observedPath} fill="none" stroke="#f2f0e6" strokeWidth="2" />}
+          {observed.map(point => <circle key={point.at} cx={x(point.at)} cy={y(point.airborne)} r="3.4" fill="#f2f0e6" stroke="#171918" strokeWidth="1.3" />)}
+          <text x={pad.l - 7} y={y(axisMax) + 3} textAnchor="end" fill="#7d8179" fontSize="9">{axisMax}</text>
+          <text x={pad.l - 7} y={y(axisMax / 2) + 3} textAnchor="end" fill="#7d8179" fontSize="9">{axisMax / 2}</text>
+          <text x={pad.l - 7} y={y(0) + 3} textAnchor="end" fill="#7d8179" fontSize="9">0</text>
+        </svg>
+        <div className="private-trace__ticks" style={{ gridTemplateColumns: `repeat(${ticks.length}, minmax(0, 1fr))` }}>
+          {ticks.map((tick, index) => <span key={tick} className={index === 0 ? 'text-left' : index === ticks.length - 1 ? 'text-right' : 'text-center'}>{fmtTraceTick(new Date(tick).toISOString(), rangeHours)}</span>)}
+        </div>
+      </figure>
     </section>
   )
 }
@@ -191,7 +175,16 @@ function fmtClock(iso) {
   if (!iso) return '—'
   const date = new Date(iso)
   if (!Number.isFinite(date.getTime())) return '—'
-  return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(date)
+  return `${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}z`
+}
+
+function fmtSampleStamp(iso) {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (!Number.isFinite(date.getTime())) return '—'
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  const month = date.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }).toUpperCase()
+  return `${day} ${month} · ${fmtClock(iso).toUpperCase()}`
 }
 
 function fmtNumber(value) {
@@ -200,9 +193,9 @@ function fmtNumber(value) {
 }
 
 const CHANGE_LABELS = {
-  newly_observed: 'Newly observed',
+  newly_observed: 'Appeared in sample',
   continued: 'Continued',
-  not_observed: 'Not observed',
+  not_observed: 'No longer observed',
 }
 
 function ChangeQueueRow({ record, selected, onSelect }) {
@@ -229,12 +222,51 @@ function ChangeQueueRow({ record, selected, onSelect }) {
   )
 }
 
-function PrivateMap({ positions, selectedPosition, trailByIcao, onSelect }) {
+function RecordInspector({ record, currentPosition, onClear }) {
+  if (!record) {
+    return (
+      <section className="private-detail-panel" aria-labelledby="private-record-title">
+        <div className="private-detail-panel__header"><h2 id="private-record-title">Record inspection</h2></div>
+        <p className="private-detail-panel__empty">Select a record</p>
+      </section>
+    )
+  }
+
   return (
-    <section className="private-map-detail" aria-label="Position context">
+    <section className="private-detail-panel" aria-labelledby="private-record-title">
+      <div className="private-detail-panel__header">
+        <h2 id="private-record-title">Record inspection</h2>
+        <button type="button" onClick={onClear}>Clear</button>
+      </div>
+      <div className="private-detail-identity">
+        <strong>{record.callsign || record.registration || record.icao}</strong>
+        <span>{record.model || record.manufacturer || 'Aircraft type unavailable'} · {record.registration || record.icao}</span>
+      </div>
+      <dl className="private-detail-fields">
+        <div><dt>Sample state</dt><dd>{CHANGE_LABELS[record.change] || 'Observed'}</dd></div>
+        <div><dt>FAA registrant</dt><dd>{record.owner || 'Unavailable'}</dd></div>
+        <div><dt>Altitude</dt><dd>{record.altitudeFt != null ? `${fmtNumber(record.altitudeFt)} ft` : '—'}</dd></div>
+        <div><dt>Speed</dt><dd>{record.speedKt != null ? `${fmtNumber(record.speedKt)} kt` : '—'}</dd></div>
+        <div><dt>Heading</dt><dd>{record.heading != null ? `${Math.round(record.heading)}°` : '—'}</dd></div>
+        <div><dt>Position</dt><dd>{currentPosition ? 'Current sample' : 'Prior sample only'}</dd></div>
+      </dl>
+      <div className="private-detail-actions">
+        <a href={`#flight=${record.icao}${record.callsign ? `&cs=${encodeURIComponent(record.callsign)}` : ''}`}>Open flight record</a>
+      </div>
+    </section>
+  )
+}
+
+function PrivateMap({ positions, selectedPosition, trailByIcao, sampledAt, onSelect }) {
+  const newlyObserved = positions.filter(position => position.change === 'newly_observed').length
+  return (
+    <section className="private-map-detail" aria-labelledby="private-map-title">
       <div className="private-map-detail__header">
-        <span>Position context</span>
-        <span>{positions.length} observed</span>
+        <div>
+          <strong id="private-map-title">Spatial context</strong>
+          <span>{sampledAt ? fmtSampleStamp(sampledAt) : 'No verified sample'}</span>
+        </div>
+        <span>{positions.length} observed{newlyObserved ? ` · ${newlyObserved} new` : ''}</span>
       </div>
       <div className="private-map-detail__canvas">
         <MapContainer
@@ -242,10 +274,10 @@ function PrivateMap({ positions, selectedPosition, trailByIcao, onSelect }) {
           zoom={2}
           scrollWheelZoom={false}
           zoomControl
-          attributionControl={false}
+          attributionControl
           style={{ height: '100%', width: '100%', minHeight: 260, background: '#0d0d0d' }}
         >
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" opacity={0.58} />
+          <OpenFreeMapLayer opacity={0.58} />
           <AutoFit points={positions} />
           <FocusAircraft point={selectedPosition} />
           {positions.map(p => {
@@ -268,6 +300,7 @@ function PrivateMap({ positions, selectedPosition, trailByIcao, onSelect }) {
               <Tooltip direction="top">
                 <span style={{ fontFamily: 'monospace', fontSize: 11 }}>
                   <b>{p.callsign || p.registration || p.icao}</b> {p.model || ''}<br />
+                  {p.change === 'newly_observed' ? 'New in this sample' : 'Observed in this sample'}<br />
                   {p.registration || p.icao}<br />
                   {p.owner || 'FAA registrant unavailable'}<br />
                   {p.altitudeFt != null ? `${fmtNumber(p.altitudeFt)}ft ` : ''}
@@ -283,15 +316,16 @@ function PrivateMap({ positions, selectedPosition, trailByIcao, onSelect }) {
   )
 }
 
-function MethodCoverage({ data, snapshot, comparison }) {
+function MethodCoverage({ comparison }) {
   return (
     <details className="private-method">
-      <summary>Method &amp; coverage</summary>
-      <p>Public FAA registry cohort. Aircraft are sampled every 30 minutes and compared with prior, time-matched observations. A registrant is not necessarily an operator or passenger. An absent broadcast is not an inactivity finding.</p>
+      <summary>Dataset</summary>
       <dl>
-        <div><dt>Source</dt><dd>{snapshot?.source || data?.source || '—'}</dd></div>
-        <div><dt>Cohort version</dt><dd>{data?.cohortVersion || '—'}</dd></div>
-        <div><dt>Prior sample</dt><dd>{comparison?.previousSampledAt ? `${fmtAge(comparison.previousSampledAt)} · ${fmtClock(comparison.previousSampledAt)}` : 'Unavailable'}</dd></div>
+        <div><dt>Registry</dt><dd>FAA · registrant</dd></div>
+        <div><dt>Coverage</dt><dd>Public broadcast</dd></div>
+        <div><dt>Sampling</dt><dd>30 min</dd></div>
+        <div><dt>Scope</dt><dd>Fixed registry cohort</dd></div>
+        <div><dt>Prior sample</dt><dd>{comparison?.previousSampledAt ? fmtSampleStamp(comparison.previousSampledAt) : 'Unavailable'}</dd></div>
       </dl>
     </details>
   )
@@ -301,13 +335,11 @@ export default function BusinessJetTracker({ backendOk }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [trailByIcao, setTrailByIcao] = useState({})
-  const [rangeHours, setRangeHours] = useState(12)
+  const [rangeHours, setRangeHours] = useState(24)
   const [selectedIcao, setSelectedIcao] = useState(null)
   const [queueMode, setQueueMode] = useState('changes')
-  const [showMap, setShowMap] = useState(false)
   const selectRecord = useCallback((icao) => {
     setSelectedIcao(icao)
-    setShowMap(true)
   }, [])
 
   useEffect(() => {
@@ -330,7 +362,14 @@ export default function BusinessJetTracker({ backendOk }) {
   const baseline = data?.baseline || {}
   const positions = useMemo(() => (data?.positions || []).filter(p => p.lat != null && p.lon != null), [data])
   const comparison = data?.comparison || null
-  const comparisonRecords = comparison?.records || positions.map(position => ({ ...position, change: 'observed' }))
+  const comparisonRecords = useMemo(
+    () => comparison?.records || positions.map(position => ({ ...position, change: 'observed' })),
+    [comparison, positions]
+  )
+  const currentPositions = useMemo(() => {
+    const changes = new Map(comparisonRecords.map(record => [record.icao, record.change]))
+    return positions.map(position => ({ ...position, change: changes.get(position.icao) || 'observed' }))
+  }, [comparisonRecords, positions])
   const hasComparison = Boolean(comparison?.previousSampledAt)
   const changedRecords = useMemo(
     () => comparisonRecords.filter(record => record.change !== 'continued'),
@@ -338,20 +377,19 @@ export default function BusinessJetTracker({ backendOk }) {
   )
   const queueRecords = useMemo(() => {
     if (queueMode === 'changes' && hasComparison) return changedRecords
-    return positions.map(position => comparisonRecords.find(record => record.icao === position.icao) || { ...position, change: 'observed' })
-  }, [changedRecords, comparisonRecords, hasComparison, positions, queueMode])
+    return currentPositions
+  }, [changedRecords, currentPositions, hasComparison, queueMode])
   const selectedRecord = useMemo(
     () => comparisonRecords.find(record => record.icao === selectedIcao) || null,
     [comparisonRecords, selectedIcao]
   )
-  const selectedPosition = useMemo(() => positions.find(p => p.icao === selectedIcao) || null, [positions, selectedIcao])
-  const hasVerifiedCheckpoint = Boolean(data && snapshot)
-  const level = hasVerifiedCheckpoint
-    ? levelFromScore(snapshot?.unusualScore, baseline.samples || 0)
-    : { ...CALIBRATING, label: error ? 'Unavailable' : 'Loading', reason: error ? 'no verified checkpoint available' : 'waiting for a verified checkpoint' }
+  const selectedPosition = useMemo(() => currentPositions.find(p => p.icao === selectedIcao) || null, [currentPositions, selectedIcao])
+  const referenceReady = data?.calibrationStatus?.state === 'calibrated'
+    && Number.isFinite(Number(baseline.mean))
+    && (data?.baselineCurve || []).length > 1
   const airborne = snapshot?.airborneCount ?? null
-  const delta = airborne != null && Number.isFinite(Number(baseline.mean)) ? airborne - Number(baseline.mean) : null
-  const comparableMean = Number.isFinite(Number(baseline.mean)) ? Number(baseline.mean).toFixed(1) : '—'
+  const delta = referenceReady && airborne != null ? airborne - Number(baseline.mean) : null
+  const comparableMean = referenceReady ? Number(baseline.mean).toFixed(1) : '—'
   const matchCoverage = snapshot?.matchedCount != null && data?.cohortSize != null
     ? `${snapshot.matchedCount.toLocaleString()} / ${data.cohortSize.toLocaleString()}`
     : '—'
@@ -359,11 +397,11 @@ export default function BusinessJetTracker({ backendOk }) {
     setQueueMode(hasComparison ? 'changes' : 'all')
   }, [hasComparison])
   useEffect(() => {
-    if (!positions.length || !snapshot?.sampledAt) return
+    if (!currentPositions.length || !snapshot?.sampledAt) return
     setTrailByIcao(prev => {
-      const active = new Set(positions.map(p => p.icao))
+      const active = new Set(currentPositions.map(p => p.icao))
       const next = {}
-      for (const p of positions) {
+      for (const p of currentPositions) {
         const prior = prev[p.icao] || []
         const last = prior[prior.length - 1]
         const point = { lat: Number(p.lat), lon: Number(p.lon), sampledAt: snapshot.sampledAt }
@@ -378,17 +416,17 @@ export default function BusinessJetTracker({ backendOk }) {
       }
       return next
     })
-  }, [positions, snapshot?.sampledAt])
+  }, [currentPositions, snapshot?.sampledAt])
 
   return (
     <section className="private-jet-tracker">
       <header className="private-jet-titlebar">
         <div>
-          <span className="private-jet-titlebar__index">U.S. FAA registry · public-record cohort</span>
-          <h1>Corporate long-range activity</h1>
+          <span className="private-jet-titlebar__index">U.S. FAA registry · fixed public-record cohort</span>
+          <h1>Private long-range activity</h1>
         </div>
-        <div className="private-range" role="group" aria-label="Activity chart window">
-          {[3, 12, 24].map(hours => (
+        <div className="private-range" role="group" aria-label="Activity trace window">
+          {[6, 24, 48].map(hours => (
             <button key={hours} className={rangeHours === hours ? 'is-active' : ''} onClick={() => setRangeHours(hours)} aria-pressed={rangeHours === hours}>
               {hours}h
             </button>
@@ -398,72 +436,59 @@ export default function BusinessJetTracker({ backendOk }) {
       {error && (
         <div className={clsx('private-availability', data ? 'is-stale' : 'is-unavailable')} role="status">
           <strong>{data ? 'Data delayed' : 'Data unavailable'}</strong>
-          <span>{data ? `Last verified ${fmtAge(snapshot?.sampledAt)}.` : 'Awaiting a verified checkpoint.'}</span>
+          <span>{data ? `Last verified ${fmtSampleStamp(snapshot?.sampledAt)}.` : 'No verified sample.'}</span>
         </div>
       )}
-      <div className="private-jet-overview">
+      <div className={clsx('private-jet-overview', referenceReady && 'has-reference')}>
         <div><span>Observed</span><strong>{airborne == null ? '—' : airborne.toLocaleString()}</strong><small>aircraft</small></div>
-        <div><span>Comparable mean</span><strong>{comparableMean}</strong><small>aircraft</small></div>
-        <div><span>Delta</span><strong>{delta == null ? '—' : `${delta > 0 ? '+' : ''}${delta.toFixed(1)}`}</strong><small>aircraft</small></div>
-        <div><span>Matched / cohort</span><strong>{matchCoverage}</strong><small>this sample</small></div>
-        <div className="private-jet-status"><span className={level.tone}>{level.label}</span><small>{level.calibrated ? level.reason : `${baseline.samples || 0} / 30 checkpoints`} · {snapshot ? `observed ${fmtAge(snapshot.sampledAt)}` : 'waiting'}</small></div>
+        <div><span>Observed / cohort</span><strong>{matchCoverage}</strong><small>latest sample</small></div>
+        <div><span>Latest sample</span><strong>{fmtClock(snapshot?.sampledAt).toUpperCase()}</strong><small>{snapshot?.sampledAt ? fmtSampleStamp(snapshot.sampledAt).split(' · ')[0] : '—'}</small></div>
+        {referenceReady && <>
+          <div><span>Time-matched mean</span><strong>{comparableMean}</strong><small>aircraft</small></div>
+          <div><span>Difference to mean</span><strong>{delta == null ? '—' : `${delta > 0 ? '+' : ''}${delta.toFixed(1)}`}</strong><small>aircraft</small></div>
+        </>}
       </div>
 
-      <div className={clsx('private-jet-layout', selectedRecord && 'has-selection')}>
-        <aside className="private-jet-analysis">
-          <div className="private-change-queue">
-            <div className="private-change-queue__header">
-              <div>
-                <span>Change queue</span>
-                <small>{hasComparison ? `Since ${fmtClock(comparison.previousSampledAt)}` : 'Current sample'}</small>
-              </div>
-              <div className="private-queue-tabs" role="group" aria-label="Queue mode">
-                {hasComparison && <button type="button" className={queueMode === 'changes' ? 'is-active' : ''} onClick={() => setQueueMode('changes')} aria-pressed={queueMode === 'changes'}>Changes {changedRecords.length}</button>}
-                <button type="button" className={queueMode === 'all' ? 'is-active' : ''} onClick={() => setQueueMode('all')} aria-pressed={queueMode === 'all'}>Observed {positions.length}</button>
-              </div>
-            </div>
-            {data ? (
-              <div className="private-change-list" aria-label="Aircraft change queue">
-                {queueRecords.length > 0 ? queueRecords.map(record => (
-                  <ChangeQueueRow key={`${record.change}-${record.icao}`} record={record} selected={record.icao === selectedIcao} onSelect={selectRecord} />
-                )) : <p className="private-change-empty">No records changed since the prior sample.</p>}
-              </div>
-            ) : <Loading label={error ? 'Activity unavailable' : 'Loading activity'} />}
-          </div>
-          {data && (
-            <TrendChart
+      <div className="private-jet-layout">
+        <section className="private-jet-analysis" aria-label="Activity analysis">
+          {data ? (
+            <ActivityTrace
               history={data.history || []}
-              baselineCurve={data.baselineCurve || []}
-              current={airborne ?? 0}
-              mean={baseline.mean}
+              baselineCurve={referenceReady ? data.baselineCurve || [] : []}
+              snapshot={snapshot}
               rangeHours={rangeHours}
             />
+          ) : <Loading label={error ? 'Activity unavailable' : 'Loading activity'} />}
+          {data && (
+            <div className="private-change-queue">
+              <div className="private-change-queue__header">
+                <div>
+                  <span>Sample transitions</span>
+                  <small>{hasComparison ? `Compared with ${fmtClock(comparison.previousSampledAt)}` : 'Current verified sample'}</small>
+                </div>
+                <div className="private-queue-tabs" role="group" aria-label="Transition queue mode">
+                  {hasComparison && <button type="button" className={queueMode === 'changes' ? 'is-active' : ''} onClick={() => setQueueMode('changes')} aria-pressed={queueMode === 'changes'}>Transitions {changedRecords.length}</button>}
+                  <button type="button" className={queueMode === 'all' ? 'is-active' : ''} onClick={() => setQueueMode('all')} aria-pressed={queueMode === 'all'}>Current {currentPositions.length}</button>
+                </div>
+              </div>
+              <div className="private-change-list" aria-label="Aircraft transition queue">
+                {queueRecords.length > 0 ? queueRecords.map(record => (
+                  <ChangeQueueRow key={`${record.change}-${record.icao}`} record={record} selected={record.icao === selectedIcao} onSelect={selectRecord} />
+                )) : <p className="private-change-empty">No records changed since the prior verified sample.</p>}
+              </div>
+            </div>
           )}
-          {data && !selectedRecord && <MethodCoverage data={data} snapshot={snapshot} comparison={comparison} />}
-        </aside>
+        </section>
 
-        {selectedRecord && <section className="private-detail-panel" aria-label="Selected aircraft">
-          <div className="private-detail-panel__header">
-            <span>Selected record</span>
-            {selectedRecord?.change && <small>{CHANGE_LABELS[selectedRecord.change]}</small>}
-          </div>
-          <div className="private-detail-identity">
-                <strong>{selectedRecord.callsign || selectedRecord.registration || selectedRecord.icao}</strong>
-                <span>{selectedRecord.model || selectedRecord.manufacturer || 'Aircraft type unavailable'} · {selectedRecord.registration || selectedRecord.icao}</span>
-              </div>
-              <dl className="private-detail-fields">
-                <div><dt>FAA registrant</dt><dd>{selectedRecord.owner || 'Unavailable'}</dd></div>
-                <div><dt>Altitude</dt><dd>{selectedRecord.altitudeFt != null ? `${fmtNumber(selectedRecord.altitudeFt)} ft` : '—'}</dd></div>
-                <div><dt>Speed</dt><dd>{selectedRecord.speedKt != null ? `${fmtNumber(selectedRecord.speedKt)} kt` : '—'}</dd></div>
-                <div><dt>Heading</dt><dd>{selectedRecord.heading != null ? `${Math.round(selectedRecord.heading)}°` : '—'}</dd></div>
-              </dl>
-              <div className="private-detail-actions">
-                {selectedPosition && <button type="button" onClick={() => setShowMap(open => !open)} aria-expanded={showMap}>{showMap ? 'Hide map' : 'Map'}</button>}
-                <a href={`#flight=${selectedRecord.icao}${selectedRecord.callsign ? `&cs=${encodeURIComponent(selectedRecord.callsign)}` : ''}`}>Open flight record</a>
-              </div>
-              {showMap && selectedPosition && <PrivateMap positions={positions} selectedPosition={selectedPosition} trailByIcao={trailByIcao} onSelect={selectRecord} />}
-          <MethodCoverage data={data} snapshot={snapshot} comparison={comparison} />
-        </section>}
+        <aside className="private-spatial-context" aria-label="Spatial and record context">
+          {data && currentPositions.length > 0 ? (
+            <PrivateMap positions={currentPositions} selectedPosition={selectedPosition} trailByIcao={trailByIcao} sampledAt={snapshot?.sampledAt} onSelect={selectRecord} />
+          ) : (
+            <section className="private-map-empty" aria-label="Spatial context unavailable">No current positions are available for the latest verified sample.</section>
+          )}
+          <RecordInspector record={selectedRecord} currentPosition={selectedPosition} onClear={() => setSelectedIcao(null)} />
+          {data && <MethodCoverage comparison={comparison} />}
+        </aside>
       </div>
     </section>
   )

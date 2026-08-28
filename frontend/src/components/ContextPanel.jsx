@@ -70,7 +70,7 @@ export default function ContextPanel({ flight }) {
   const actionable = evidenceCount > 0
 
   return (
-    <details key={flight.icao} className="inspector-disclosure corroboration" defaultOpen={actionable}>
+    <details key={flight.icao} className="inspector-disclosure corroboration" open={actionable || undefined}>
       <summary>
         <span>Corroboration</span>
         <span className={clsx('corroboration__state', error && 'text-ylw', actionable && 'text-acc')}>

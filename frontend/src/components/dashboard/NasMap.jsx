@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { MapContainer, TileLayer, CircleMarker, Polyline, Polygon, Marker, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, CircleMarker, Polyline, Polygon, Marker, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import clsx from 'clsx'
@@ -10,6 +10,7 @@ import { fetchSigmets, fetchPireps } from '../../services/weather'
 import { fetchAnomalyFeed, fetchAnomalyHotspots, fetchFlightPositions, fetchSurfacePositions } from '../../services/dashboard'
 import { fetchMapContext } from '../../services/contextMap'
 import Loading from '../Loading'
+import OpenFreeMapLayer from '../OpenFreeMapLayer'
 
 // ── Correlation-layer icons (v5.1.0) ────────────────────────────────────────
 
@@ -611,9 +612,9 @@ export default function NasMap({ backendOk, onSelectAirport, compact = false, fl
             {!layersLoaded ? 'syncing layers' : swimWarmupLabel}
           </div>
         )}
-        <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={true} scrollWheelZoom={false} attributionControl={false}>
+        <MapContainer center={[39, -96]} zoom={4} className="h-full w-full" style={{ background: '#1a1a1a' }} zoomControl={true} scrollWheelZoom={false} attributionControl>
           <MapInvalidator />
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+          <OpenFreeMapLayer />
 
           {/* ── SIGMET polygons (weather hazards) ─────────────────────────── */}
           {showSigmets && sigmetPolys.map((s, i) => (

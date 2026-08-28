@@ -41,7 +41,10 @@ primary_region = 'iad'
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  # This service holds the FAA SWIM feed sessions. Internal polling from the
+  # main app does not count as Fly proxy traffic, so a zero minimum repeatedly
+  # stopped a healthy worker and left the NAS UI reconnecting. Keep one warm.
+  min_machines_running = 1
 
 [[vm]]
   size = 'shared-cpu-1x'

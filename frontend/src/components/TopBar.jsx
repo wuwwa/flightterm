@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
+import { formatLocalTime } from '../utils/time'
 
 export default function TopBar({ stats, backendOk, lastFetchAt }) {
   const [time, setTime] = useState('')
 
   useEffect(() => {
-    const tick = () => setTime(new Date().toISOString().substring(11, 19) + ' utc')
+    const tick = () => setTime(formatLocalTime(new Date(), { seconds: true, zone: true }))
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)

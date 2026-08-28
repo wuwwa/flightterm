@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from 'react'
-import { MapContainer, TileLayer, Polyline, Marker, CircleMarker, Tooltip, useMap } from 'react-leaflet'
+import { MapContainer, Polyline, Marker, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import clsx from 'clsx'
 import 'leaflet/dist/leaflet.css'
 import { getAirportCoords } from '../data/airports'
+import { formatLocalTime } from '../utils/time'
+import OpenFreeMapLayer from './OpenFreeMapLayer'
 
 // Great-circle distance (km) between two lat/lon points
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -120,14 +122,14 @@ function RouteStatsOverlay({ stats }) {
           </span>
         </span>
         {etaTime && (
-          <span title={`filed ETA ${new Date(etaTime).toISOString().substring(11, 16)}z`}>
+          <span title={`filed ETA ${formatLocalTime(etaTime)}`}>
             <span className="text-fg3">eta:</span>{' '}
             {etaDeltaMin != null ? (
               <span className={clsx('font-bold', etaColor)}>
                 {etaDeltaMin > 0 ? `+${etaDeltaMin}` : etaDeltaMin}m
               </span>
             ) : (
-              <span className="text-fg3">{new Date(etaTime).toISOString().substring(11, 16)}z</span>
+              <span className="text-fg3">{formatLocalTime(etaTime)}</span>
             )}
           </span>
         )}
@@ -247,7 +249,7 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, others, la
   return (
     <>
       <MapUpdater center={center} fitBounds={fitBounds} />
-      <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+      <OpenFreeMapLayer />
 
       {/* TFMS planned route — dashed line from dep to arr, colored by deviation severity */}
       {plannedRoute && (
@@ -273,7 +275,7 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, others, la
           pathOptions={{ color: '#f06a50', fillColor: '#f06a50', fillOpacity: 0.8, weight: 1 }}>
           <Tooltip direction="bottom" offset={[0, 4]} className="flight-map-tooltip">
             {(tfms?.arr_arpt || '').replace(/^K/, '')} (arr)
-            {tfms?.eta && <><br />{new Date(tfms.eta).toISOString().substring(11, 16)}z</>}
+            {tfms?.eta && <><br />{formatLocalTime(tfms.eta)}</>}
           </Tooltip>
         </CircleMarker>
       )}
@@ -314,7 +316,7 @@ function MapContent({ center, fullPath, startPos, currentPos, flight, others, la
         >
           <Tooltip direction="top" offset={[0, -2]} className="flight-map-tooltip">
             scheduled position ({Math.round(routeStats.scheduledProgress * 100)}%)
-            {routeStats.etaTime && <><br />filed ETA {new Date(routeStats.etaTime).toISOString().substring(11, 16)}z</>}
+            {routeStats.etaTime && <><br />filed ETA {formatLocalTime(routeStats.etaTime)}</>}
           </Tooltip>
         </CircleMarker>
       )}
@@ -573,7 +575,7 @@ export default function FlightMap({ snapshots, flight, flights, fullscreen, onTo
                 zoom={7}
                 className="h-full w-full"
                 zoomControl={false}
-                attributionControl={false}
+                attributionControl
                 dragging={true}
                 scrollWheelZoom={true}
                 doubleClickZoom={true}
@@ -622,7 +624,7 @@ export default function FlightMap({ snapshots, flight, flights, fullscreen, onTo
         zoom={12}
         className="h-full w-full"
         zoomControl={false}
-        attributionControl={false}
+        attributionControl
         dragging={true}
         scrollWheelZoom={true}
         doubleClickZoom={true}

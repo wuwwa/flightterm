@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { MapContainer, TileLayer, CircleMarker, Tooltip as LeafletTooltip } from 'react-leaflet'
+import { MapContainer, CircleMarker, Tooltip as LeafletTooltip } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import clsx from 'clsx'
 import axios from 'axios'
 import AIRPORTS from '../../data/airports'
+import { formatLocalTime, formatLocalDateTime } from '../../utils/time'
 import Loading from '../Loading'
 import DataLinkMark from '../DataLinkMark'
+import OpenFreeMapLayer from '../OpenFreeMapLayer'
 
 // ── AirportPicker v3 — pill trigger + map modal ─────────────────────────────
 // The current selection shows as a compact pill. Clicking opens a modal with:
@@ -219,9 +221,9 @@ function AirportPickerModal({ value, recents, onSelect, onClose, returnFocusRef 
               style={{ background: '#1a1a1a' }}
               zoomControl={true}
               scrollWheelZoom={false}
-              attributionControl={false}
+              attributionControl
             >
-              <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+              <OpenFreeMapLayer />
               {allAirports.map(([icao, ap]) => {
                 const isMatch = !matches || matches.has(icao)
                 const isSelected = icao === value
@@ -333,10 +335,7 @@ const STATUS_SHORT = {
 }
 
 function fmtTime(ts) {
-  if (!ts) return '—'
-  const d = new Date(ts)
-  if (isNaN(d)) return ts.substring?.(11, 16) || '—'
-  return d.toISOString().substring(11, 16) + 'z'
+  return formatLocalTime(ts)
 }
 
 function LoadingDots() {
@@ -699,22 +698,24 @@ export default function AirportBoard({ backendOk, airport, onAirportChange }) {
 
 // ── Flights Tab v2 — denser rows + side stats panel when nothing selected ────
 
-// Format an ETA/ETD as a relative delta from now: "+17m", "-3m", "now"
+// Format an ETA/ETD as a plain-language relative time beside its UTC value.
 function fmtRel(iso) {
   if (!iso) return null
   const t = new Date(iso).getTime()
   if (isNaN(t)) return null
   const m = Math.round((t - Date.now()) / 60000)
-  if (m === 0) return 'now'
+  if (m === 0) return { minutes: 0, label: 'now' }
   if (Math.abs(m) > 360) return null // > 6 hours, suppress (probably stale)
-  return m > 0 ? `+${m}m` : `${m}m`
+  return {
+    minutes: m,
+    label: m > 0 ? `in ${m}m` : `${Math.abs(m)}m ago`,
+  }
 }
 
 function relColor(rel) {
   if (!rel) return 'text-fg3/40'
-  if (rel === 'now') return 'text-ylw font-bold'
-  const m = parseInt(rel)
-  if (isNaN(m)) return 'text-fg3'
+  if (rel.minutes === 0) return 'text-ylw font-bold'
+  const m = rel.minutes
   if (m < 0) return 'text-fg3/40' // past
   if (m < 15) return 'text-ylw'   // imminent
   if (m < 60) return 'text-fg2'   // soon
@@ -743,24 +744,24 @@ function FlightRow({ f, onClick, isNew, isSelected, accent, originField, timeFie
     <button
       onClick={onClick}
       type="button"
-      title={`${f.acid} · ${f.dep_arpt}→${f.arr_arpt} · ${abs}${rel ? ` (${rel})` : ''}`}
+      title={`${f.acid} · ${f.dep_arpt}→${f.arr_arpt} · ${abs}${rel ? ` (${rel.label})` : ''}`}
       className={clsx(
         'w-full flex items-center gap-1.5 py-0.5 px-2 text-[9px] text-left border-0 border-b border-white/3 cursor-pointer hover:bg-bg2 transition-colors tabular-nums',
         isNew && 'animate-row-arrive',
         isSelected && 'bg-acc/10 border-l-2 border-l-acc'
       )}
     >
-      <span className={clsx('font-bold w-14 shrink-0 truncate', isSelected ? 'text-acc' : 'text-fg2')}>{f.acid}</span>
+      <span className={clsx('font-bold min-w-[5.5rem] shrink-0 whitespace-nowrap', isSelected ? 'text-acc' : 'text-fg2')}>{f.acid}</span>
       <span className="text-fg3 w-8 shrink-0">{f[originField]?.replace(/^K/, '') || '?'}</span>
       <span className={clsx('w-10 shrink-0', STATUS_COLORS[f.flight_status] || 'text-fg3/40')}>
         {STATUS_SHORT[f.flight_status] || 'Sched'}
       </span>
-      <span className="text-fg3/60 w-10 shrink-0 text-right">{fl || ''}</span>
+      <span className="text-fg3/60 flex w-10 shrink-0 justify-end tabular-nums">{fl || ''}</span>
       {/* Combined time: shows relative if known and recent, otherwise absolute */}
       <span className="ml-auto shrink-0 flex items-baseline gap-1">
         {rel ? (
           <>
-            <span className={relColor(rel)}>{rel}</span>
+            <span className={relColor(rel)}>{rel.label}</span>
             <span className={clsx('text-[8px] opacity-60', accent)}>{abs}</span>
           </>
         ) : (
@@ -815,7 +816,7 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
       className={clsx(
         'flex-1 min-h-0 grid gap-px bg-border auto-rows-[minmax(170px,1fr)] sm:auto-rows-auto overflow-y-auto sm:overflow-hidden',
         detailKey
-          ? 'grid-cols-1 sm:grid-cols-[1fr_1fr] md:grid-cols-[1fr_1fr_280px]'
+          ? 'grid-cols-1 sm:grid-cols-[1fr_1fr] lg:grid-cols-[minmax(320px,1fr)_minmax(320px,1fr)_280px]'
           : 'grid-cols-1 sm:grid-cols-[1fr_1fr]'
       )}
     >
@@ -826,10 +827,10 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
           <span className="text-fg3">{arrivals.length} inbound{recentArrivals.length > 0 ? ` · ${recentArrivals.length} landed` : ''}</span>
         </div>
         <div className="flex items-center gap-1.5 py-0 px-2 text-[7px] text-fg3/40 border-b border-white/3 shrink-0 uppercase tracking-wide">
-          <span className="w-14 shrink-0">Flight</span>
+          <span className="min-w-[5.5rem] shrink-0">Flight</span>
           <span className="w-8 shrink-0">From</span>
           <span className="w-10 shrink-0">Status</span>
-          <span className="w-10 shrink-0 text-right">Alt</span>
+          <span className="flex w-10 shrink-0 justify-end">Alt</span>
           <span className="ml-auto shrink-0">ETA</span>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto">
@@ -851,7 +852,7 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
               {recentArrivals.map(f => (
                 <button key={f.acid} type="button" onClick={() => setSelectedFlight(prev => prev === f.acid ? null : f.acid)}
                   className={clsx('w-full flex items-center gap-1.5 py-0.5 px-2 text-[9px] text-left border-0 border-b border-white/3 opacity-50 cursor-pointer hover:opacity-80 tabular-nums', selectedFlight === f.acid && 'bg-acc/10 opacity-100!')}>
-                  <span className="text-fg3 font-bold w-14 shrink-0 truncate">{f.acid}</span>
+                  <span className="text-fg3 font-bold min-w-[5.5rem] shrink-0 whitespace-nowrap">{f.acid}</span>
                   <span className="text-fg3 w-8 shrink-0">{f.dep_arpt?.replace(/^K/, '') || '?'}</span>
                   <span className="text-fg3 w-10 shrink-0">Done</span>
                   <span className="ml-auto shrink-0 text-fg3/60">{fmtTime(f.ata)}</span>
@@ -869,10 +870,10 @@ function FlightsTab({ arrivals, departures, recentArrivals, newAcids, selectedFl
           <span className="text-fg3">{departures.length} outbound</span>
         </div>
         <div className="flex items-center gap-1.5 py-0 px-2 text-[7px] text-fg3/40 border-b border-white/3 shrink-0 uppercase tracking-wide">
-          <span className="w-14 shrink-0">Flight</span>
+          <span className="min-w-[5.5rem] shrink-0">Flight</span>
           <span className="w-8 shrink-0">To</span>
           <span className="w-10 shrink-0">Status</span>
-          <span className="w-10 shrink-0 text-right">Alt</span>
+          <span className="flex w-10 shrink-0 justify-end">Alt</span>
           <span className="ml-auto shrink-0">ETD</span>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto">
@@ -1025,7 +1026,7 @@ function NotamsTab({ notams }) {
               : n.keyword ? <span className={clsx('font-bold', KW_COLORS[n.keyword])}>{KW_LABELS[n.keyword] || n.keyword}</span>
               : <span className="text-fg3">General</span>}
             <span className="ml-auto text-fg3/50 text-[8px]">
-              {n.expiration ? `exp ${n.expiration.substring(5, 16).replace('T', ' ')}z` : n.permanent ? 'PERM' : ''}
+              {n.expiration ? `exp ${formatLocalDateTime(n.expiration)}` : n.permanent ? 'PERM' : ''}
             </span>
           </div>
           <div className="text-[9px] text-fg2 font-mono leading-relaxed whitespace-pre-wrap">{n.text || n.full_text || '(no text)'}</div>
@@ -1075,7 +1076,7 @@ function SurfaceTab({ surface }) {
                 <div key={i} className="flex items-center gap-2 text-[9px] py-0.5 border-b border-white/3">
                   <span className="text-fg2 font-bold w-14">{f.callsign}</span>
                   <span className="text-ylw tabular-nums">{Math.round(f.wait_min)}m</span>
-                  <span className="ml-auto text-fg3/50 tabular-nums">{f.pushback_time?.substring(11, 16)}z</span>
+                  <span className="ml-auto text-fg3/50 tabular-nums">{formatLocalTime(f.pushback_time)}</span>
                 </div>
               ))}
             </div>
@@ -1118,7 +1119,7 @@ function SurfaceTab({ surface }) {
               <span className={clsx('w-14 shrink-0', SCOLOR[e.event_type])}>{SVERB[e.event_type]}</span>
               {e.runway && <span className="text-fg3">rwy {e.runway.split('/')[0]}</span>}
               {e.gate && <span className="text-fg3">gate {e.gate}</span>}
-              <span className="ml-auto text-fg3/50 tabular-nums shrink-0">{e.received_at?.substring(11, 19)}z</span>
+              <span className="ml-auto text-fg3/50 tabular-nums shrink-0">{formatLocalTime(e.received_at, { seconds: true })}</span>
             </div>
           ))}
         </div>
@@ -1157,7 +1158,7 @@ function FlowTab({ flow }) {
           <div className="flex items-center gap-2 text-[9px]">
             <span className={clsx('font-bold', FCOLOR[e.event_type] || 'text-fg3')}>{FTYPE[e.event_type] || e.event_type}</span>
             {e.status && <span className="text-fg3">{e.status}</span>}
-            <span className="ml-auto text-fg3/50 tabular-nums text-[8px]">{e.received_at?.substring(11, 19)}z</span>
+            <span className="ml-auto text-fg3/50 tabular-nums text-[8px]">{formatLocalTime(e.received_at, { seconds: true })}</span>
           </div>
           {e.reason && <div className="text-[8px] text-fg3">Reason: {e.reason}</div>}
           {e.text && <div className="text-[8px] text-fg2">{e.text}</div>}
@@ -1565,8 +1566,8 @@ function AltMini({ trail }) {
 }
 
 function Milestone({ label, data, planned }) {
-  const time = data?.time?.substring(11, 16)
-  const plannedStr = planned ? (() => { try { const d = new Date(planned); return !isNaN(d) ? d.toISOString().substring(11, 16) : null } catch { return null } })() : null
+  const time = formatLocalTime(data?.time)
+  const plannedStr = planned ? formatLocalTime(planned) : null
 
   return (
     <div className="flex items-center gap-1.5 text-[8px] relative z-10">
@@ -1574,13 +1575,13 @@ function Milestone({ label, data, planned }) {
       <span className={clsx('w-16 shrink-0 font-semibold', data ? 'text-fg2' : 'text-fg3/30')}>{label}</span>
       {data ? (
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <span className="text-fg2 tabular-nums font-medium">{time}z</span>
+          <span className="text-fg2 tabular-nums font-medium">{time}</span>
           <span className="text-fg3/60">{data.airport?.replace(/^K/, '')}</span>
           {data.runway && <span className="text-fg3/40 truncate">{data.runway}</span>}
         </div>
       ) : (
         <div className="flex items-center gap-1 flex-1">
-          {plannedStr ? <span className="text-fg3/30 tabular-nums">est {plannedStr}z</span> : <span className="text-fg3/20">—</span>}
+          {plannedStr ? <span className="text-fg3/30 tabular-nums">est {plannedStr}</span> : <span className="text-fg3/20">—</span>}
         </div>
       )}
     </div>

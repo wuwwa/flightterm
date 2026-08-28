@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
-import { MapContainer, TileLayer, Polyline, CircleMarker, Polygon, Tooltip } from 'react-leaflet'
+import { MapContainer, Polyline, CircleMarker, Polygon, Tooltip } from 'react-leaflet'
 import AIRPORTS, { getAirportCoords } from '../../data/airports'
 import clsx from 'clsx'
 import 'leaflet/dist/leaflet.css'
+import OpenFreeMapLayer from '../OpenFreeMapLayer'
 
 const STATUS_COLORS = {
   ACTIVE: '#b5bd68', ASCENDING: '#8abeb7', CRUISING: '#81a2be',
@@ -77,7 +78,7 @@ export default function TfmsMap({ flights, flowEvents, selectedFlight, onSelectF
         style={{ background: '#1a1a1a' }}
         zoomControl={false}
       >
-        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+        <OpenFreeMapLayer />
 
         {/* Airspace restriction polygons */}
         {airspacePolygons.map((poly, i) => (

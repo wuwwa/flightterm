@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import clsx from 'clsx'
 
 // ── Filter dimension definitions ────────────────────────────────────────────
@@ -449,96 +449,63 @@ export function computeFilterCounts(flights, { anomalies, trackHistory, enrichCa
 
 // ── FilterBar component ──────────────────────────────────────────────────────
 
-function FilterPill({ label, count, active, color, onClick, title }) {
-  const semanticColor = color === 'text-red' || color === 'text-ylw' ? color : 'text-fg2'
+function FilterChoice({ label, active, onClick, title }) {
   return (
     <button
       className={clsx(
-        'text-[10px] cursor-pointer px-1.5 py-0.5 border whitespace-nowrap transition-colors',
+        'min-h-7 px-2 border text-[10px] font-mono transition-colors whitespace-nowrap',
         active
-          ? 'bg-acc/10 border-acc text-acc font-semibold'
-          : count > 0
-            ? `bg-transparent border-border ${semanticColor} hover:border-border2 hover:text-fg`
-            : 'bg-transparent border-border text-fg3/30 cursor-default'
+          ? 'border-acc/70 bg-acc/10 text-acc'
+          : 'border-border bg-transparent text-fg2 hover:border-border2 hover:text-fg'
       )}
-      onClick={count > 0 || active ? onClick : undefined}
-      disabled={count <= 0 && !active}
+      onClick={onClick}
       aria-pressed={active}
       title={title}
     >
-      {label}{count != null ? ` ${count}` : ''}
+      {label}
     </button>
   )
 }
 
-// A chip id like "airline:ual" is already a valid /api/groups/:groupId.
-function openGroupDetails(groupId) {
-  if (!groupId || !groupId.includes(':')) return
-  window.dispatchEvent(new CustomEvent('flightterm:open-overlay', { detail: { hash: `#group=${encodeURIComponent(groupId)}` } }))
-}
-const GROUP_DIMS = new Set(['airline', 'family', 'agency', 'entity'])
-const CORE_DIMS = ['phase', 'altBand', 'status']
-const ADVANCED_DIMS = Object.keys(FILTER_DIMS).filter(dim => !CORE_DIMS.includes(dim))
+const PRIMARY_DIMS = ['status', 'phase']
+const OPERATIONAL_DIMS = ['altBand', 'speed', 'vrate', 'acClass', 'data']
+const IDENTITY_DIMS = ['airline', 'family', 'agency', 'entity']
 const MILITARY_AGENCIES = new Set(['gov:military', 'gov:usaf', 'gov:usn', 'gov:usmc', 'gov:uscg'])
 
 function isMilitaryOption(dim, id) {
   return (dim === 'status' && id === 'mil') || (dim === 'agency' && MILITARY_AGENCIES.has(id))
 }
 
-function FilterDimensionRow({ dim, def, filters, counts, onToggle, showMilitary }) {
+function FilterDimensionRow({ dim, def, filters, onToggle, showMilitary }) {
   const options = showMilitary ? def.options : def.options.filter(option => !isMilitaryOption(dim, option.id))
   return (
-    <div className="flex items-center gap-1">
-      <span className="text-fg3 text-[9px] w-12 shrink-0 text-right">{def.label}</span>
-      <div className="flex gap-0.5 flex-wrap">
-        {options.map(opt => {
-          const isGroup = GROUP_DIMS.has(dim)
-          const count = counts[dim]?.[opt.id] || 0
-          return (
-            <span key={opt.id} className="inline-flex items-center">
-              <FilterPill
-                label={opt.label}
-                count={count}
-                active={(filters[dim] || []).includes(opt.id)}
-                color={opt.color}
-                onClick={() => onToggle(dim, opt.id)}
-                title={opt.desc || opt.label}
-              />
-              {isGroup && count > 0 && (
-                <button
-                  className="px-1 py-0.5 border border-l-0 border-border text-[10px] text-fg3 hover:text-acc"
-                  onClick={() => openGroupDetails(opt.id)}
-                  aria-label={`Open ${opt.label} group record`}
-                  title={`Open ${opt.label} group record`}
-                >
-                  ↗
-                </button>
-              )}
-            </span>
-          )
-        })}
+    <div className="filter-dimension-row">
+      <span className="filter-dimension-row__label">{def.label}</span>
+      <div className="filter-dimension-row__choices">
+        {options.map(opt => (
+          <FilterChoice
+            key={opt.id}
+            label={opt.label}
+            active={(filters[dim] || []).includes(opt.id)}
+            onClick={() => onToggle(dim, opt.id)}
+            title={opt.desc || opt.label}
+          />
+        ))}
       </div>
     </div>
   )
 }
 
-export default function FilterBar({ filters, onChange, counts, totalFiltered, totalFlights, queryActive = false, onClearQuery, showMilitary = false, onShowMilitaryChange }) {
+export default function FilterBar({ filters, onChange, queryActive = false, onClearQuery, showMilitary = false, onShowMilitaryChange }) {
   const [expanded, setExpanded] = useState(() => isFiltersActive(filters) || queryActive)
   const active = isFiltersActive(filters) || queryActive
-  const advancedActive = ADVANCED_DIMS.some(dim => (filters[dim] || []).length > 0)
+  const operationalActive = OPERATIONAL_DIMS.some(dim => (filters[dim] || []).length > 0)
+  const identityActive = IDENTITY_DIMS.some(dim => (filters[dim] || []).length > 0)
 
   const toggleDim = (dim, id) => {
     const prev = filters[dim] || []
     const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     onChange({ ...filters, [dim]: next, preset: null })
-  }
-
-  const setPreset = (id) => {
-    if (filters.preset === id) {
-      onChange(emptyFilters())
-    } else {
-      onChange({ ...emptyFilters(), preset: id })
-    }
   }
 
   const clearAll = () => {
@@ -562,113 +529,104 @@ export default function FilterBar({ filters, onChange, counts, totalFiltered, to
   return (
     <div className="bg-bg border-b border-border text-[10px]">
       {/* Toggle row */}
-      <div className="flex items-center gap-1 px-1.5 sm:px-2.5 py-0.5">
+      <div className="flex items-center gap-2 px-2.5 py-1.5">
         <button
           className={clsx(
-            'flight-filter-toggle text-[10px] cursor-pointer font-mono px-1.5 py-0 rounded border',
-            expanded
-              ? 'bg-acc/10 border-acc/40 text-acc'
-              : active
-                ? 'bg-acc/10 border-acc/40 text-acc'
-                : 'bg-transparent border-border text-fg3 hover:text-fg2'
+            'flight-filter-toggle min-h-7 text-[10px] cursor-pointer font-mono px-2 border transition-colors',
+            expanded || active
+              ? 'bg-acc/10 border-acc/70 text-acc'
+              : 'bg-transparent border-border text-fg2 hover:border-border2 hover:text-fg'
           )}
           onClick={() => setExpanded(e => !e)}
           aria-expanded={expanded}
           aria-controls="flight-filter-panel"
         >
-          filters {active ? `(${totalFiltered}/${totalFlights})` : ''}
-          <span className="ml-1 text-[8px]">{expanded ? '▲' : '▼'}</span>
+          Filters
+          <span className="ml-1 text-[8px]" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
         </button>
 
         {onShowMilitaryChange && (
           <button
             className={clsx(
-              'text-[10px] cursor-pointer font-mono px-1.5 py-0 rounded border',
+              'min-h-7 text-[10px] cursor-pointer font-mono px-2 border transition-colors',
               showMilitary
-                ? 'bg-red/8 border-red/45 text-red'
-                : 'bg-transparent border-border text-fg3 hover:text-fg2'
+                ? 'bg-acc/10 border-acc/70 text-acc'
+                : 'bg-transparent border-border text-fg2 hover:border-border2 hover:text-fg'
             )}
             onClick={toggleMilitaryVisibility}
             aria-pressed={showMilitary}
             title={showMilitary ? 'Hide military tags' : 'Show military tags'}
           >
-            {showMilitary ? 'mil tags' : 'show mil tags'}
+            {showMilitary ? 'Military tags' : 'Include military tags'}
           </button>
         )}
 
         {active && (
           <button
-            className="ml-auto text-[9px] text-red cursor-pointer font-mono px-1 py-0 border border-red/30 rounded hover:bg-red/10"
+            className="ml-auto min-h-7 text-[10px] text-fg2 cursor-pointer font-mono px-2 border border-border hover:border-border2 hover:text-fg"
             onClick={clearAll}
           >
-            clear
+            Clear all
           </button>
         )}
       </div>
 
       {/* Expanded filter dimensions */}
       {expanded && (
-        <div id="flight-filter-panel" className="px-1.5 sm:px-2.5 pb-1.5 space-y-1 border-t border-white/3 pt-1">
-          <div className="flex items-center gap-1">
-            <span className="text-fg3 text-[9px] w-12 shrink-0 text-right">Presets</span>
-            <div className="flex gap-0.5 flex-wrap">
-              {PRESETS.filter(p => showMilitary || p.id !== 'military').map(p => (
-                <FilterPill
-                  key={p.id}
-                  label={p.label}
-                  count={counts.presets?.[p.id] || 0}
-                  active={filters.preset === p.id}
-                  color={p.color}
-                  onClick={() => setPreset(p.id)}
-                  title={p.desc}
-                />
-              ))}
-            </div>
+        <div id="flight-filter-panel" className="filter-panel">
+          <p className="filter-panel__hint">Selections combine across groups. Choose multiple values within a group to widen the match.</p>
+          <div className="filter-airport-control">
+            <label htmlFor="flight-airport-filter">Airport</label>
+            <input
+              id="flight-airport-filter"
+              value={filters.airport}
+              onChange={e => onChange({ ...filters, airport: e.target.value, preset: null })}
+              placeholder="ICAO, e.g. KJFK"
+              maxLength={4}
+            />
+            <span>departure or arrival</span>
           </div>
-          {CORE_DIMS.map(dim => (
+          {PRIMARY_DIMS.map(dim => (
             <FilterDimensionRow
               key={dim}
               dim={dim}
               def={FILTER_DIMS[dim]}
               filters={filters}
-              counts={counts}
               onToggle={toggleDim}
               showMilitary={showMilitary}
             />
           ))}
 
-          <details className="border-t border-white/3 pt-1" open={advancedActive || undefined}>
-            <summary className="ml-[52px] cursor-pointer text-fg3 text-[9px] hover:text-fg2">More filters</summary>
-            <div className="mt-1 space-y-1">
-              {ADVANCED_DIMS.map(dim => (
+          <details className="filter-disclosure" open={operationalActive || undefined}>
+            <summary>Operational filters</summary>
+            <div className="filter-disclosure__content">
+              {OPERATIONAL_DIMS.map(dim => (
                 <FilterDimensionRow
                   key={dim}
                   dim={dim}
                   def={FILTER_DIMS[dim]}
                   filters={filters}
-                  counts={counts}
                   onToggle={toggleDim}
                   showMilitary={showMilitary}
                 />
               ))}
             </div>
           </details>
-
-          {/* Airport filter */}
-          <div className="flex items-center gap-1">
-            <label htmlFor="flight-airport-filter" className="text-fg3 text-[9px] w-12 shrink-0 text-right">Airport</label>
-            <input
-              id="flight-airport-filter"
-              className="bg-bg2 border border-border text-fg text-[10px] font-mono px-1.5 py-0 rounded w-20 outline-none focus:border-acc/50"
-              value={filters.airport}
-              onChange={e => onChange({ ...filters, airport: e.target.value, preset: null })}
-              placeholder="KJFK"
-              maxLength={4}
-            />
-            {filters.airport && (
-              <span className="text-fg3 text-[9px]">dep or arr</span>
-            )}
-          </div>
+          <details className="filter-disclosure" open={identityActive || undefined}>
+            <summary>Aircraft and operator filters</summary>
+            <div className="filter-disclosure__content">
+              {IDENTITY_DIMS.map(dim => (
+                <FilterDimensionRow
+                  key={dim}
+                  dim={dim}
+                  def={FILTER_DIMS[dim]}
+                  filters={filters}
+                  onToggle={toggleDim}
+                  showMilitary={showMilitary}
+                />
+              ))}
+            </div>
+          </details>
         </div>
       )}
     </div>

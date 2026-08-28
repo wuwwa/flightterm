@@ -13,6 +13,7 @@ import TfmsPanel from './components/tfms/TfmsPanel'
 import BusinessJetTracker from './components/BusinessJetTracker'
 import FlightInspectorModal from './components/FlightInspectorModal'
 import { SwimProvider } from './contexts/SwimContext'
+import StartupStatus from './components/StartupStatus'
 
 import axios from 'axios'
 import { fetchStates } from './services/opensky'
@@ -28,6 +29,7 @@ const DEFAULT_SETTINGS = {
   userAeroKey: '',
   userOsClientId: '',
   userOsClientSecret: '',
+  timeMode: 'local',
 }
 
 function loadSettings() {
@@ -403,7 +405,20 @@ export default function App() {
 
   // ── loading state for initial boot ──────────────────────────────────────────
   const [booting, setBooting] = useState(true)
-  const [bootMsg, setBootMsg] = useState('Connecting')
+  const [bootPhase, setBootPhase] = useState('connecting')
+  const [bootAttempt, setBootAttempt] = useState(0)
+  const [bootStartedAt, setBootStartedAt] = useState(() => Date.now())
+  const [bootRun, setBootRun] = useState(0)
+
+  const retryBoot = useCallback(() => {
+    setBooting(true)
+    setBootPhase('connecting')
+    setBootAttempt(0)
+    setBootStartedAt(Date.now())
+    setFlightDataError(null)
+    setFlightDataStatus(previous => flights.length ? 'stale' : 'loading')
+    setBootRun(previous => previous + 1)
+  }, [flights.length])
 
   // ── backend health check → initial fetch → auto ────────────────────────────
   useEffect(() => {
@@ -418,11 +433,12 @@ export default function App() {
       for (let i = 0; i < retries; i++) {
         try {
           console.log(`[boot] health check attempt ${i + 1}/${retries}`)
-          setBootMsg(i === 0 ? 'Connecting' : `Retrying (${i + 1}/${retries})`)
+          setBootAttempt(i + 1)
+          setBootPhase('connecting')
           if (i > 0) log(`backend: retrying… (${i + 1}/${retries})`, 'warn')
           const d = await checkHealth()
           if (cancelled) return null
-          setBootMsg('Preparing live traffic')
+          setBootPhase('traffic')
           setBackendOk(true)
           log(`backend ok · opensky: ${d.opensky_configured ? '✓' : '✗'} · aeroapi: ${d.aeroapi_configured ? '✓' : '✗'} · notam: ${d.faa_notam_configured ? '✓' : '✗'}`, 'ok')
           console.log('[boot] backend ready:', {
@@ -440,7 +456,7 @@ export default function App() {
         }
       }
       setBackendOk(false)
-      setBootMsg('Live traffic unavailable')
+      setBootPhase('offline')
       log('backend offline — start the Express server (cd backend && npm run dev)', 'warn')
       console.log('[boot] backend unreachable after retries')
       return null
@@ -453,15 +469,14 @@ export default function App() {
 
       if (health) {
         log('loading usage data…', 'info')
-        setBootMsg('Checking data access')
         console.log('[boot] refreshing usage data')
-        await Promise.allSettled([refreshAeroSpend(), refreshOpenskyUsage()])
-        log('usage data loaded', 'ok')
-      }
+        // Usage is secondary to the first usable workspace. Refresh it in the
+        // background instead of making a cold visitor wait for it.
+        Promise.allSettled([refreshAeroSpend(), refreshOpenskyUsage()])
+          .then(() => { if (!cancelled) log('usage data loaded', 'ok') })
 
-      if (health) {
         log('fetching initial flight data…', 'info')
-        setBootMsg('Updating flight index')
+        setBootPhase('traffic')
         console.log('[boot] initial fetch')
         await Promise.race([
           fetchFlightsRef.current?.() || Promise.resolve(),
@@ -474,20 +489,24 @@ export default function App() {
       }
 
       setBooting(false)
-      setBootMsg('')
       log('flightterm v4 ready', 'ok')
       console.log('[boot] complete')
     }
 
     boot()
     return () => { cancelled = true }
-  }, [])
+  }, [bootRun])
 
   useEffect(() => {
     if (!booting || !backendOk || flights.length === 0) return
-    setBootMsg('')
     setBooting(false)
   }, [booting, backendOk, flights.length])
+
+  // Once a verified traffic sample lands, startup timing is no longer relevant.
+  // Later feed staleness uses the normal inline recovery state instead.
+  useEffect(() => {
+    if (flightDataStatus === 'live') setBootPhase('ready')
+  }, [flightDataStatus])
 
   // Backend health is live state, not a boot-time latch. This lets every
   // workspace recover after an outage (and stop claiming live data during one).
@@ -884,6 +903,17 @@ export default function App() {
         <CommandBar
           activeView={activeView}
           onViewChange={handleViewChange}
+        />
+
+        <StartupStatus
+          booting={booting}
+          phase={bootPhase}
+          attempt={bootAttempt}
+          startedAt={bootStartedAt}
+          backendOk={backendOk}
+          flightDataStatus={flightDataStatus}
+          flightDataError={flightDataError}
+          onRetry={retryBoot}
         />
 
         {activeView === 'flights' && (
