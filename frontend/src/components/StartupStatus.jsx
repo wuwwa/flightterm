@@ -1,6 +1,4 @@
 import PulseMark from './PulseMark'
-// Service availability belongs in a compact status strip. Startup mechanics and
-// dependent-feed progress are operational internals, not workspace content.
 export default function StartupStatus({ phase, backendOk, onRetry }) {
   if (backendOk) return null
   const unavailable = phase === 'offline'
