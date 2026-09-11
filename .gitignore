@@ -2,10 +2,10 @@ node_modules/
 backend/node_modules/
 frontend/node_modules/
 frontend/dist/
-.claude/worktrees/
+.claude/
 
-# env files — every location/prefix, with or without a leading dot.
-# NOTE: the real secret file is `backend/env` (no dot), so dotless patterns matter.
+# Environment files
+# Include legacy dotless env files.
 .env
 .env.*
 *.env
@@ -21,9 +21,10 @@ backend/*.db
 backend/*.db-wal
 backend/*.db-shm
 
-# Playwright MCP artifacts
+# Local tool artifacts
 .playwright-mcp/
 .codex-logs/
+*.local-wip
 *.png
 !frontend/public/og.png
 
