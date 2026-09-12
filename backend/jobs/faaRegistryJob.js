@@ -332,11 +332,10 @@ function shouldIngest({ stalenessMs = STALENESS_MS } = {}) {
   return { needed: false, ageMs, count }
 }
 
-// Call from the Express startup path. Non-blocking: kicks off the job on the
-// next tick so the server starts listening immediately. Logs & swallows
-// errors so a transient FAA outage never crashes the process.
-function scheduleStartupIngest({ stalenessMs = STALENESS_MS } = {}) {
-  setImmediate(async () => {
+// Reuse the saved cohort during the first visit. Empty installs bootstrap promptly.
+function scheduleStartupIngest({ stalenessMs = STALENESS_MS, delayMs = Number(process.env.FAA_REGISTRY_STARTUP_DELAY_MS) || 120_000 } = {}) {
+  const wait = db.getFaaRegistryCount() > 0 && db.getFaaAircraftRefCount() > 0 ? delayMs : 1000
+  return setTimeout(async () => {
     try {
       const check = shouldIngest({ stalenessMs })
       if (!check.needed) {
@@ -352,7 +351,7 @@ function scheduleStartupIngest({ stalenessMs = STALENESS_MS } = {}) {
     } catch (err) {
       console.error('[faa-registry] startup ingest failed:', err.message)
     }
-  })
+  }, wait).unref()
 }
 
 // Weekly re-ingest for warm machines. Returns the timer handle so callers

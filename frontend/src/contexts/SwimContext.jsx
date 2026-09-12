@@ -11,7 +11,8 @@ const FAST   = 10_000  // 10s — flights, oooi, status, NAS summary
 const MEDIUM = 30_000  // 30s — flow events, weather, TFRs
 const SLOW   = 60_000  // 60s — airport configs, NOTAM airports
 
-export function SwimProvider({ backendOk, children }) {
+export function SwimProvider({ backendOk: backendAvailable, active = true, children }) {
+  const backendOk = backendAvailable && active
   const [status, setStatus] = useState(null)
   const [flowEvents, setFlowEvents] = useState([])
   const [flights, setFlights] = useState([])
@@ -25,10 +26,12 @@ export function SwimProvider({ backendOk, children }) {
   const [wakeState, setWakeState] = useState({ state: 'idle' })
   const wakeInFlightRef = useRef(null)
   const autoWakeAttemptedRef = useRef(false)
+  const activeRef = useRef(backendOk)
+  activeRef.current = backendOk
 
   // Fast tier (10s): flight positions, surface events, feed status, NAS health
   const refreshFast = useCallback(async () => {
-    if (!backendOk) return
+    if (!activeRef.current) return
     const results = await Promise.allSettled([
       axios.get('/api/swim/status'),
       axios.get('/api/swim/flights', { params: { limit: 200 } }),
@@ -46,7 +49,7 @@ export function SwimProvider({ backendOk, children }) {
   }, [backendOk])
 
   const wakeSwim = useCallback(async () => {
-    if (!backendOk) return null
+    if (!activeRef.current) return null
     if (status?.workerConnected) {
       setWakeState({ state: 'connected' })
       return { ok: true, state: 'connected' }
@@ -113,7 +116,8 @@ export function SwimProvider({ backendOk, children }) {
   }, [backendOk, refreshFast, refreshMedium, refreshSlow])
 
   useEffect(() => {
-    if (!backendOk || autoWakeAttemptedRef.current || status?.workerConnected) return
+    if (!backendOk) { autoWakeAttemptedRef.current = false; return }
+    if (autoWakeAttemptedRef.current || status?.workerConnected) return
     autoWakeAttemptedRef.current = true
     wakeSwim().catch(() => {})
   }, [backendOk, status?.workerConnected, wakeSwim])

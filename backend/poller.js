@@ -1351,6 +1351,7 @@ function getFlights() {
   return {
     flights,
     fetchedAt: lastFetchAt,
+    feedSource: lastFeedSource,
     region: process.env.POLL_REGION || 'usa',
     count: flights.length,
     pollInterval: POLL_INTERVAL,

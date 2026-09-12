@@ -8,6 +8,7 @@ RUN npm install --omit=dev
 
 # Copy worker entry point + swim modules + anomaly (for AIRPORTS list)
 COPY backend/swim-service.js .
+COPY backend/idleLease.js .
 COPY backend/swim/ swim/
 COPY backend/anomaly.js .
 

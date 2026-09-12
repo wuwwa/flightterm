@@ -1,19 +1,20 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import clsx from 'clsx'
 
 import CommandBar from './components/CommandBar'
 import FlightTable from './components/FlightTable'
 import { emptyFilters } from './components/FilterBar'
 import InterestingFeed from './components/InterestingFeed'
-import FlightDossier from './components/FlightDossier'
-import GroupDossier from './components/GroupDossier'
+const FlightDossier = lazy(() => import('./components/FlightDossier'))
+const GroupDossier = lazy(() => import('./components/GroupDossier'))
 import DataAccountPanel from './components/DataAccountPanel'
 import NasPanel from './components/NasPanel'
-import TfmsPanel from './components/tfms/TfmsPanel'
-import BusinessJetTracker from './components/BusinessJetTracker'
+const TfmsPanel = lazy(() => import('./components/tfms/TfmsPanel'))
+const BusinessJetTracker = lazy(() => import('./components/BusinessJetTracker'))
 import FlightInspectorModal from './components/FlightInspectorModal'
 import { SwimProvider } from './contexts/SwimContext'
 import StartupStatus from './components/StartupStatus'
+import usePageVisible from './hooks/usePageVisible'
 
 import axios from 'axios'
 import { fetchStates } from './services/opensky'
@@ -65,6 +66,8 @@ function makeEntry(msg, type = '') {
 }
 
 export default function App() {
+  const pageVisible = usePageVisible()
+  const [privateRecorded, setPrivateRecorded] = useState(false)
   // ── core state ──────────────────────────────────────────────────────────────
   const [flights, setFlights] = useState([])
   const [, setLogEntries] = useState([])
@@ -328,6 +331,8 @@ export default function App() {
   const [anomalies, setAnomalies] = useState({}) // { icao: { score, phase, reasons[], confirmed, label } }
 
   // ── route cache: callsign → { destination_lat, destination_lon, destination_icao, ... }
+  const flightDemandRef = useRef(false)
+  flightDemandRef.current = pageVisible && activeView === 'flights'
   const routeCacheRef = useRef({})    // in-memory mirror of backend cache
   const enrichQueueRef = useRef([])   // callsigns waiting for route enrichment
   const enrichingRef = useRef(false)
@@ -338,7 +343,7 @@ export default function App() {
     enrichingRef.current = true
 
     async function processQueue() {
-      while (enrichQueueRef.current.length > 0) {
+      while (enrichQueueRef.current.length > 0 && flightDemandRef.current) {
         const cs = enrichQueueRef.current.shift()
         try {
           const route = await fetchRouteOnly(cs)
@@ -431,6 +436,7 @@ export default function App() {
     // Retry health check up to 10 times (covers Fly cold start)
     async function waitForBackend(retries = 18, delay = 2500) {
       for (let i = 0; i < retries; i++) {
+        if (cancelled || document.visibilityState === 'hidden') return null
         try {
           console.log(`[boot] health check attempt ${i + 1}/${retries}`)
           setBootAttempt(i + 1)
@@ -511,6 +517,7 @@ export default function App() {
   // Backend health is live state, not a boot-time latch. This lets every
   // workspace recover after an outage (and stop claiming live data during one).
   useEffect(() => {
+    if (!pageVisible || (activeView === 'private' && privateRecorded)) return
     let cancelled = false
     const refreshHealth = async () => {
       try {
@@ -527,7 +534,7 @@ export default function App() {
     refreshHealth()
     const id = setInterval(refreshHealth, 15_000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [])
+  }, [pageVisible, activeView, privateRecorded])
 
   // ── fetch flights ─────────────────────────────────────────────────────────────
   // Primary path: read from backend poller cache (GET /api/flights).
@@ -540,7 +547,7 @@ export default function App() {
   const [pollInterval, setPollInterval] = useState(null) // poll interval from backend (ms)
 
   const fetchFlights = useCallback(async () => {
-    if (fetchingRef.current) return
+    if (fetchingRef.current || !pageVisible || activeView !== 'flights') return
 
     const requestId = ++flightsRequestRef.current
     const requestedRegion = region
@@ -681,17 +688,11 @@ export default function App() {
 
     fetchingRef.current = false
     setFetching(false)
-  }, [settings, region, log, pollInterval, refreshOpenskyUsage, flights.length])
+  }, [settings, region, log, pollInterval, refreshOpenskyUsage, flights.length, pageVisible, activeView])
 
   useEffect(() => {
     fetchFlightsRef.current = fetchFlights
   }, [fetchFlights])
-
-  useEffect(() => {
-    if (backendOk && (flightDataStatus === 'unavailable' || flightDataStatus === 'stale')) {
-      fetchFlightsRef.current?.()
-    }
-  }, [backendOk, flightDataStatus])
 
   const previousRegionRef = useRef(region)
   useEffect(() => {
@@ -702,6 +703,7 @@ export default function App() {
 
   // ── SSE: receive anomalies from backend poller ──────────────────────────────
   useEffect(() => {
+    if (!pageVisible || activeView !== 'flights') return
     const baseUrl = import.meta.env.VITE_API_URL || ''
     const es = new EventSource(`${baseUrl}/api/anomalies/stream`)
 
@@ -744,7 +746,7 @@ export default function App() {
     }
 
     return () => es.close()
-  }, [log])
+  }, [log, pageVisible, activeView])
 
   // ── auto-refresh ──────────────────────────────────────────────────────────────
   // Polls backend cache at half the poller interval (floor 5s). This is cheap
@@ -752,12 +754,14 @@ export default function App() {
   // as it trickles in between poller cycles, and new flight positions as soon as
   // the poller fetches.
   useEffect(() => {
+    if (!pageVisible || activeView !== 'flights' || !backendOk) return
+    fetchFlightsRef.current?.()
     const interval = Math.max(5000, Math.round((pollInterval || 45000) / 2))
     const id = setInterval(() => {
       fetchFlightsRef.current?.()
     }, interval)
     return () => clearInterval(id)
-  }, [pollInterval])
+  }, [pollInterval, pageVisible, activeView, backendOk])
 
   // ── region change ─────────────────────────────────────────────────────────────
   const handleRegionChange = (r) => {
@@ -897,15 +901,15 @@ export default function App() {
 
   // ── render ────────────────────────────────────────────────────────────────────
   return (
-    <SwimProvider backendOk={backendOk}>
-    <>
+    <SwimProvider backendOk={backendOk} active={pageVisible && activeView === 'airports'}>
+    <Suspense fallback={<p className="workspace-loading" role="status">Opening workspace…</p>}>
       <div className="app-shell flex flex-col min-h-screen" inert={mobileInspectorOpen || showDataAccount || dossier || groupDossier ? true : undefined} aria-hidden={mobileInspectorOpen || showDataAccount || dossier || groupDossier ? 'true' : undefined}>
         <CommandBar
           activeView={activeView}
           onViewChange={handleViewChange}
         />
 
-        <StartupStatus
+        {activeView === 'flights' && <StartupStatus
           booting={booting}
           phase={bootPhase}
           attempt={bootAttempt}
@@ -914,7 +918,7 @@ export default function App() {
           flightDataStatus={flightDataStatus}
           flightDataError={flightDataError}
           onRetry={retryBoot}
-        />
+        />}
 
         {activeView === 'flights' && (
           <main className="view-frame view-frame--flights" aria-label="Flights workspace">
@@ -985,16 +989,25 @@ export default function App() {
 
         {activeView === 'airports' && (
           <main className="view-frame operations-workspace" aria-label="Airport and national airspace operations">
-            <NasPanel backendOk={backendOk} />
-            <TfmsPanel backendOk={backendOk} />
+            <NasPanel backendOk={backendOk && pageVisible} />
+            <TfmsPanel backendOk={backendOk && pageVisible} />
           </main>
         )}
 
         {activeView === 'private' && (
           <main className="view-frame private-jet-workspace" aria-label="Private jet activity workspace">
-            <BusinessJetTracker backendOk={backendOk} />
+            <BusinessJetTracker backendOk={backendOk} onRecordedChange={setPrivateRecorded} />
           </main>
         )}
+
+        <footer className="app-source-footer">
+          <a href="https://github.com/wuwwa/flightterm" target="_blank" rel="noreferrer" aria-label="View FlightTerm by @wuwwa on GitHub">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.2a6.8 6.8 0 0 0-2.15 13.25c.34.06.46-.15.46-.33v-1.3c-1.88.4-2.27-.8-2.27-.8-.3-.78-.75-.99-.75-.99-.61-.42.05-.41.05-.41.68.05 1.03.69 1.03.69.6 1.03 1.58.73 1.97.56.06-.44.24-.73.43-.9-1.5-.17-3.08-.75-3.08-3.34 0-.74.26-1.34.69-1.81-.07-.17-.3-.86.07-1.79 0 0 .57-.18 1.86.69a6.47 6.47 0 0 1 3.39 0c1.29-.87 1.86-.69 1.86-.69.37.93.14 1.62.07 1.79.43.47.69 1.07.69 1.81 0 2.6-1.58 3.17-3.09 3.34.24.21.46.62.46 1.25v1.85c0 .18.12.39.46.33A6.8 6.8 0 0 0 8 1.2Z" fill="currentColor" /></svg>
+            <span className="app-source-footer__credit">Built by <strong>@wuwwa</strong></span>
+            <span className="app-source-footer__divider" aria-hidden="true">·</span>
+            <span className="app-source-footer__brand">GitHub</span>
+          </a>
+        </footer>
 
       </div>
 
@@ -1066,7 +1079,7 @@ export default function App() {
         />
       )}
 
-    </>
+    </Suspense>
     </SwimProvider>
   )
 }

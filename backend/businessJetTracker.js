@@ -1,6 +1,7 @@
 const axios = require('axios')
 const zlib = require('zlib')
 const db = require('./db')
+const { freshness, compareSamples, FRESH_MS } = require('./businessJetState')
 
 const DEFAULT_INTERVAL_MS = 30 * 60 * 1000
 const SNAPSHOT_INTERVAL_MS = Number(process.env.BUSINESS_JET_TRACKER_INTERVAL_MS) || DEFAULT_INTERVAL_MS
@@ -18,12 +19,16 @@ let running = false
 let inFlight = null
 let lastError = null
 let lastSampleAt = null
+let liveState = null
+let referenceCache = null
+let lastRefreshAttempt = 0
 let lastRuntimeAudit = {
   managedOperatorExcluded: 0,
   managedOperatorPrefixes: MANAGED_OPERATOR_CALLSIGN_PREFIXES,
 }
 
 function toNumber(v) {
+  if (v == null || v === '') return null
   const n = Number(v)
   return Number.isFinite(n) ? n : null
 }
@@ -118,7 +123,7 @@ function fetchSnapshotFromPoller() {
   const bundle = poller.getFlights?.() || { flights: [] }
   const flights = bundle.flights || []
   return {
-    source: 'poller',
+    source: `poller:${bundle.feedSource || 'unknown'}:${bundle.region || 'unknown'}`,
     aircraft: flights.map(normalizeAircraft).filter(Boolean),
     totalFeedCount: flights.length,
     sampledAt: bundle.fetchedAt ? new Date(bundle.fetchedAt) : new Date(),
@@ -151,7 +156,7 @@ function ensureCohort() {
 }
 
 function computeUnusualScore(count, baseline) {
-  if (!baseline || baseline.samples < MIN_CALIBRATION_SAMPLES || baseline.median == null) {
+  if (!baseline || baseline.samples < MIN_CALIBRATION_SAMPLES || Number(baseline.distinctDays || 0) < 7 || baseline.median == null) {
     return null
   }
   if (baseline.max != null && count > baseline.max) return 1
@@ -164,7 +169,7 @@ function computeUnusualScore(count, baseline) {
 
 function calibrationStatus(baseline, historyTemplateConfigured = !!HISTORY_URL_TEMPLATE) {
   const samples = Number(baseline?.samples || 0)
-  if (samples >= MIN_CALIBRATION_SAMPLES) {
+  if (samples >= MIN_CALIBRATION_SAMPLES && Number(baseline?.distinctDays) >= 7) {
     return {
       state: 'calibrated',
       label: 'calibrated',
@@ -198,7 +203,7 @@ function isRecentLiveSample(sampledAt = new Date()) {
   return Number.isFinite(nextAllowed) && Number.isFinite(now) && now < nextAllowed
 }
 
-async function sampleOnce({ url = SNAPSHOT_URL, source = null, sampledAt = null } = {}) {
+async function sampleOnce({ url = SNAPSHOT_URL, source = null, sampledAt = null, live = false } = {}) {
   if (inFlight) return inFlight
   inFlight = (async () => {
     const cohortInfo = ensureCohort()
@@ -211,7 +216,7 @@ async function sampleOnce({ url = SNAPSHOT_URL, source = null, sampledAt = null 
     if (sampledAt) snapshot.sampledAt = sampledAt instanceof Date ? sampledAt : new Date(sampledAt)
     if (source) snapshot.source = source
     const isHistorical = source === 'history'
-    if (!isHistorical && isRecentLiveSample(snapshot.sampledAt)) {
+    if (!isHistorical && !live && isRecentLiveSample(snapshot.sampledAt)) {
       const latest = db.getBusinessJetLatest({ historyHours: 1 }).snapshot
       lastSampleAt = latest?.sampled_at || lastSampleAt
       return {
@@ -236,6 +241,10 @@ async function sampleOnce({ url = SNAPSHOT_URL, source = null, sampledAt = null 
       throw new Error(`business jet tracker source ${snapshot.source} returned no aircraft; skipping snapshot`)
     }
 
+    if (!isHistorical && freshness(snapshot.sampledAt).state !== 'live') {
+      throw new Error('Waiting for a fresh shared flight feed; keeping the saved sample')
+    }
+    if (!cohortRows.length) throw new Error('Aircraft registry is preparing; no cohort available yet')
     const matched = []
     let managedOperatorExcluded = 0
     const managedOperatorExcludedByPrefix = {}
@@ -265,10 +274,30 @@ async function sampleOnce({ url = SNAPSHOT_URL, source = null, sampledAt = null 
       managedOperatorPrefixes: MANAGED_OPERATOR_CALLSIGN_PREFIXES,
     }
     const airborne = matched.filter(m => m.airborne)
+    if (live) {
+      const previous = liveState
+      const positions = airborne.map(p => ({
+        icao: p.icao24_hex, callsign: p.callsign, registration: p.n_number,
+        owner: p.owner_name, manufacturer: p.aircraft_mfr, model: p.aircraft_model,
+        lat: p.lat, lon: p.lon, altitudeFt: p.altitude_ft, speedKt: p.speed_kt,
+        heading: p.heading, sampledAt: snapshot.sampledAt.toISOString(),
+      }))
+      const current = { sampledAt: snapshot.sampledAt.toISOString(), source: snapshot.source,
+        cohortVersion: db.BUSINESS_JET_COHORT_VERSION, positions }
+      liveState = { ...current, comparison: compareSamples(current, previous),
+        snapshot: { sampledAt: current.sampledAt, source: current.source, cohortVersion: current.cohortVersion,
+          airborneCount: airborne.length, matchedCount: matched.length, totalFeedCount: snapshot.totalFeedCount, cohortSize: cohortRows.length } }
+      if (previous?.sampledAt === current.sampledAt) liveState.comparison = previous.comparison
+      lastSampleAt = current.sampledAt
+      lastError = null
+      // Live positions follow feed cycles; durable history remains half-hourly.
+      if (isRecentLiveSample(snapshot.sampledAt)) return liveState
+    }
     const baseline = db.getBusinessJetBaseline({
       sampledAt: snapshot.sampledAt,
       days: BASELINE_DAYS,
       windowMinutes: BASELINE_WINDOW_MINUTES,
+      source: snapshot.source,
     })
     const unusualScore = computeUnusualScore(airborne.length, baseline)
     const recorded = db.recordBusinessJetSnapshot({
@@ -281,6 +310,7 @@ async function sampleOnce({ url = SNAPSHOT_URL, source = null, sampledAt = null 
       unusualScore,
     })
     lastSampleAt = recorded.sampled_at
+    referenceCache = null
     lastError = null
     return {
       ...recorded,
@@ -327,11 +357,15 @@ async function backfillHistorical({ start, end, stepMinutes = 30, urlTemplate = 
 function getTrackerState() {
   const data = db.getBusinessJetLatest({ historyHours: 168 })
   const snap = data.snapshot
-  const computedBaseline = snap ? db.getBusinessJetBaseline({
-    sampledAt: snap.sampled_at,
-    days: BASELINE_DAYS,
-    windowMinutes: BASELINE_WINDOW_MINUTES,
-  }) : null
+  const referenceAt = liveState?.sampledAt || snap?.sampled_at
+  const referenceSource = liveState?.source || snap?.source
+  const cacheKey = `${snap?.id}:${db.BUSINESS_JET_COHORT_VERSION}:${Math.floor(new Date(referenceAt).getTime() / MIN_SAMPLE_INTERVAL_MS)}:${referenceSource}`
+  if (!referenceCache || referenceCache.key !== cacheKey) {
+    const baseline = referenceAt ? db.getBusinessJetBaseline({ sampledAt: referenceAt, days: BASELINE_DAYS, windowMinutes: BASELINE_WINDOW_MINUTES, source: referenceSource }) : null
+    referenceCache = { key: cacheKey, baseline, curve: calibrationStatus(baseline).state === 'calibrated'
+      ? db.getBusinessJetBaselineCurve({ sampledAt: referenceAt, days: BASELINE_DAYS, windowMinutes: BASELINE_WINDOW_MINUTES, hours: 48, stepMinutes: 30, source: referenceSource }) : [] }
+  }
+  const computedBaseline = referenceCache.baseline
   const baseline = snap ? {
     mean: computedBaseline?.mean ?? snap.baseline_mean,
     median: computedBaseline?.median ?? null,
@@ -339,7 +373,8 @@ function getTrackerState() {
     p95: computedBaseline?.p95 ?? snap.baseline_p95,
     p99: computedBaseline?.p99 ?? snap.baseline_p99,
     max: computedBaseline?.max ?? null,
-    samples: computedBaseline?.samples ?? snap.baseline_samples,
+    samples: computedBaseline?.samples ?? 0,
+    distinctDays: computedBaseline?.distinctDays || 0,
     days: BASELINE_DAYS,
     windowMinutes: BASELINE_WINDOW_MINUTES,
     windowMode: computedBaseline?.windowMode || 'trailing',
@@ -366,13 +401,7 @@ function getTrackerState() {
     category: p.category,
     sampledAt: p.sampled_at,
   })
-  const baselineCurve = snap ? db.getBusinessJetBaselineCurve({
-    sampledAt: snap.sampled_at,
-    days: BASELINE_DAYS,
-    windowMinutes: BASELINE_WINDOW_MINUTES,
-    hours: 48,
-    stepMinutes: 30,
-  }) : []
+  const baselineCurve = referenceCache.curve
   return {
     running,
     intervalMs: SNAPSHOT_INTERVAL_MS,
@@ -392,7 +421,7 @@ function getTrackerState() {
         managedOperatorPrefixes: MANAGED_OPERATOR_CALLSIGN_PREFIXES,
       },
     },
-    snapshot: snap ? {
+    snapshot: liveState?.snapshot || (snap ? {
       id: snap.id,
       sampledAt: snap.sampled_at,
       cohortVersion: snap.cohort_version,
@@ -402,11 +431,13 @@ function getTrackerState() {
       matchedCount: snap.matched_count,
       totalFeedCount: snap.total_feed_count,
       unusualScore: snap.unusual_score,
-    } : null,
+    } : null),
+    freshness: freshness(liveState?.sampledAt || snap?.sampled_at),
+    refreshing: Boolean(inFlight),
     baseline,
     baselineCurve,
-    positions: data.positions.map(formatPosition),
-    comparison: data.comparison ? {
+    positions: liveState?.positions || data.positions.map(formatPosition),
+    comparison: liveState ? liveState.comparison : data.comparison ? {
       previousSampledAt: data.comparison.previousSampledAt,
       newlyObserved: data.comparison.newlyObserved,
       continuedObserved: data.comparison.continuedObserved,
@@ -417,20 +448,26 @@ function getTrackerState() {
         previousSampledAt: p.previous_sampled_at,
       })),
     } : null,
-    history: data.history,
+    history: data.history.filter(row => row.source === referenceSource),
   }
 }
 
 function start() {
   if (running) return
   running = true
-  const run = () => sampleOnce().catch(err => console.warn('business-jet-tracker:', err.message))
-  timer = setTimeout(() => {
-    run()
-    timer = setInterval(run, MIN_SAMPLE_INTERVAL_MS)
-    timer.unref?.()
-  }, msUntilNextSampleSlot())
+  refreshCurrent()
+  timer = setInterval(refreshCurrent, 15_000)
   timer.unref?.()
+}
+
+function refreshCurrent() {
+  if (!running || inFlight || Date.now() - lastRefreshAttempt < 10_000) return
+  lastRefreshAttempt = Date.now()
+  if (!SNAPSHOT_URL) {
+    const bundle = require('./poller').getFlights?.()
+    if (bundle?.fetchedAt && new Date(bundle.fetchedAt).toISOString() === liveState?.sampledAt) return
+  } else if (liveState && Date.now() - new Date(liveState.sampledAt).getTime() < FRESH_MS) return
+  sampleOnce({ live: true }).catch(err => { lastError = err.message })
 }
 
 function stop() {
@@ -445,6 +482,7 @@ module.exports = {
   sampleOnce,
   backfillHistorical,
   getTrackerState,
+  refreshCurrent,
   _internals: {
     normalizeAircraft,
     extractAircraft,

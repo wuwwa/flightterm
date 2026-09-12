@@ -356,7 +356,7 @@ export default function FlightTable({ flights, filter, onFilterChange, filters, 
           : 'Loading flights.'
     return (
       <div className="flex flex-col bg-bg flex-1 min-h-0">
-        <div className="flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 shrink-0">
+        <div className="flight-empty-toolbar flex justify-between items-center py-0.5 px-2.5 bg-bg2 border-b border-border text-[11px] text-fg3 shrink-0">
           <span className="flex items-center gap-1.5">
             <span className="ft-chip ft-chip--muted">live traffic</span>
             <span className="text-fg2">0</span> records

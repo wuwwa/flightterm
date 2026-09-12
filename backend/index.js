@@ -1558,8 +1558,30 @@ app.post('/api/poller/stop', requireAdmin, (_req, res) => {
 
 // ── Business jet early-warning tracker ──────────────────────────────────────
 app.get('/api/business-jet-tracker', (_req, res) => {
-  cachePublic(res, 20)
+  businessJetTracker.refreshCurrent()
   res.json(businessJetTracker.getTrackerState())
+})
+
+// Selection-only detail: local stores, no paid lookups or SWIM wake-up.
+app.get('/api/business-jet-tracker/:icao/path', (req, res, next) => {
+  try {
+    const icao = req.params.icao.toLowerCase()
+    if (!/^[a-f0-9]{6}$/.test(icao)) return res.status(400).json({ error: 'Invalid ICAO' })
+    const state = businessJetTracker.getTrackerState()
+    const position = state.positions.find(p => p.icao === icao)
+    if (!position) return res.status(404).json({ error: 'Aircraft not in current sample' })
+    const sampledAt = position.sampledAt || state.snapshot.sampledAt
+    const since = new Date(Date.parse(sampledAt) - 12 * 3600000).toISOString()
+    const track = rawDb.prepare(`SELECT lat, lon, grounded, seen_at AS sampledAt
+      FROM sightings WHERE icao = ? AND seen_at >= ? AND seen_at <= ?
+      ORDER BY seen_at DESC LIMIT 2000`).all(icao, since, sampledAt).reverse()
+    const saved = rawDb.prepare(`SELECT lat, lon, airborne = 0 AS grounded, sampled_at AS sampledAt
+      FROM business_jet_positions WHERE icao24_hex = ? AND sampled_at >= ? AND sampled_at <= ?
+      ORDER BY sampled_at DESC LIMIT 100`).all(icao, since, sampledAt).reverse()
+    const plan = position.callsign ? require('./db').getFlightPlan(position.callsign.toUpperCase()) : null
+    const route = require('./privateFlightPath').filedRoute(plan, position.callsign, sampledAt)
+    res.json({ icao, sampledAt, track: [...saved, ...track, position], route })
+  } catch (err) { next(err) }
 })
 
 app.post('/api/business-jet-tracker/sample', requireAdmin, async (_req, res, next) => {

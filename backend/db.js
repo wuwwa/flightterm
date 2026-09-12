@@ -1883,9 +1883,9 @@ const _stmts = {
     ORDER BY altitude_ft DESC NULLS LAST, icao24_hex
   `),
   businessJetSnapshotHistory: db.prepare(`
-    SELECT sampled_at, airborne_count, matched_count, unusual_score, baseline_mean, baseline_p95, baseline_p99
+    SELECT sampled_at, source, airborne_count, matched_count, unusual_score, baseline_mean, baseline_p95, baseline_p99
     FROM business_jet_snapshots
-    WHERE sampled_at > datetime('now', '-' || @hours || ' hours')
+    WHERE sampled_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-' || @hours || ' hours')
       AND cohort_version = @cohortVersion
     ORDER BY sampled_at ASC
   `),
@@ -1899,7 +1899,7 @@ const _stmts = {
       AND ABS(CAST(strftime('%H', sampled_at) AS INTEGER) * 60 + CAST(strftime('%M', sampled_at) AS INTEGER) - @minuteOfDay) <= @windowMinutes
   `),
   businessJetBaselineTrailingWindow: db.prepare(`
-    SELECT sampled_at, airborne_count
+    SELECT sampled_at, airborne_count, source
     FROM business_jet_snapshots
     WHERE sampled_at >= @since
       AND sampled_at < @before
@@ -3148,11 +3148,11 @@ function getBusinessJetCohortByHex(hexes) {
   return map
 }
 
-function getBusinessJetBaseline({ sampledAt = new Date(), days = 365, windowMinutes = 180 } = {}) {
+function getBusinessJetBaseline({ sampledAt = new Date(), days = 365, windowMinutes = 180, source = null, rows: suppliedRows = null } = {}) {
   const dt = sampledAt instanceof Date ? sampledAt : new Date(sampledAt)
   const since = new Date(dt.getTime() - days * 86400_000).toISOString()
   const before = dt.toISOString()
-  const rows = _stmts.businessJetBaselineTrailingWindow.all({
+  const rows = suppliedRows || _stmts.businessJetBaselineTrailingWindow.all({
     since,
     before,
     cohortVersion: BUSINESS_JET_COHORT_VERSION,
@@ -3160,15 +3160,18 @@ function getBusinessJetBaseline({ sampledAt = new Date(), days = 365, windowMinu
   const window = Math.max(30, Number(windowMinutes) || 180)
   const weekMinutes = 7 * 24 * 60
   const targetMinuteOfWeek = dt.getUTCDay() * 1440 + dt.getUTCHours() * 60 + dt.getUTCMinutes()
-  const values = rows
+  const qualifyingRows = rows
     .filter(r => {
+      if (source && r.source !== source) return false
+      if (r.sampled_at < since || r.sampled_at >= before) return false
       const rdt = new Date(r.sampled_at)
       if (!Number.isFinite(rdt.getTime())) return false
       const rowMinuteOfWeek = rdt.getUTCDay() * 1440 + rdt.getUTCHours() * 60 + rdt.getUTCMinutes()
       const minutesAgoInWeek = (targetMinuteOfWeek - rowMinuteOfWeek + weekMinutes) % weekMinutes
       return minutesAgoInWeek <= window
     })
-    .map(r => r.airborne_count)
+  const distinctDays = new Set(qualifyingRows.map(r => r.sampled_at.slice(0, 10))).size
+  const values = qualifyingRows.map(r => r.airborne_count)
     .filter(n => Number.isFinite(n))
     .sort((a, b) => a - b)
   if (values.length === 0) {
@@ -3178,6 +3181,7 @@ function getBusinessJetBaseline({ sampledAt = new Date(), days = 365, windowMinu
   const mean = values.reduce((sum, n) => sum + n, 0) / values.length
   return {
     samples: values.length,
+    distinctDays,
     mean: Math.round(mean * 10) / 10,
     median: pct(0.5),
     p90: pct(0.9),
@@ -3190,16 +3194,20 @@ function getBusinessJetBaseline({ sampledAt = new Date(), days = 365, windowMinu
   }
 }
 
-function getBusinessJetBaselineCurve({ sampledAt = new Date(), days = 365, windowMinutes = 180, hours = 48, stepMinutes = 30 } = {}) {
+function getBusinessJetBaselineCurve({ sampledAt = new Date(), days = 365, windowMinutes = 180, hours = 48, stepMinutes = 30, source = null } = {}) {
   const end = sampledAt instanceof Date ? sampledAt : new Date(sampledAt)
   const stepMs = Math.max(5, Number(stepMinutes) || 30) * 60_000
   const start = new Date(end.getTime() - Math.max(1, Number(hours) || 48) * 3600_000)
   const points = []
+  const rows = _stmts.businessJetBaselineTrailingWindow.all({
+    since: new Date(start.getTime() - days * 86400_000).toISOString(),
+    before: end.toISOString(), cohortVersion: BUSINESS_JET_COHORT_VERSION,
+  })
   for (let t = start.getTime(); t <= end.getTime(); t += stepMs) {
     const dt = new Date(t)
     points.push({
       sampled_at: dt.toISOString(),
-      ...getBusinessJetBaseline({ sampledAt: dt, days, windowMinutes }),
+      ...getBusinessJetBaseline({ sampledAt: dt, days, windowMinutes, source, rows }),
     })
   }
   return points
@@ -3325,7 +3333,9 @@ function getBusinessJetLatest({ historyHours = 48 } = {}) {
     history,
     cohortSize,
     cohortBreakdown,
-    comparison: snapshot && previousSnapshot ? {
+    comparison: snapshot && previousSnapshot
+      && snapshot.source === previousSnapshot.source
+      && new Date(snapshot.sampled_at) - new Date(previousSnapshot.sampled_at) <= 45 * 60_000 ? {
       previousSampledAt: previousSnapshot.sampled_at,
       newlyObserved: comparisonRecords.filter(record => record.change === 'newly_observed').length,
       continuedObserved: comparisonRecords.filter(record => record.change === 'continued').length,

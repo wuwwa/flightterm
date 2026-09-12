@@ -35,16 +35,23 @@ primary_region = 'iad'
   SWIM_STDDS_PROCESS_BATCH = '5'
   SWIM_STDDS_PROCESS_INTERVAL_MS = '500'
   SWIM_STDDS_WINDOW_SIZE = '10'
+  SWIM_EXIT_ON_IDLE = 'true'
+  SWIM_WORKER_IDLE_TIMEOUT_MS = '90000'
 
 [http_service]
   internal_port = 3002
   force_https = true
-  auto_stop_machines = 'stop'
+  # Authenticated /api/snapshot requests renew the worker's own idle lease.
+  # The proxy cannot see .internal traffic; it must not stop an active worker.
+  auto_stop_machines = 'off'
   auto_start_machines = true
-  # This service holds the FAA SWIM feed sessions. Internal polling from the
-  # main app does not count as Fly proxy traffic, so a zero minimum repeatedly
-  # stopped a healthy worker and left the NAS UI reconnecting. Keep one warm.
-  min_machines_running = 1
+  # Main app wakes this existing machine through the Machines API on NAS demand.
+  min_machines_running = 0
+
+[[restart]]
+  # A clean idle exit stays stopped; actual crashes may recover automatically.
+  policy = 'on-failure'
+  retries = 3
 
 [[vm]]
   size = 'shared-cpu-1x'

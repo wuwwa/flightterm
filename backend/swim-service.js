@@ -7,6 +7,7 @@
 // event loop all it wants without affecting the main HTTP server.
 
 const path = require('path')
+const { createIdleLease } = require('./idleLease')
 require('dotenv').config({
   path: [path.join(__dirname, '.env'), path.join(__dirname, 'env')],
   quiet: true,
@@ -81,6 +82,7 @@ const mainApi = axios.create({
 })
 
 async function postToMain(path, data) {
+  if (workerLease.expired()) return false
   const t0 = Date.now()
   try {
     await mainApi.post(path, data)
@@ -414,6 +416,18 @@ async function startAll() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const app = express()
+const workerLease = createIdleLease({ timeoutMs: Number(process.env.SWIM_WORKER_IDLE_TIMEOUT_MS) || 90_000 })
+const exitOnIdle = process.env.SWIM_EXIT_ON_IDLE === 'true'
+if (exitOnIdle) {
+  setInterval(() => {
+    if (!workerLease.expired()) return
+    console.log('swim-service: no active snapshot consumer; sleeping')
+    for (const consumer of Object.values(consumers)) {
+      try { consumer.disconnect() } catch {}
+    }
+    process.exit(0)
+  }, 15_000).unref()
+}
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 
@@ -429,6 +443,7 @@ app.use('/api', requireWorkerAuth)
 
 // Full snapshot (polled by main app every 2s)
 app.get('/api/snapshot', (_req, res) => {
+  workerLease.touch()
   const consumerStats = {}
   for (const [name, consumer] of Object.entries(consumers)) {
     consumerStats[name] = consumer.getStats()
