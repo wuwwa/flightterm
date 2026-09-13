@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useMap } from 'react-leaflet'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 
 export const OPENFREEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/dark'
 
@@ -25,9 +26,14 @@ export default function OpenFreeMapLayer({ opacity = 1 }) {
     const addLayer = async () => {
       // Keep MapLibre's rendering engine out of the initial application bundle;
       // it is only needed once a map is actually mounted.
-      const { maplibreGL } = await import('@maplibre/maplibre-gl-leaflet')
+      const [{ maplibreGL }, { setWorkerUrl }] = await Promise.all([
+        import('@maplibre/maplibre-gl-leaflet'),
+        import('maplibre-gl'),
+      ])
       if (cancelled) return
 
+      // MapLibre 6 needs an explicit bundled worker URL under Vite.
+      setWorkerUrl(workerUrl)
       layer = maplibreGL({
         style: OPENFREEMAP_STYLE_URL,
         attributionControl: { customAttribution: OPENFREEMAP_ATTRIBUTION },
