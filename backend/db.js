@@ -1,7 +1,6 @@
 const Database = require('better-sqlite3')
 const path = require('path')
 const fs = require('fs')
-const { isEnabled: s3Enabled, archiveBeforePurge } = require('./s3archive')
 
 const DB_DIR = process.env.DB_DIR || __dirname
 const DB_PATH = path.join(DB_DIR, 'flightterm.db')
@@ -235,6 +234,19 @@ if (v3Cols.length > 0 && !v3Cols.includes('lat')) {
     CREATE INDEX IF NOT EXISTS idx_daily_date ON sightings_daily(date);
     CREATE INDEX IF NOT EXISTS idx_daily_icao ON sightings_daily(icao);
   `)
+}
+
+// Keep valid-sample counts so incremental means remain correct when some
+// observations have no altitude or speed. Historical rows only have a mean;
+// their original sample counts cannot be recovered, so use the known count.
+for (const [column, average] of [['alt_sample_count', 'avg_alt'], ['vel_sample_count', 'avg_vel']]) {
+  const columns = db.prepare("PRAGMA table_info('sightings_daily')").all()
+  if (!columns.some(c => c.name === column)) {
+    db.transaction(() => {
+      db.exec(`ALTER TABLE sightings_daily ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
+      db.exec(`UPDATE sightings_daily SET ${column} = CASE WHEN ${average} IS NULL THEN 0 ELSE sighting_count END`)
+    })()
+  }
 }
 
 // ── anomalies table ──────────────────────────────────────────────────────────
@@ -540,6 +552,29 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_zone_daily_date ON zone_daily(date);
 `)
+
+// Track which raw rows have contributed, and only keep distinct-aircraft
+// membership while that day's raw data can still be present. Counts remain
+// in zone_daily under its existing 90-day policy.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS zone_daily_aircraft (
+    date TEXT NOT NULL, cell_lat REAL NOT NULL, cell_lon REAL NOT NULL, icao TEXT NOT NULL,
+    PRIMARY KEY (date, cell_lat, cell_lon, icao)
+  );
+`)
+if (!db.pragma('table_info(anomalies)').some(c => c.name === 'zone_rolled_up')) {
+  db.transaction(() => db.exec(`
+    ALTER TABLE anomalies ADD COLUMN zone_rolled_up INTEGER NOT NULL DEFAULT 0;
+    UPDATE anomalies SET zone_rolled_up = 1 WHERE EXISTS (
+      SELECT 1 FROM zone_daily z WHERE z.date = DATE(anomalies.detected_at)
+        AND z.cell_lat = ROUND(anomalies.lat * 2) / 2
+        AND z.cell_lon = ROUND(anomalies.lon * 2) / 2
+    );
+    INSERT OR IGNORE INTO zone_daily_aircraft
+      SELECT DATE(detected_at), ROUND(lat * 2) / 2, ROUND(lon * 2) / 2, icao
+      FROM anomalies WHERE zone_rolled_up = 1 AND lat IS NOT NULL AND lon IS NOT NULL;
+  `))()
+}
 
 // ── Per-route baselines — learned norms from historical sightings ───────────
 // Instead of static PHASE_NORMS, these capture what aircraft actually do on
@@ -876,7 +911,7 @@ const _stmts = {
   `),
 
   aeroSpendTotal: db.prepare(`
-    SELECT COALESCE(SUM(credits), 0) AS total_spend, COUNT(*) AS total_calls
+    SELECT ROUND(COALESCE(SUM(credits), 0), 6) AS total_spend, COUNT(*) AS total_calls
     FROM api_usage WHERE service = 'aeroapi'
   `),
 
@@ -886,17 +921,31 @@ const _stmts = {
   `),
 
   // Purge helpers
-  archiveToDailySummary: db.prepare(`
-    INSERT OR REPLACE INTO sightings_daily (date, icao, callsign, country, sighting_count, avg_alt, avg_vel, min_alt, max_alt, first_seen, last_seen)
+  dailySummaryBatch: db.prepare(`
     SELECT
       DATE(seen_at) as date, icao, callsign, country,
       COUNT(*) as sighting_count,
       AVG(alt) as avg_alt, AVG(vel) as avg_vel,
+      COUNT(alt) as alt_sample_count, COUNT(vel) as vel_sample_count,
       MIN(alt) as min_alt, MAX(alt) as max_alt,
       MIN(seen_at) as first_seen, MAX(seen_at) as last_seen
     FROM sightings
     WHERE seen_at < ?
     GROUP BY DATE(seen_at), icao, callsign
+  `),
+  findDailySummary: db.prepare('SELECT * FROM sightings_daily WHERE date = ? AND icao = ? AND callsign IS ?'),
+  deleteDailySummary: db.prepare('DELETE FROM sightings_daily WHERE id = ?'),
+  insertDailySummary: db.prepare(`
+    INSERT INTO sightings_daily (date, icao, callsign, country, sighting_count, avg_alt, avg_vel,
+      alt_sample_count, vel_sample_count, min_alt, max_alt, first_seen, last_seen)
+    VALUES (@date, @icao, @callsign, @country, @sighting_count, @avg_alt, @avg_vel,
+      @alt_sample_count, @vel_sample_count, @min_alt, @max_alt, @first_seen, @last_seen)
+  `),
+  updateDailySummary: db.prepare(`
+    UPDATE sightings_daily SET country = @country, sighting_count = @sighting_count,
+      avg_alt = @avg_alt, avg_vel = @avg_vel, alt_sample_count = @alt_sample_count,
+      vel_sample_count = @vel_sample_count, min_alt = @min_alt, max_alt = @max_alt,
+      first_seen = @first_seen, last_seen = @last_seen WHERE id = @id
   `),
 
   deleteOldSightings: db.prepare(`DELETE FROM sightings WHERE seen_at < ?`),
@@ -1956,22 +2005,22 @@ const _stmts = {
     LIMIT 50
   `),
 
-  // Zone daily rollup: aggregate yesterday's anomalies into zone_daily
-  zoneDailyRollup: db.prepare(`
-    INSERT OR REPLACE INTO zone_daily (date, cell_lat, cell_lon, count, critical, high, medium, unique_aircraft, categories)
+  // Only new contributions; callers mark them in the same transaction.
+  zoneDailyBatch: db.prepare(`
     SELECT
       DATE(detected_at) AS date,
       ROUND(lat * 2) / 2 AS cell_lat,
       ROUND(lon * 2) / 2 AS cell_lon,
       COUNT(*) AS count,
-      SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END),
-      SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END),
-      SUM(CASE WHEN severity = 'MEDIUM' THEN 1 ELSE 0 END),
-      COUNT(DISTINCT icao),
-      GROUP_CONCAT(DISTINCT category)
+      SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) AS critical_count,
+      SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END) AS high_count,
+      SUM(CASE WHEN severity = 'MEDIUM' THEN 1 ELSE 0 END) AS medium_count,
+      GROUP_CONCAT(DISTINCT icao) AS aircraft,
+      GROUP_CONCAT(DISTINCT category) AS categories
     FROM anomalies
     WHERE lat IS NOT NULL AND lon IS NOT NULL
-      AND DATE(detected_at) = ?
+      AND zone_rolled_up = 0 AND detected_at < @cutoff
+      AND (@date IS NULL OR DATE(detected_at) = @date)
     GROUP BY date, cell_lat, cell_lon
   `),
 
@@ -2677,10 +2726,47 @@ function ROUND2(v) { return Math.round(v * 2) / 2 }
 
 // Roll up a specific day's anomalies into zone_daily
 function rollupZoneDaily(dateStr) {
-  return _stmts.zoneDailyRollup.run(dateStr).changes
+  return rollupZoneContributions({ date: dateStr, cutoff: '9999' })
 }
 
-// Roll up yesterday (called from maintenance cycle)
+const _zoneLookup = db.prepare('SELECT * FROM zone_daily WHERE date = ? AND cell_lat = ? AND cell_lon = ?')
+const _zoneAircraft = db.prepare('INSERT OR IGNORE INTO zone_daily_aircraft VALUES (?, ?, ?, ?)')
+const _zoneWrite = db.prepare(`
+  INSERT INTO zone_daily (date, cell_lat, cell_lon, count, critical, high, medium, unique_aircraft, categories)
+  VALUES (@date, @cell_lat, @cell_lon, @count, @critical, @high, @medium, @unique_aircraft, @categories)
+  ON CONFLICT(date, cell_lat, cell_lon) DO UPDATE SET count = excluded.count,
+    critical = excluded.critical, high = excluded.high, medium = excluded.medium,
+    unique_aircraft = excluded.unique_aircraft, categories = excluded.categories
+`)
+const _markZoneRows = db.prepare(`
+  UPDATE anomalies SET zone_rolled_up = 1
+  WHERE zone_rolled_up = 0 AND detected_at < @cutoff
+    AND (@date IS NULL OR DATE(detected_at) = @date)
+    AND lat IS NOT NULL AND lon IS NOT NULL
+`)
+const rollupZoneContributions = db.transaction((options) => {
+  const groups = _stmts.zoneDailyBatch.all(options)
+  for (const group of groups) {
+    const previous = _zoneLookup.get(group.date, group.cell_lat, group.cell_lon)
+    let unique = previous?.unique_aircraft || 0
+    for (const icao of (group.aircraft || '').split(',').filter(Boolean)) {
+      unique += _zoneAircraft.run(group.date, group.cell_lat, group.cell_lon, icao).changes
+    }
+    const categories = [...new Set([...(previous?.categories || '').split(','), ...(group.categories || '').split(',')].filter(Boolean))].sort().join(',')
+    _zoneWrite.run({
+      date: group.date, cell_lat: group.cell_lat, cell_lon: group.cell_lon,
+      count: (previous?.count || 0) + group.count,
+      critical: (previous?.critical || 0) + group.critical_count,
+      high: (previous?.high || 0) + group.high_count,
+      medium: (previous?.medium || 0) + group.medium_count,
+      unique_aircraft: unique, categories,
+    })
+  }
+  _markZoneRows.run(options)
+  return groups.length
+})
+
+// Optional backfill of yesterday's still-retained raw observations.
 function rollupYesterday() {
   const yesterday = new Date(Date.now() - 86400000).toISOString().substring(0, 10)
   return rollupZoneDaily(yesterday)
@@ -3423,6 +3509,28 @@ function getAeroSpendMonth() {
   return _stmts.aeroSpendMonth.get(monthStart)
 }
 
+const _reserveAeroCall = db.transaction(({ endpoint, credits, cap }) => {
+  const { total_spend } = getAeroSpendTotal()
+  // AeroAPI prices are in thousandths of a dollar. Avoid float boundary errors.
+  if (Math.round(total_spend * 1000) + Math.round(credits * 1000) > Math.round(cap * 1000)) {
+    return { allowed: false, total_spend }
+  }
+  const row = recordApiCall({ service: 'aeroapi', endpoint, credits, status: 102 })
+  return { allowed: true, id: Number(row.lastInsertRowid) }
+})
+
+function reserveAeroCall(options) {
+  return _reserveAeroCall.immediate(options)
+}
+
+const _settleAeroCall = db.prepare(`
+  UPDATE api_usage SET credits = @credits, status = @status, aircraft_count = @aircraftCount
+  WHERE id = @id AND service = 'aeroapi' AND status = 102
+`)
+function settleAeroCall(id, { credits, status, aircraftCount = 0 }) {
+  return _settleAeroCall.run({ id, credits, status, aircraftCount })
+}
+
 function getDbSize() {
   // Include WAL + SHM sidecar files — those count toward disk usage too.
   let total = 0
@@ -3437,6 +3545,11 @@ function getDbSize() {
 // a dashboard (no anomaly detection), so we don't need historical sightings —
 // only enough to populate any "recent activity" UI. Tunable via PURGE_AFTER_HOURS.
 const PURGE_AFTER_HOURS = Number(process.env.PURGE_AFTER_HOURS) || 1
+const PURGE_INTERVAL_MS = 30 * 60 * 1000
+
+function getRetentionPolicy() {
+  return { retention_hours: PURGE_AFTER_HOURS, purge_interval: '30m', purge_interval_ms: PURGE_INTERVAL_MS }
+}
 
 // Hard cap on the SQLite file size (incl. WAL/SHM). After every purge cycle
 // we trim the largest growth tables until the file is back under this cap.
@@ -3453,7 +3566,35 @@ function purgeOldSightings(cutoff) {
   const before = _stmts.countSightings.get().c
 
   const archiveAndDelete = db.transaction(() => {
-    _stmts.archiveToDailySummary.run(cutoff)
+    for (const batch of _stmts.dailySummaryBatch.all(cutoff)) {
+      // IS matches a NULL callsign too; SQLite's UNIQUE constraint alone does
+      // not. Consolidate any legacy duplicate NULL-callsign rows as we go.
+      const previous = _stmts.findDailySummary.all(batch.date, batch.icao, batch.callsign)
+      const merged = { ...batch }
+      for (const row of previous) {
+        for (const [mean, count] of [['avg_alt', 'alt_sample_count'], ['avg_vel', 'vel_sample_count']]) {
+          const n = merged[count] + row[count]
+          merged[mean] = n ? ((merged[mean] ?? 0) * merged[count] + (row[mean] ?? 0) * row[count]) / n : null
+          merged[count] = n
+        }
+        merged.sighting_count += row.sighting_count
+        merged.min_alt = [merged.min_alt, row.min_alt].filter(v => v != null).reduce((a, b) => Math.min(a, b), Infinity)
+        merged.max_alt = [merged.max_alt, row.max_alt].filter(v => v != null).reduce((a, b) => Math.max(a, b), -Infinity)
+        if (row.first_seen && (!merged.first_seen || row.first_seen < merged.first_seen)) merged.first_seen = row.first_seen
+        if (row.last_seen && (!merged.last_seen || row.last_seen > merged.last_seen)) {
+          merged.last_seen = row.last_seen
+          merged.country = row.country
+        }
+      }
+      if (!Number.isFinite(merged.min_alt)) merged.min_alt = null
+      if (!Number.isFinite(merged.max_alt)) merged.max_alt = null
+      if (previous.length) {
+        _stmts.updateDailySummary.run({ ...merged, id: previous[0].id })
+        for (const duplicate of previous.slice(1)) _stmts.deleteDailySummary.run(duplicate.id)
+      } else {
+        _stmts.insertDailySummary.run(merged)
+      }
+    }
     const del = _stmts.deleteOldSightings.run(cutoff)
     _stmts.deleteOldFetches.run(cutoff)
     return del.changes
@@ -3468,7 +3609,12 @@ function purgeOldSightings(cutoff) {
 }
 
 function purgeOldAnomalies(cutoff) {
-  const del = db.prepare('DELETE FROM anomalies WHERE detected_at < ?').run(cutoff)
+  const del = db.transaction(() => {
+    rollupZoneContributions({ date: null, cutoff })
+    const result = db.prepare('DELETE FROM anomalies WHERE detected_at < ?').run(cutoff)
+    db.prepare('DELETE FROM zone_daily_aircraft WHERE date < DATE(?)').run(cutoff)
+    return result
+  })()
   if (del.changes > 0) {
     console.log(`  purge: deleted ${del.changes} anomalies older than ${PURGE_AFTER_HOURS}h`)
   }
@@ -3476,7 +3622,7 @@ function purgeOldAnomalies(cutoff) {
 }
 
 function purgeOldDailySummaries() {
-  // Daily summaries older than 24h can go — they've been archived to S3
+  // Keep the existing short daily-summary retention, even with S3 disabled.
   const cutoff = new Date(Date.now() - 24 * 3600_000).toISOString().slice(0, 10)
   const before = _stmts.countDaily.get().c
   const del = db.prepare('DELETE FROM sightings_daily WHERE date < ?').run(cutoff)
@@ -3491,15 +3637,6 @@ function purgeOldDailySummaries() {
 async function runPurgeCycle({ vacuum = true } = {}) {
   const cutoff = getPurgeCutoff()
   console.log(`purge: starting cycle (cutoff: ${cutoff})`)
-
-  // TODO: re-enable S3 archival when ready
-  // if (s3Enabled()) {
-  //   const { ok, archived } = await archiveBeforePurge(db, cutoff)
-  //   if (!ok && archived === 0) {
-  //     console.error('  ⚠ S3 archive FAILED — skipping purge to preserve data')
-  //     return
-  //   }
-  // }
 
   purgeOldSightings(cutoff)
   purgeOldAnomalies(cutoff)
@@ -3526,9 +3663,7 @@ async function runPurgeCycle({ vacuum = true } = {}) {
     console.warn('  purge: SWIM data purge error:', err.message)
   }
 
-  // Zone baseline rollup: aggregate yesterday's anomalies into daily zone data
-  const zoneRows = rollupYesterday()
-  if (zoneRows > 0) console.log(`  zone: rolled up ${zoneRows} zone-day records`)
+  // Zone contributions were rolled up transactionally before raw deletion.
   const zonePurged = purgeZoneDaily()
   if (zonePurged > 0) console.log(`  zone: purged ${zonePurged} zone records (>90d)`)
 
@@ -3753,7 +3888,7 @@ const _purgeTimer = setInterval(async () => {
   } catch (err) {
     console.error('purge cycle error:', err.message)
   }
-}, 30 * 60 * 1000)
+}, PURGE_INTERVAL_MS)
 _purgeTimer.unref?.()
 
 const _walCheckpointTimer = setInterval(() => {
@@ -5062,6 +5197,9 @@ module.exports = {
   getRecentCalls,
   getAeroSpendTotal,
   getAeroSpendMonth,
+  reserveAeroCall,
+  settleAeroCall,
+  getRetentionPolicy,
   runPurgeCycle,
   runDeferredMaintenance,
   deduplicateExisting,

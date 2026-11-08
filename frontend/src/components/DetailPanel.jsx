@@ -58,6 +58,7 @@ export default function DetailPanel({
 
   const { aircraft, flightroute, adsbfi, apl } = enrichData || {}
   const aeroData = flight ? aeroCache[flight.icao] : null
+  const aeroCapReached = !userAeroKey && aeroSpend?.cap_reached
   const srcTag = flight
     ? ['apl', 'airplanes.live', 'adsb.fi'].includes(flight.src)
       ? { label: flight.src === 'adsb.fi' ? 'adsb.fi' : 'community ADS-B', colorClass: 'text-mag' }
@@ -69,7 +70,7 @@ export default function DetailPanel({
   const handleAeroQuery = async () => {
     if (!flight || aeroLoading || !flight.callsign || flight.callsign === '—')
       return
-    if (aeroSpend?.cap_reached) return
+    if (aeroCapReached) return
     setAeroLoading(true)
     setAeroError(null)
     try {
@@ -414,7 +415,7 @@ export default function DetailPanel({
         </>
       ) : !backendOk ? (
         <DRow label="status" value="backend offline" colorClass="text-red" />
-      ) : aeroSpend?.cap_reached && !aeroData ? (
+      ) : aeroCapReached && !aeroData ? (
         <DRow
           label="status"
           value={`cap reached ($${aeroSpend.total_spend.toFixed(

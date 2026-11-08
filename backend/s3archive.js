@@ -1,8 +1,7 @@
 // ── S3 archival — archive before purge ──────────────────────────────────────
 //
-// Archives sightings + daily summaries + anomalies to S3 before the hourly
-// purge cycle deletes them from SQLite. Runs every hour (matching the 3-hour
-// retention window). Does nothing if S3 is not configured.
+// Automatic archival is intentionally disabled to limit costs. Configuring a
+// bucket does not activate uploads or protect data from the normal purge.
 //
 // Sightings are uploaded in 10K-row batches to avoid blocking the event loop
 // and exceeding S3 payload limits.
@@ -23,11 +22,12 @@ const PREFIX = process.env.S3_PREFIX || 'flightterm/'
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024  // 5 MB per file
 const BATCH_SIZE = 10_000                  // rows per sightings upload
+const AUTOMATIC_ARCHIVAL_ENABLED = false
 
 let s3 = null
 if (BUCKET) {
   s3 = new S3Client({ region: REGION })
-  console.log(`[s3] ✓ archival enabled → s3://${BUCKET}/${PREFIX}`)
+  console.log(`[s3] bucket configured → s3://${BUCKET}/${PREFIX}; automatic archival disabled`)
   console.log(`[s3]   region=${REGION} | AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID ? 'set (' + process.env.AWS_ACCESS_KEY_ID.substring(0, 4) + '...)' : 'NOT SET'}`)
 } else {
   console.log('[s3] ✗ archival disabled (S3_BUCKET not set)')
@@ -35,7 +35,8 @@ if (BUCKET) {
 
 // ── status tracking ─────────────────────────────────────────────────────────
 const _status = {
-  enabled: !!s3,
+  configured: !!s3,
+  enabled: AUTOMATIC_ARCHIVAL_ENABLED && !!s3,
   lastRun: null,
   lastSuccess: null,
   lastResult: null,
@@ -46,7 +47,7 @@ const _status = {
   totalFailures: 0,
 }
 
-function isEnabled() { return !!s3 }
+function isEnabled() { return AUTOMATIC_ARCHIVAL_ENABLED && !!s3 }
 function getStatus() { return { ..._status } }
 
 // Yield event loop so HTTP requests aren't starved during long archives
@@ -85,8 +86,8 @@ async function _upload(key, rows, label) {
 
 // Archive all data about to be purged.
 async function archiveBeforePurge(db, cutoff) {
-  if (!s3) {
-    console.log('[s3] archive skipped — not configured')
+  if (!isEnabled()) {
+    console.log('[s3] archive skipped — automatic archival disabled')
     return { ok: false, reason: 'disabled' }
   }
 

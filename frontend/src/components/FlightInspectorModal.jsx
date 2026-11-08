@@ -143,6 +143,7 @@ export default function FlightInspectorModal({
     finally { if (aircraftRequestRef.current === requestId) setLazyLoading(false) }
   }
   const aeroData = flight ? aeroCache[flight.icao] : null
+  const aeroCapReached = !userAeroKey && aeroSpend?.cap_reached
 
   if (!flight) return <EmptyFlightInspector flights={flights} region={region} lastUpdatedAt={lastUpdatedAt} />
 
@@ -156,7 +157,7 @@ export default function FlightInspectorModal({
   // Try aeroapi
   const handleAeroQuery = async () => {
     if (!flight || aeroLoading || !flight.callsign || flight.callsign === '—') return
-    if (aeroSpend?.cap_reached) return
+    if (aeroCapReached) return
     const icao = flight.icao
     const callsign = flight.callsign
     const requestId = ++aeroRequestRef.current
@@ -416,12 +417,12 @@ export default function FlightInspectorModal({
                   <button
                     className={clsx(
                       'w-full bg-bg2/40 border border-border hover:border-acc text-acc text-[11px] py-1.5 px-3 rounded cursor-pointer text-left font-mono flex justify-between items-center transition-colors',
-                      (aeroLoading || flight.callsign === '—' || aeroSpend?.cap_reached) && 'opacity-40 cursor-default'
+                      (aeroLoading || flight.callsign === '—' || aeroCapReached) && 'opacity-40 cursor-default'
                     )}
                     onClick={handleAeroQuery}
-                    disabled={aeroLoading || flight.callsign === '—' || aeroSpend?.cap_reached}
+                    disabled={aeroLoading || flight.callsign === '—' || aeroCapReached}
                   >
-                    <span>{aeroLoading ? 'Loading FlightAware…' : aeroSpend?.cap_reached ? 'FlightAware limit reached' : 'Get FlightAware lifecycle'}</span>
+                    <span>{aeroLoading ? 'Loading FlightAware…' : aeroCapReached ? 'FlightAware limit reached' : 'Get FlightAware lifecycle'}</span>
                     <span className="text-ylw text-[10px]">~$0.005</span>
                   </button>
                   {aeroError && <div className="text-red text-[9px] mt-1 px-1">{aeroError}</div>}

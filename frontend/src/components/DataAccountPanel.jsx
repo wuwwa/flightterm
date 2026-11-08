@@ -171,7 +171,7 @@ export default function DataAccountPanel({ settings, backendOk, onSave, onClose 
                   action={<button onClick={testCommunityFeed} disabled={adsbfiState === 'testing'}>Test</button>}
                 />
                 <SourceRow name="FAA NOTAM" description="Restriction and airport notice source" configured={keys ? Boolean(keys.faa_notam) : null} provenance={!keys ? 'Status unavailable' : keys.faa_notam ? 'Server credential' : 'No server credential'} />
-                <SourceRow name="Archive" description="Long-term observation storage" configured={keys ? Boolean(archive?.enabled) : null} provenance={!keys ? 'Status unavailable' : archive?.enabled ? 'Server managed' : 'Disabled'} />
+                <SourceRow name="Archive" description="Long-term observation storage" configured={keys ? Boolean(archive?.configured) : null} provenance={!keys ? 'Status unavailable' : archive?.configured ? 'Server bucket configured' : 'No server bucket'} statusLabel={keys ? archive?.enabled ? 'Enabled' : 'Automatic archival disabled' : 'Not checked'} />
               </div>
             )}
           </section>

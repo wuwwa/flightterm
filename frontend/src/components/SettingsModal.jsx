@@ -66,7 +66,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 <StatusDot ok={serverKeys.s3_archive?.enabled} label={
                   serverKeys.s3_archive?.enabled
                     ? `s3 archive (${serverKeys.s3_archive.lastResult || 'pending'})`
-                    : 's3 archive (off)'
+                    : serverKeys.s3_archive?.configured ? 's3 archive (configured, disabled)' : 's3 archive (off)'
                 } />
               </div>
               {serverKeys.s3_archive?.enabled && serverKeys.s3_archive.lastRun && (

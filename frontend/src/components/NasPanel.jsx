@@ -5,15 +5,15 @@ export default function NasPanel({ backendOk }) {
   const { status, nasSummary, wakeSwim, wakeState, availability } = useSwim()
   const workerConnected = Boolean(status?.workerConnected)
   const wakeBusy = ['starting', 'cooldown'].includes(wakeState?.state)
-  const groundStops = nasSummary?.groundStops || status?.tfms?.active_gs || 0
-  const delayPrograms = nasSummary?.gdps || status?.tfms?.active_gdps || 0
-  const tfrs = status?.notams?.active_tfrs || 0
-  const congestion = nasSummary?.congestionBuilding || 0
+  const groundStops = nasSummary?.groundStops ?? status?.tfms?.active_gs
+  const delayPrograms = nasSummary?.gdps ?? status?.tfms?.active_gdps
+  const tfrs = status?.notams?.active_tfrs
+  const congestion = nasSummary?.congestionBuilding
   // Keep the last verified NAS summary visible while a live feed reconnects.
   // A worker reconnect is transient; hiding all known values makes it look
   // like the NAS itself has gone offline.
-  const verified = Boolean(!availability?.fastError && (nasSummary || status?.tfms || status?.notams))
-  const shown = value => verified ? value : '—'
+  const verified = [groundStops, delayPrograms, tfrs, congestion].some(Number.isFinite)
+  const shown = value => Number.isFinite(value) ? value : '—'
   const feedState = availability?.fastError
     ? 'Feeds delayed'
     : workerConnected

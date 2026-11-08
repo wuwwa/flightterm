@@ -60,25 +60,32 @@ export default function ContextPanel({ flight }) {
 
   if (!flight) return null
 
+  return <ContextEvidence icao={flight.icao} ctx={ctx} loading={loading} error={error} />
+}
+
+export function ContextEvidence({ icao, ctx, loading = false, error = null }) {
   const inferences = ctx?.inferences || []
   const circling = Boolean(ctx?.orbit?.circling)
-  const events = ctx?.nearby?.events?.events || []
-  const quakes = ctx?.nearby?.quakes?.quakes || []
-  const volcanoes = ctx?.nearby?.volcanoAlerts?.alerts || []
+  const events = (ctx?.nearby?.events?.events || []).slice(0, 3)
+  const quakes = (ctx?.nearby?.quakes?.quakes || []).slice(0, 2)
+  // volcanoAlerts is a global feed. Only the server's distance-qualified
+  // volcanoNear belongs in a selected aircraft's context.
+  const volcanoes = ctx?.nearby?.volcanoNear ? [ctx.nearby.volcanoNear] : []
   const fireCount = ctx?.nearby?.fires?.count || 0
-  const evidenceCount = inferences.length + (circling ? 1 : 0) + events.length + quakes.length + volcanoes.length + (fireCount > 0 ? 1 : 0)
-  const actionable = evidenceCount > 0
+  const signalCount = inferences.length + (circling ? 1 : 0)
+  const nearbyCount = events.length + quakes.length + volcanoes.length + (fireCount > 0 ? 1 : 0)
+  const actionable = signalCount > 0 || nearbyCount > 0
 
   return (
-    <details key={flight.icao} className="inspector-disclosure corroboration" open={actionable || undefined}>
+    <details key={icao} className="inspector-disclosure corroboration" open={actionable || undefined}>
       <summary>
-        <span>Corroboration</span>
+        <span>Flight context</span>
         <span className={clsx('corroboration__state', error && 'text-ylw', actionable && 'text-acc')}>
           {loading ? 'Checking'
             : error ? 'Unavailable'
               : !ctx ? '—'
-                : actionable ? `${evidenceCount} match${evidenceCount === 1 ? '' : 'es'}`
-                  : 'No matches'}
+                : signalCount ? `${signalCount} signal${signalCount === 1 ? '' : 's'}`
+                  : nearbyCount ? 'Nearby context' : 'No signals'}
         </span>
       </summary>
 
@@ -99,14 +106,15 @@ export default function ContextPanel({ flight }) {
         {circling && (
           <EvidenceRow title="Circling pattern" detail={`${ctx.orbit.totalTurnDeg}° cumulative turn across ${ctx.orbit.samples} samples`} meta={`Compactness ${ctx.orbit.compactness}`} caution />
         )}
-        {events.slice(0, 3).map(event => (
+        {nearbyCount > 0 && <p className="corroboration__note">Nearby events provide context; they do not establish this flight's purpose.</p>}
+        {events.map(event => (
           <EvidenceRow key={event.id} title={event.title} detail={(event.categories || []).join(', ')} meta={fmtKm(event.distanceKm)} />
         ))}
-        {quakes.slice(0, 2).map(quake => (
+        {quakes.map(quake => (
           <EvidenceRow key={quake.id} title={`Earthquake M${quake.mag?.toFixed(1)}`} detail={quake.place} meta={fmtKm(quake.distanceKm)} caution />
         ))}
-        {volcanoes.slice(0, 2).map(volcano => (
-          <EvidenceRow key={volcano.vnum} title={volcano.name} detail={`${volcano.alertLevel} · ${volcano.observatory}`} meta={volcano.colorCode} caution />
+        {volcanoes.map(volcano => (
+          <EvidenceRow key={volcano.vnum} title={volcano.name} detail={`${volcano.alertLevel} · ${volcano.observatory}`} meta={`${fmtKm(volcano.distanceKm)} · ${volcano.colorCode}`} caution />
         ))}
         {fireCount > 0 && (
           <EvidenceRow title="Satellite fire detections" detail={`${fireCount} detection pixel${fireCount === 1 ? '' : 's'} in the search area`} meta={ctx.nearby.fires.nearest ? `Nearest ${fmtKm(ctx.nearby.fires.nearest.distanceKm)}` : null} caution={fireCount >= 3} />

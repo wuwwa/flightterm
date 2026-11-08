@@ -14,17 +14,17 @@ const {
   getHourlyActivity, getRecentFetches, getDbSize,
   calcOpenSkyCredits, recordApiCall,
   getUsageSummary, getTodayCredits, getDailyUsage, getRecentCalls,
-  getAeroSpendTotal, getAeroSpendMonth,
+  getAeroSpendTotal, getAeroSpendMonth, reserveAeroCall, settleAeroCall,
   getRecentAnomalies, getActiveAnomalies, getAnomaliesByIcao, getAnomalyStats, getAnomalyHotspots, getAnomaliesByZone,
   setAnomalyFeedback, getFeedbackStats,
   getTrafficHeatmap,
-  runDeferredMaintenance,
+  runDeferredMaintenance, getRetentionPolicy,
   getRoutesBulk,
   upsertRoutesBatch,
   getRouteCount,
   close: closeDb,
 } = require('./db')
-const { getStatus: getS3Status, isEnabled: s3IsEnabled } = require('./s3archive')
+const { getStatus: getS3Status } = require('./s3archive')
 const rateLimit = require('express-rate-limit')
 
 const poller = require('./poller')
@@ -368,10 +368,6 @@ const COST_MAP = {
 const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'dist')
 console.log(`looking for frontend at ${STATIC_DIR} — exists: ${require('fs').existsSync(STATIC_DIR)}`)
 if (require('fs').existsSync(STATIC_DIR)) {
-  app.get(['/', '/index.html'], (req, res, next) => {
-    markSwimActivity('app-hit')
-    next()
-  })
   // Hashed assets (JS/CSS): cache aggressively — filename changes on rebuild
   app.use('/assets', express.static(path.join(STATIC_DIR, 'assets'), {
     maxAge: '1y',
@@ -535,15 +531,10 @@ app.get('/api/health/archive', (_req, res) => {
   const status = getS3Status()
   res.json({
     ...status,
-    retention_hours: 3,
-    purge_interval: '1h',
-    message: status.totalFailures > 0
-      ? `⚠ ${status.totalFailures} consecutive failure(s) — data preserved until S3 succeeds`
-      : status.lastSuccess
-        ? `Last successful archive: ${status.lastSuccess}`
-        : s3IsEnabled()
-          ? 'Awaiting first archive cycle'
-          : 'S3 not configured — data purged without archival',
+    ...getRetentionPolicy(),
+    message: status.configured
+      ? 'S3 configured; automatic archival is disabled — data purged without archival'
+      : 'S3 not configured — data purged without archival',
   })
 })
 
@@ -623,6 +614,14 @@ app.get('/api/opensky/states', async (req, res) => {
 // GET /api/aero/flights/:ident
 app.get('/api/aero/flights/:ident', async (req, res) => {
   res.set('Vary', 'x-user-aero-key')
+  const { ident } = req.params
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(ident)) {
+    return res.status(400).json({ error: 'invalid flight identifier' })
+  }
+  // This endpoint's price and reservation cover exactly one page.
+  if (req.query.max_pages != null && req.query.max_pages !== '1') {
+    return res.status(400).json({ error: 'max_pages must be 1' })
+  }
   if (!serviceAvailable('aeroapi')) {
     return res.status(503).json({ error: 'aeroapi temporarily unavailable (circuit breaker)', retry_after: 30 })
   }
@@ -634,10 +633,18 @@ app.get('/api/aero/flights/:ident', async (req, res) => {
 
   const callCost = COST_MAP['GET /flights/{ident}'] || 0.005
 
-  // ── hard cap check (only for server key, not user-provided) ────────────
+  // Reserve before yielding to the provider. SQLite serializes this check
+  // across requests and processes, and keeps it charged across restarts.
+  let reservation = null
   if (!userAeroKey) {
-    const { total_spend } = getAeroSpendTotal()
-    if (total_spend + callCost > AERO_CAP) {
+    try {
+      reservation = reserveAeroCall({ endpoint: `/flights/${ident}`, credits: callCost, cap: AERO_CAP })
+    } catch (err) {
+      console.error('AeroAPI reservation failed:', err.message)
+      return res.status(503).json({ error: 'Unable to reserve AeroAPI budget; please retry' })
+    }
+    if (!reservation.allowed) {
+      const { total_spend } = reservation
       return res.status(403).json({
         error: `AeroAPI hard cap reached ($${total_spend.toFixed(3)} / $${AERO_CAP.toFixed(2)})`,
         cap_reached: true,
@@ -647,33 +654,33 @@ app.get('/api/aero/flights/:ident', async (req, res) => {
     }
   }
 
-  const { ident } = req.params
-  const { max_pages = 1 } = req.query
+  const finishCall = (credits, status, aircraftCount = 0) => {
+    if (reservation) {
+      settleAeroCall(reservation.id, { credits, status, aircraftCount })
+    } else {
+      recordApiCall({ service: 'aeroapi_user', endpoint: `/flights/${ident}`, credits, status, aircraftCount })
+    }
+  }
   const t0 = Date.now()
   try {
     const response = await axios.get(
       `${AERO_BASE}/flights/${ident}`,
       {
         headers: { 'x-apikey': activeKey },
-        params: { max_pages: Number(max_pages) }
+        params: { max_pages: 1 },
+        timeout: 15000,
+        maxRedirects: 0,
       }
     )
     recordServiceOk('aeroapi', Date.now() - t0)
-    recordApiCall({
-      service: 'aeroapi', endpoint: `/flights/${ident}`,
-      credits: callCost, status: 200,
-      aircraftCount: response.data?.flights?.length || 0,
-    })
+    finishCall(callCost, 200, response.data?.flights?.length || 0)
     res.json(response.data)
   } catch (err) {
     recordServiceError('aeroapi', Date.now() - t0, err.message)
     const status = err.response?.status || 500
     const message = err.response?.data?.title || err.message
-    recordApiCall({
-      service: 'aeroapi', endpoint: `/flights/${ident}`,
-      credits: status >= 400 && status < 500 ? 0 : callCost,
-      status,
-    })
+    // Keep uncertain charges (timeouts / 5xx) reserved, as before.
+    finishCall(status >= 400 && status < 500 ? 0 : callCost, status)
     res.status(status).json({ error: message, status })
   }
 })
@@ -828,9 +835,9 @@ function validateRoute(r) {
 
 // ── Sightings DB routes ─────────────────────────────────────────────────────
 
-// Record a batch of sightings (called by frontend after each fetch)
+// Administrative ingestion only. The backend poller records normal sightings.
 // POST /api/sightings  { flights: [...], source: 'opensky', region: 'usa' }
-app.post('/api/sightings', (req, res) => {
+app.post('/api/sightings', requireAdmin, (req, res) => {
   const { flights, source, region } = req.body
   if (!flights || !Array.isArray(flights)) {
     return res.status(400).json({ error: 'flights array required' })
@@ -1292,8 +1299,8 @@ app.post('/api/routes/lookup', (req, res) => {
 })
 
 // POST /api/routes/save  { routes: [{ callsign, origin_icao, origin_lat, ... }] }
-// Batch upsert routes into cache
-app.post('/api/routes/save', (req, res) => {
+// Administrative ingestion only. Public browsers cannot assert trusted sources.
+app.post('/api/routes/save', requireAdmin, (req, res) => {
   const { routes } = req.body
   if (!routes || !Array.isArray(routes)) {
     return res.status(400).json({ error: 'routes array required' })
@@ -2422,14 +2429,11 @@ app.get('/api/usage/calls', (req, res) => {
 })
 
 // AeroAPI spend summary (for the records bar)
-// Queries FlightAware's real /account/usage as authoritative source, DB as fallback
+// Local lifetime cap status, with separately scoped provider account usage.
 // Memoized 60s — usage data refreshes slowly upstream and the dashboard polls
 // this on every refresh; without caching it took 12s under load.
 // GET /api/aero/spend
 app.get('/api/aero/spend', async (_req, res) => {
-  const dbTotal = getAeroSpendTotal()
-  const dbMonth = getAeroSpendMonth()
-
   let fa = null
   if (process.env.AEROAPI_KEY) {
     try {
@@ -2440,33 +2444,27 @@ app.get('/api/aero/spend', async (_req, res) => {
     } catch {}
   }
 
-  // If no key is configured, report zero spend — stale DB records from
-  // another machine / key shouldn't block usage or mislead the UI.
-  if (!process.env.AEROAPI_KEY) {
-    return res.json({
-      total_spend: 0, total_calls: 0,
-      db_spend: 0, db_calls: 0,
-      month_spend: 0, month_calls: 0,
-      cap: AERO_CAP, cap_remaining: AERO_CAP, cap_reached: false,
-      source: 'unconfigured',
-    })
-  }
-
-  // prefer FlightAware's authoritative total_cost, fall back to our DB
-  const realSpend = fa?.total_cost ?? dbTotal.total_spend
-  const realCalls = fa?.total_calls ?? dbTotal.total_calls
-
+  // Re-read after the upstream await: other requests may have reserved budget.
+  const dbTotal = getAeroSpendTotal()
+  const dbMonth = getAeroSpendMonth()
+  const nextCallCost = COST_MAP['GET /flights/{ident}'] || 0.005
   res.json({
-    total_spend: realSpend,
-    total_calls: realCalls,
+    // Enforcement uses the lifetime local ledger, including pending calls.
+    // Account usage may cover a different period/key scope; keep it separate.
+    total_spend: dbTotal.total_spend,
+    total_calls: dbTotal.total_calls,
     db_spend: dbTotal.total_spend,
     db_calls: dbTotal.total_calls,
     month_spend: dbMonth.month_spend,
     month_calls: dbMonth.month_calls,
     cap: AERO_CAP,
-    cap_remaining: Math.max(0, AERO_CAP - realSpend),
-    cap_reached: realSpend >= AERO_CAP,
-    source: fa ? 'flightaware' : 'local_db',
+    cap_remaining: Math.max(0, AERO_CAP - dbTotal.total_spend),
+    cap_reached: Math.round((AERO_CAP - dbTotal.total_spend) * 1000) < Math.round(nextCallCost * 1000),
+    cap_scope: 'lifetime',
+    configured: Boolean(process.env.AEROAPI_KEY),
+    account_spend: fa?.total_cost ?? null,
+    account_calls: fa?.total_calls ?? null,
+    source: 'local_db',
   })
 })
 

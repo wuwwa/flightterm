@@ -23,7 +23,7 @@ import { enrichFlight, fetchRouteOnly } from './services/adsbdb'
 import { enrichByHex } from './services/adsbfi'
 import { checkHealth, fetchAeroSpend } from './services/aeroapi'
 
-import { fetchOpenSkyUsageToday, fetchAircraftTrack, lookupRoutes, saveRoutes } from './services/sightings'
+import { fetchOpenSkyUsageToday, fetchAircraftTrack, lookupRoutes } from './services/sightings'
 
 // ── default settings ──────────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -364,7 +364,8 @@ export default function App() {
                 destination_lon: destLon,
                 source: route._source || 'adsbdb',
               }
-              saveRoutes([entry]).catch(() => {})
+              // Browser enrichment stays local. Shared cache writes come from
+              // the backend poller or authenticated FAA ingestion.
               routeCacheRef.current[cs] = entry
             }
           }
